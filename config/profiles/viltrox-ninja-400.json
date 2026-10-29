@@ -1,0 +1,8 @@
+{
+  "id": "viltrox-ninja-400",
+  "kind": "light",
+  "spec": {"bicolor": true},
+  "capabilities": {"intensity": true, "cct": true, "rgb": false, "dmx": true},
+  "effects": [{"name": "steady", "photoRisk": "none"}],
+  "notes": "Bi-color COB with RJ45 DMX. Full spec TBD from manual. B-SWAP candidate for PC key."
+}

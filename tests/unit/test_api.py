@@ -15,7 +15,7 @@ def test_health_ok():
     assert response.status_code == 200
     body = response.json()
     assert body["status"] == "ok"
-    assert body["studios"] == ["example-studio"]
+    assert "example-studio" in body["studios"]
     assert "version" in body
 
 
@@ -23,7 +23,7 @@ def test_health_ok():
 def test_studios_list():
     response = client.get("/api/studios")
     assert response.status_code == 200
-    assert response.json() == [{"id": "example-studio", "label": "Example Studio", "source": "studios"}]
+    assert {"id": "example-studio", "label": "Example Studio", "source": "studios"} in response.json()
 
 
 @pytest.mark.unit

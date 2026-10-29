@@ -26,14 +26,14 @@ def power():
 @pytest.mark.unit
 def test_plan_on_order_ascending(power):
     plan = power.plan_zone_power("bench", True)
-    assert [step["device"] for step in plan] == ["demo-cam", "demo-key", "demo-rgb"]
+    assert [step["device"] for step in plan] == ["demo-cam", "demo-key"]
     assert all(step["on"] for step in plan)
 
 
 @pytest.mark.unit
 def test_plan_off_order_descending(power):
     plan = power.plan_zone_power("bench", False)
-    assert [step["device"] for step in plan] == ["demo-rgb", "demo-key", "demo-cam"]
+    assert [step["device"] for step in plan] == ["demo-key", "demo-cam"]
 
 
 @pytest.mark.unit
@@ -41,12 +41,11 @@ def test_plan_delays_scale_with_watts(power):
     plan = {step["device"]: step["delay_after_s"] for step in power.plan_zone_power("bench", True)}
     assert plan["demo-cam"] == 2
     assert plan["demo-key"] == 2
-    assert plan["demo-rgb"] == 2
     loaded = {
         "studio": {"id": "s", "label": "s"},
         "devices": [
             {"id": "mid", "zone": "z", "powerPlug": "plug-1", "bootOrder": 1, "estWatts": 350},
-            {"id": "huge", "zone": "z", "powerPlug": "plug-1", "bootOrder": 2, "estWatts": 5000},
+            {"id": "huge", "zone": "z", "powerPlug": "plug-2", "bootOrder": 2, "estWatts": 5000},
         ],
         "zones": [{"id": "z", "label": "z"}],
         "modes": [],
@@ -74,7 +73,7 @@ def test_plan_missing_driver(power):
 def test_execute_records_and_sleeps(power):
     sleeps = []
     results = power.set_zone_power("bench", True, sleep=sleeps.append)
-    assert [item["device"] for item in results] == ["demo-cam", "demo-key", "demo-rgb"]
+    assert [item["device"] for item in results] == ["demo-cam", "demo-key"]
     assert all(item["ok"] for item in results)
-    assert sleeps == [2, 2, 2]
+    assert sleeps == [2, 2]
     assert power.drivers["plug-1"].state["on"] is True

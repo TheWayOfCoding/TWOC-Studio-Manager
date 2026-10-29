@@ -12,7 +12,29 @@ CONFIG_ROOT = Path(__file__).resolve().parents[2] / "config"
 
 @pytest.mark.unit
 def test_list_studios():
-    assert list_studios(CONFIG_ROOT) == [{"id": "example-studio", "label": "Example Studio", "source": "studios"}]
+    assert {"id": "example-studio", "label": "Example Studio", "source": "studios"} in list_studios(
+        CONFIG_ROOT
+    )
+
+
+@pytest.mark.unit
+def test_local_root_merges_and_dupes_rejected(tmp_path):
+    import json
+
+    (tmp_path / "studios" / "a").mkdir(parents=True)
+    (tmp_path / "studios.local" / "b").mkdir(parents=True)
+    (tmp_path / "studios" / "a" / "studio.json").write_text(
+        json.dumps({"id": "a", "label": "A"}), encoding="utf-8"
+    )
+    (tmp_path / "studios.local" / "b" / "studio.json").write_text(
+        json.dumps({"id": "b", "label": "B"}), encoding="utf-8"
+    )
+    assert sorted(entry["id"] for entry in list_studios(tmp_path)) == ["a", "b"]
+    (tmp_path / "studios.local" / "b" / "studio.json").write_text(
+        json.dumps({"id": "a", "label": "dup"}), encoding="utf-8"
+    )
+    with pytest.raises(ConfigError, match="duplicate studio id"):
+        list_studios(tmp_path)
 
 
 @pytest.mark.unit

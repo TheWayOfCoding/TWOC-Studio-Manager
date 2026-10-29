@@ -1,0 +1,8 @@
+{
+  "id": "viltrox-ninja-20",
+  "kind": "light",
+  "spec": {"maxWatts": 200, "colorTempK": 5600, "fixedTemp": true},
+  "capabilities": {"intensity": true, "cct": false, "rgb": false, "dmx": true},
+  "effects": [{"name": "steady", "photoRisk": "none"}],
+  "notes": "200W COB with RJ45 DMX in/out (DIN-RJ45 adapter ordered). DMX address TBD at bring-up."
+}

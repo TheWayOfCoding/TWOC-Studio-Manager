@@ -13,8 +13,17 @@ CONFIG_ROOT = Path(__file__).resolve().parents[2] / "config"
 @pytest.mark.regression
 def test_example_studio_snapshot():
     data = load_all(CONFIG_ROOT)
-    assert sorted(data["studios"]) == ["example-studio"]
-    assert sorted(data["profiles"]) == ["demo-flood", "demo-rgb"]
+    assert "example-studio" in data["studios"]
+    assert sorted(data["profiles"]) == [
+        "bytech-strip",
+        "crapy-pt-15b",
+        "demo-flood",
+        "demo-rgb",
+        "gvm-1500d",
+        "viltrox-ninja-10",
+        "viltrox-ninja-20",
+        "viltrox-ninja-400",
+    ]
     loaded = data["studios"]["example-studio"]
     assert [d["id"] for d in loaded["devices"]] == ["demo-key", "demo-rgb", "demo-cam", "demo-screen"]
     assert [z["id"] for z in loaded["zones"]] == ["bench", "desk"]

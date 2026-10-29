@@ -1,0 +1,8 @@
+{
+  "id": "bytech-strip",
+  "kind": "lightstrip",
+  "spec": {},
+  "capabilities": {"ir": true},
+  "effects": [{"name": "steady", "photoRisk": "none"}],
+  "notes": "Background shelf strip. Protocol TBD via IR remote capture (Phase 2)."
+}

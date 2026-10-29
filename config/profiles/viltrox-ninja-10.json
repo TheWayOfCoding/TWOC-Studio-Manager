@@ -1,0 +1,8 @@
+{
+  "id": "viltrox-ninja-10",
+  "kind": "light",
+  "spec": {"maxWatts": 120, "colorTempK": 5600, "fixedTemp": true},
+  "capabilities": {"intensity": true, "cct": false, "rgb": false},
+  "effects": [{"name": "steady", "photoRisk": "none"}],
+  "notes": "120W COB key light. 6 onboard effects unreviewed (treat as intense until seen). Wireless protocol TBD; power via plug."
+}

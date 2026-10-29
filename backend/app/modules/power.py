@@ -43,7 +43,12 @@ class PowerModule(Module):
         for device in powered:
             check_power(device, on)
             self._plug_driver(device)
-        ordered = sorted(powered, key=lambda item: item.get("bootOrder", DEFAULT_ORDER))
+        seen, unique = set(), []
+        for device in powered:
+            if device["powerPlug"] not in seen:
+                seen.add(device["powerPlug"])
+                unique.append(device)
+        ordered = sorted(unique, key=lambda item: item.get("bootOrder", DEFAULT_ORDER))
         if not on:
             ordered = list(reversed(ordered))
         plan = []
