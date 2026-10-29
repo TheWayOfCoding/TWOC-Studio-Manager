@@ -18,6 +18,13 @@ button { margin: 0.2em 0.4em 0.2em 0; }
 <nav><a href="/">Studio Hub</a> | <strong>Test Bench</strong> | <a href="/docs">API docs</a></nav>
 <h1>Test Bench</h1>
 <p>Interactive bring-up surface. Phase 0 serves mock drivers; real drivers appear here as they land.</p>
+<div class="card"><h2>Kasa discovery (real hardware)</h2>
+<div>user <input type="text" id="k-user" autocomplete="username" placeholder="(only if plugs need auth)">
+pass <input type="password" id="k-pass" autocomplete="current-password">
+<button onclick="kDiscover()">Discover</button></div>
+<p>Credentials pass through to the plugs and are never stored or logged. Newer plug
+firmware may require your TP-Link account login; otherwise leave blank.</p>
+<div id="kasa"></div></div>
 <div id="drivers">loading…</div>
 <script>
 async function jget(path) {
@@ -49,6 +56,29 @@ async function applyCmd(id) {
 async function safeStop(id) {
   try { const r = await jpost("/api/testbench/" + id + "/safe-stop", "{}"); out("o-" + id, r, r.ok); }
   catch (e) { out("o-" + id, {error: String(e)}, false); }
+}
+function kCreds() {
+  return {username: document.getElementById("k-user").value || null,
+          password: document.getElementById("k-pass").value || null};
+}
+async function kDiscover() {
+  try {
+    const r = await jpost("/api/testbench/kasa/discover", JSON.stringify({...kCreds(), discovery_timeout: 8}));
+    document.getElementById("kasa").innerHTML = r.plugs.length
+      ? "<ul>" + r.plugs.map(p =>
+          "<li><b>" + (p.alias || p.host) + "</b> " + p.host + " " + (p.model || "") +
+          " [" + (p.on === null ? "?" : (p.on ? "on" : "off")) + "] " +
+          "<button onclick=\"kSet('" + p.host + "',true)\">On</button>" +
+          "<button onclick=\"kSet('" + p.host + "',false)\">Off</button>" +
+          (p.error ? " <span class='bad'>" + p.error + "</span>" : "") + "</li>").join("") + "</ul>"
+      : "no plugs found";
+  } catch (e) { out("kasa", {error: String(e)}, false); }
+}
+async function kSet(host, on) {
+  try {
+    const r = await jpost("/api/testbench/kasa/set", JSON.stringify({...kCreds(), host: host, on: on}));
+    out("kasa", {[host]: r}, r.ok);
+  } catch (e) { out("kasa", {error: String(e)}, false); }
 }
 (async () => {
   try {

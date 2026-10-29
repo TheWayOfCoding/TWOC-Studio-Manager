@@ -16,6 +16,7 @@ from .core.logging import bind_context, configure_logging, get_logger
 configure_logging(log_dir=os.environ.get("STUDIO_LOG_DIR", "logs"))
 
 from .api.routes import router  # noqa: E402
+from .api.kasa import router as kasa_router  # noqa: E402
 from .config.loader import ConfigError, list_studios, load_all  # noqa: E402
 from .registry import Registry  # noqa: E402
 
@@ -58,6 +59,7 @@ def create_app():
         log.error("config load failed: %s", exc)
 
     app.include_router(router)
+    app.include_router(kasa_router)
 
     @app.get("/", include_in_schema=False)
     def index():
