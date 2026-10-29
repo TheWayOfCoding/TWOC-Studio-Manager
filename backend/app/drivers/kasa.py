@@ -32,6 +32,30 @@ async def _connected_device(host, username, password, timeout):
     return device
 
 
+async def _apply_and_verify(host, want, username, password, timeout):
+    """Switch the relay, then prove the new state with a fresh re-read.
+
+    Some firmware applies the relay change but answers the acknowledgement in
+    an unexpected form ("Communication error on system:set_relay_state"). The
+    re-read is authoritative: matching state means success regardless of the
+    ack quirk.
+    """
+    device = await _connected_device(host, username, password, timeout)
+    ack_error = None
+    try:
+        await device.turn_on() if want == "on" else await device.turn_off()
+    except Exception as exc:  # noqa: BLE001 - verified below, not trusted
+        ack_error = str(exc)
+    await device.update()
+    actual = "on" if device.is_on else "off"
+    if actual != want:
+        raise KasaError(ack_error or f"plug did not switch (still {actual})")
+    state = {"power": actual, "alias": device.alias, "model": device.model}
+    if ack_error:
+        state["note"] = "verified by re-read (ack quirk)"
+    return state
+
+
 async def adiscover_plugs(username=None, password=None, discovery_timeout=8):
     """Discover plugs on the LAN. Returns [{host, alias, model}] (no secrets)."""
     import kasa
@@ -91,10 +115,10 @@ class KasaDriver(Driver):
         if want not in ("on", "off"):
             return DriverResult(ok=False, error='command needs {"power": "on"|"off"}')
         try:
-            device = self._connected()
-            asyncio.run(device.turn_on() if want == "on" else device.turn_off())
-            asyncio.run(device.update())
-            return DriverResult(ok=True, state=self._state_of(device))
+            state = asyncio.run(
+                _apply_and_verify(self.host, want, self.username, self.password, self.timeout)
+            )
+            return DriverResult(ok=True, state=state)
         except Exception as exc:  # noqa: BLE001 - drivers report, never raise
             return DriverResult(ok=False, error=str(exc))
 

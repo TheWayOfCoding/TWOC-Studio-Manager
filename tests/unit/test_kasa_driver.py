@@ -8,6 +8,8 @@ from app.drivers.kasa import KasaDriver, discover_plugs
 
 
 class FakeDevice:
+    fail_ack = False
+
     def __init__(self, host, on=False):
         self.host = host
         self._on = on
@@ -23,10 +25,14 @@ class FakeDevice:
 
     async def turn_on(self):
         self._on = True
+        if FakeDevice.fail_ack:
+            raise Exception("Communication error on system:set_relay_state")
         return {}
 
     async def turn_off(self):
         self._on = False
+        if FakeDevice.fail_ack:
+            raise Exception("Communication error on system:set_relay_state")
         return {}
 
 
@@ -49,6 +55,7 @@ class FakeDiscover:
 def fake_kasa(monkeypatch):
     FakeDiscover.devices = {}
     FakeDiscover.missing = False
+    FakeDevice.fail_ack = False
     monkeypatch.setattr(kasa, "Discover", FakeDiscover)
     yield
 
@@ -90,6 +97,15 @@ def test_safe_stop_changes_nothing():
     result = driver.safe_stop()
     assert result.ok
     assert result.state["power"] == "on"
+
+
+@pytest.mark.unit
+def test_ack_quirk_verified_by_reread():
+    FakeDevice.fail_ack = True
+    result = KasaDriver("k6", "192.0.2.16").apply({"on": True})
+    assert result.ok
+    assert result.state["power"] == "on"
+    assert "re-read" in result.state["note"]
 
 
 @pytest.mark.unit
