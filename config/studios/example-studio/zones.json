@@ -1,0 +1,4 @@
+[
+  {"id": "bench", "label": "Workbench", "description": "Fictional filming bench.", "powerGroups": ["bench-power"]},
+  {"id": "desk", "label": "Desk", "description": "Fictional desk area.", "powerGroups": ["desk-power"]}
+]

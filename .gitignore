@@ -1,2 +1,16 @@
 # Local-only design notes; never shipped to the Pi or any public remote.
 Design-Documents/
+
+# Real studios stay local; only fictional examples are committed.
+config/studios.local/
+
+# Python runtime debris.
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.venv/
+venv/
+*.egg-info/
+
+# Service logs (dated per-day files, see logging module).
+logs/

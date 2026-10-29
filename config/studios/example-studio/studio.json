@@ -1,0 +1,6 @@
+{
+  "id": "example-studio",
+  "label": "Example Studio",
+  "description": "Fictional demo studio used by tests and the mock demo. Real studios live in config/studios.local/ (git-ignored).",
+  "defaultMode": "demo_work"
+}

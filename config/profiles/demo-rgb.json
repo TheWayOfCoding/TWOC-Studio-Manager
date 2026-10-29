@@ -1,0 +1,12 @@
+{
+  "id": "demo-rgb",
+  "kind": "light",
+  "spec": {"maxWatts": 75, "intensityRange": [0, 100], "hueRange": [0, 360], "saturationRange": [0, 100]},
+  "capabilities": {"intensity": true, "cct": true, "rgb": true},
+  "effects": [
+    {"name": "steady", "photoRisk": "none"},
+    {"name": "candlelight", "photoRisk": "mild"},
+    {"name": "strobe", "photoRisk": "intense"}
+  ],
+  "notes": "Fictional example RGB fixture with one intense effect for photosensitivity-rule tests."
+}

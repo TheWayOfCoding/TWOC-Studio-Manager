@@ -1,0 +1,9 @@
+{
+  "default": {
+    "label": "Default",
+    "lights": {
+      "demo-key": {"intensity": 50, "cct": 4600},
+      "demo-rgb": {"intensity": 25, "hue": 220, "saturation": 60}
+    }
+  }
+}

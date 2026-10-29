@@ -1,0 +1,8 @@
+{
+  "id": "demo-flood",
+  "kind": "light",
+  "spec": {"maxWatts": 60, "intensityRange": [0, 100], "cctRange": [3200, 5600]},
+  "capabilities": {"intensity": true, "cct": true, "rgb": false},
+  "effects": [{"name": "steady", "photoRisk": "none"}],
+  "notes": "Fictional example fixture. Real model profiles live here too; personal studio data never does."
+}

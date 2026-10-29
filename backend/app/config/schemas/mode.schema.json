@@ -1,0 +1,19 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://twoc-studio-manager/studio-hub/schemas/mode.json",
+  "title": "Content mode",
+  "type": "object",
+  "required": ["id", "label"],
+  "properties": {
+    "id": {"type": "string", "pattern": "^[a-z0-9][a-z0-9_-]*$"},
+    "label": {"type": "string", "minLength": 1},
+    "zones": {"type": "array", "items": {"type": "string"}},
+    "intent": {"type": "string", "enum": ["live", "offline"]},
+    "powerOn": {"type": "array", "items": {"type": "string"}},
+    "lights": {"type": "object"},
+    "obsScene": {"type": ["string", "null"]},
+    "screen": {"type": "object"},
+    "toggles": {"type": "object"}
+  },
+  "additionalProperties": true
+}

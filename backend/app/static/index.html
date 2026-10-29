@@ -1,0 +1,42 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Studio Hub</title>
+<style>
+body { font-family: system-ui, sans-serif; margin: 1.5em; max-width: 48em; }
+.card { border: 1px solid #ccc; border-radius: 8px; padding: 1em; margin-bottom: 1em; }
+.ok { color: #0a0; } .bad { color: #c00; }
+nav a { margin-right: 1em; }
+pre { background: #f4f4f4; padding: 0.5em; overflow-x: auto; }
+</style>
+</head>
+<body>
+<nav><strong>Studio Hub</strong> | <a href="/bench">Test Bench</a> | <a href="/docs">API docs</a></nav>
+<h1>Studio Hub</h1>
+<div class="card"><h2>Health</h2><div id="health">loading…</div></div>
+<div class="card"><h2>Studios</h2><div id="studios">loading…</div></div>
+<script>
+async function jget(path) {
+  const r = await fetch(path);
+  if (!r.ok) throw new Error(path + ": " + r.status);
+  return r.json();
+}
+(async () => {
+  try {
+    const h = await jget("/api/health");
+    document.getElementById("health").innerHTML =
+      (h.status === "ok" ? '<span class="ok">●</span>' : '<span class="bad">●</span>') +
+      " " + h.status + " — v" + h.version + (h.error ? "<pre>" + h.error + "</pre>" : "");
+    const s = await jget("/api/studios");
+    document.getElementById("studios").innerHTML =
+      s.length ? "<ul>" + s.map(x => "<li><b>" + x.label + "</b> (" + x.id + ", " + x.source + ")</li>").join("") + "</ul>"
+               : "no studios configured";
+  } catch (e) {
+    document.getElementById("health").innerHTML = '<span class="bad">unreachable: ' + e + "</span>";
+  }
+})();
+</script>
+</body>
+</html>

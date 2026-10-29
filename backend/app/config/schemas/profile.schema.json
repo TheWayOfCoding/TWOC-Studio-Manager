@@ -1,0 +1,26 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://twoc-studio-manager/studio-hub/schemas/profile.json",
+  "title": "Device model profile",
+  "type": "object",
+  "required": ["id", "kind"],
+  "properties": {
+    "id": {"type": "string", "pattern": "^[a-z0-9][a-z0-9_-]*$"},
+    "kind": {"type": "string", "minLength": 1},
+    "spec": {"type": "object"},
+    "capabilities": {"type": "object"},
+    "effects": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["name", "photoRisk"],
+        "properties": {
+          "name": {"type": "string"},
+          "photoRisk": {"type": "string", "enum": ["none", "mild", "intense"]}
+        }
+      }
+    },
+    "notes": {"type": "string"}
+  },
+  "additionalProperties": true
+}

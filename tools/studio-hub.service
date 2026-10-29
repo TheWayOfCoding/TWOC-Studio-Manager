@@ -1,0 +1,17 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+[Unit]
+Description=TWOC Studio Hub
+After=network.target
+
+[Service]
+Type=simple
+User=pi
+WorkingDirectory=/home/pi/studio-hub/backend
+Environment=STUDIO_CONFIG=/home/pi/studio-hub/config
+Environment=STUDIO_LOG_DIR=/home/pi/studio-hub/logs
+ExecStart=/home/pi/studio-hub-venv/bin/uvicorn app.main:app --host 0.0.0.0 --port 8000 --log-level warning
+Restart=on-failure
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target

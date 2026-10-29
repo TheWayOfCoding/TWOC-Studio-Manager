@@ -1,0 +1,22 @@
+[
+  {
+    "id": "demo_work",
+    "label": "Demo Work",
+    "zones": ["desk"],
+    "intent": "offline",
+    "powerOn": ["desk-power"],
+    "lights": {"demo-screen": {"power": "on"}},
+    "obsScene": null,
+    "screen": {"demo-screen": {"theme": "work"}}
+  },
+  {
+    "id": "demo_stream",
+    "label": "Demo Stream",
+    "zones": ["bench", "desk"],
+    "intent": "live",
+    "powerOn": ["bench-power", "desk-power"],
+    "lights": {"demo-key": {"intensity": 50, "cct": 4600}, "demo-rgb": {"intensity": 25, "hue": 220}},
+    "obsScene": "Demo - Main",
+    "screen": {"demo-screen": {"theme": "stream_starting"}}
+  }
+]

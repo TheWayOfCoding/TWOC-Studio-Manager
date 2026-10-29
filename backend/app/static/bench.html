@@ -1,0 +1,70 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Studio Hub — Test Bench</title>
+<style>
+body { font-family: system-ui, sans-serif; margin: 1.5em; max-width: 56em; }
+nav a { margin-right: 1em; }
+.card { border: 1px solid #ccc; border-radius: 8px; padding: 1em; margin-bottom: 1em; }
+pre { background: #f4f4f4; padding: 0.5em; overflow-x: auto; white-space: pre-wrap; }
+input[type=text] { width: 24em; max-width: 100%; }
+button { margin: 0.2em 0.4em 0.2em 0; }
+.ok { color: #0a0; } .bad { color: #c00; }
+</style>
+</head>
+<body>
+<nav><a href="/">Studio Hub</a> | <strong>Test Bench</strong> | <a href="/docs">API docs</a></nav>
+<h1>Test Bench</h1>
+<p>Interactive bring-up surface. Phase 0 serves mock drivers; real drivers appear here as they land.</p>
+<div id="drivers">loading…</div>
+<script>
+async function jget(path) {
+  const r = await fetch(path);
+  if (!r.ok) throw new Error(path + ": " + r.status);
+  return r.json();
+}
+async function jpost(path, body) {
+  const r = await fetch(path, {method: "POST", headers: {"Content-Type": "application/json"}, body: body});
+  const j = await r.json();
+  if (!r.ok) throw new Error(JSON.stringify(j));
+  return j;
+}
+function out(id, obj, ok) {
+  document.getElementById(id).innerHTML =
+    '<span class="' + (ok === false ? "bad" : "ok") + '">●</span><pre>' + JSON.stringify(obj, null, 2) + "</pre>";
+}
+async function probe(id) {
+  try { const r = await jpost("/api/testbench/" + id + "/probe", "{}"); out("o-" + id, r, r.ok); }
+  catch (e) { out("o-" + id, {error: String(e)}, false); }
+}
+async function applyCmd(id) {
+  const raw = document.getElementById("c-" + id).value || "{}";
+  try {
+    const r = await jpost("/api/testbench/" + id + "/apply", JSON.stringify({command: JSON.parse(raw)}));
+    out("o-" + id, r, r.ok);
+  } catch (e) { out("o-" + id, {error: String(e)}, false); }
+}
+async function safeStop(id) {
+  try { const r = await jpost("/api/testbench/" + id + "/safe-stop", "{}"); out("o-" + id, r, r.ok); }
+  catch (e) { out("o-" + id, {error: String(e)}, false); }
+}
+(async () => {
+  try {
+    const drivers = await jget("/api/testbench/drivers");
+    document.getElementById("drivers").innerHTML = drivers.map(d =>
+      '<div class="card"><h3>' + d.id + "</h3>" +
+      "<div><button onclick=\"probe('" + d.id + "')\">Probe</button>" +
+      "<button onclick=\"safeStop('" + d.id + "')\">Safe stop</button></div>" +
+      '<div><input type="text" id="c-' + d.id + '" value=\'{"power":"on"}\'>' +
+      "<button onclick=\"applyCmd('" + d.id + "')\">Apply JSON</button></div>" +
+      '<div id="o-' + d.id + '"></div></div>'
+    ).join("");
+  } catch (e) {
+    document.getElementById("drivers").innerHTML = '<span class="bad">unreachable: ' + e + "</span>";
+  }
+})();
+</script>
+</body>
+</html>
