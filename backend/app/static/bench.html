@@ -31,9 +31,11 @@ firmware may require your TP-Link account login; otherwise leave blank.</p>
 <button onclick="irListen()">Listen 8s</button></div>
 <div>label <input type="text" id="ir-label" placeholder="power">
 <button onclick="irCapture()">Capture (press remote ONCE)</button></div>
-<div><button onclick="irCodes()">Show saved codes</button>
-send: <input type="text" id="ir-send" placeholder="label or 0,255,69">
-<button onclick="irSend()">Send</button></div>
+<div><button onclick="irCodes()">Show saved codes</button></div>
+<div>send saved: <select id="ir-send-sel"></select>
+<button onclick="irSendSel()">Send</button></div>
+<div>send raw: <input type="text" id="ir-send" placeholder="0,255,69">
+<button onclick="irSendRaw()">Send</button></div>
 <div id="ir"></div></div>
 <div id="drivers">loading…</div>
 <script>
@@ -107,17 +109,25 @@ async function irCapture() {
   try { const r = await jpost("/api/testbench/ir/capture", JSON.stringify({port: irPort(), label: label, seconds: 8})); out("ir", r, true); }
   catch (e) { out("ir", {error: String(e)}, false); }
 }
+function fillSendSel(codes) {
+  const sel = document.getElementById("ir-send-sel");
+  sel.innerHTML = Object.keys(codes).sort().map(l => "<option>" + l + "</option>").join("");
+}
 async function irCodes() {
-  try { const r = await jget("/api/testbench/ir/codes"); out("ir", r, true); }
+  try { const r = await jget("/api/testbench/ir/codes"); fillSendSel(r); out("ir", r, true); }
   catch (e) { out("ir", {error: String(e)}, false); }
 }
-async function irSend() {
+async function irSendSel() {
+  const label = document.getElementById("ir-send-sel").value;
+  if (!label) { out("ir", {error: "no saved codes — capture first"}, false); return; }
+  try { const r = await jpost("/api/testbench/ir/send", JSON.stringify({port: irPort(), label: label})); out("ir", r, r.ok); }
+  catch (e) { out("ir", {error: String(e)}, false); }
+}
+async function irSendRaw() {
   const raw = document.getElementById("ir-send").value;
-  if (!raw) { out("ir", {error: "type a label or 3 comma bytes"}, false); return; }
-  const body = {port: irPort()};
-  if (/^[0-9,\s]+$/.test(raw)) body.code = raw.split(",").map(x => parseInt(x.trim(), 10));
-  else body.label = raw;
-  try { const r = await jpost("/api/testbench/ir/send", JSON.stringify(body)); out("ir", r, r.ok); }
+  const parts = raw.split(",").map(x => parseInt(x.trim(), 10));
+  if (parts.length !== 3 || parts.some(x => isNaN(x) || x < 0 || x > 255)) { out("ir", {error: "need 3 comma bytes 0-255"}, false); return; }
+  try { const r = await jpost("/api/testbench/ir/send", JSON.stringify({port: irPort(), code: parts})); out("ir", r, r.ok); }
   catch (e) { out("ir", {error: String(e)}, false); }
 }
 (async () => {
@@ -131,6 +141,7 @@ async function irSend() {
       "<button onclick=\"applyCmd('" + d.id + "')\">Apply JSON</button></div>" +
       '<div id="o-' + d.id + '"></div></div>'
     ).join("");
+    jget("/api/testbench/ir/codes").then(fillSendSel).catch(() => {});
   } catch (e) {
     document.getElementById("drivers").innerHTML = '<span class="bad">unreachable: ' + e + "</span>";
   }
