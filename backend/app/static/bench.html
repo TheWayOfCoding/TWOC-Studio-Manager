@@ -25,6 +25,16 @@ pass <input type="password" id="k-pass" autocomplete="current-password">
 <p>Credentials pass through to the plugs and are never stored or logged. Newer plug
 firmware may require your TP-Link account login; otherwise leave blank.</p>
 <div id="kasa"></div></div>
+<div class="card"><h2>IR capture (YS-IRTM)</h2>
+<div>port <input type="text" id="ir-port" value="/dev/ttyUSB0">
+<button onclick="irState()">Check port</button>
+<button onclick="irListen()">Listen 8s</button></div>
+<div>label <input type="text" id="ir-label" placeholder="power">
+<button onclick="irCapture()">Capture (press remote ONCE)</button></div>
+<div><button onclick="irCodes()">Show saved codes</button>
+send: <input type="text" id="ir-send" placeholder="label or 0,255,69">
+<button onclick="irSend()">Send</button></div>
+<div id="ir"></div></div>
 <div id="drivers">loading…</div>
 <script>
 async function jget(path) {
@@ -79,6 +89,36 @@ async function kSet(host, on) {
     const r = await jpost("/api/testbench/kasa/set", JSON.stringify({...kCreds(), host: host, on: on}));
     out("kasa", {[host]: r}, r.ok);
   } catch (e) { out("kasa", {error: String(e)}, false); }
+}
+function irPort() { return document.getElementById("ir-port").value || null; }
+async function irState() {
+  try { const r = await jpost("/api/testbench/ir/state", JSON.stringify({port: irPort()})); out("ir", r, r.ok); }
+  catch (e) { out("ir", {error: String(e)}, false); }
+}
+async function irListen() {
+  out("ir", {status: "listening 8s — press remote buttons now..."}, true);
+  try { const r = await jpost("/api/testbench/ir/listen", JSON.stringify({port: irPort(), seconds: 8})); out("ir", r, true); }
+  catch (e) { out("ir", {error: String(e)}, false); }
+}
+async function irCapture() {
+  const label = document.getElementById("ir-label").value;
+  if (!label) { out("ir", {error: "type a label first"}, false); return; }
+  out("ir", {status: "capturing '" + label + "' — press remote ONCE..."}, true);
+  try { const r = await jpost("/api/testbench/ir/capture", JSON.stringify({port: irPort(), label: label, seconds: 8})); out("ir", r, true); }
+  catch (e) { out("ir", {error: String(e)}, false); }
+}
+async function irCodes() {
+  try { const r = await jget("/api/testbench/ir/codes"); out("ir", r, true); }
+  catch (e) { out("ir", {error: String(e)}, false); }
+}
+async function irSend() {
+  const raw = document.getElementById("ir-send").value;
+  if (!raw) { out("ir", {error: "type a label or 3 comma bytes"}, false); return; }
+  const body = {port: irPort()};
+  if (/^[0-9,\s]+$/.test(raw)) body.code = raw.split(",").map(x => parseInt(x.trim(), 10));
+  else body.label = raw;
+  try { const r = await jpost("/api/testbench/ir/send", JSON.stringify(body)); out("ir", r, r.ok); }
+  catch (e) { out("ir", {error: String(e)}, false); }
 }
 (async () => {
   try {

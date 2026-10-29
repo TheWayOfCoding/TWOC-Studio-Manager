@@ -2,3 +2,4 @@ fastapi>=0.110
 uvicorn>=0.29
 jsonschema>=4.21
 python-kasa>=0.12
+pyserial>=3.5
