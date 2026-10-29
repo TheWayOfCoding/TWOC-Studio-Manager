@@ -55,6 +55,8 @@ class IrCaptureBody(IrListenBody):
 class IrSendBody(IrPortBody):
     label: str | None = None
     code: list[int] | None = None
+    times: int = 1
+    gap_ms: int = 100
     studio: str | None = None
     device: str | None = None
 
@@ -99,13 +101,15 @@ def ir_codes(studio: str = DEFAULT_STUDIO, device: str = DEFAULT_DEVICE):
 
 @router.post("/api/testbench/ir/send")
 def ir_send(body: IrSendBody):
-    """Replay a saved label or a raw 3-byte code."""
+    """Replay a saved label or a raw 3-byte code, optionally repeated."""
     module = _module(body)
+    times = min(max(body.times, 1), 100)
+    gap_s = max(body.gap_ms, 0) / 1000.0
     try:
         if body.label:
-            result = module.send_label(body.label)
+            result = module.send_label(body.label, times, gap_s)
         elif body.code is not None:
-            result = module.send_code(body.code)
+            result = module.send_code(body.code, times, gap_s)
         else:
             raise HTTPException(status_code=422, detail="need label or code")
     except IrModuleError as exc:

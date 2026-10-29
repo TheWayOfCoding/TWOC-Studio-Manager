@@ -95,6 +95,17 @@ def test_legacy_list_values_still_read(tmp_path):
 
 
 @pytest.mark.unit
+def test_send_repeats_with_gaps(module):
+    mod, stub = module
+    mod.store.save_label("bright-up", [0, 239, 0])
+    sleeps = []
+    result = mod.send_label("bright-up", times=3, gap_s=0.1, sleep=sleeps.append)
+    assert result.ok
+    assert stub.sent == [{"send": [0, 239, 0]}] * 3
+    assert sleeps == [0.1, 0.1]
+
+
+@pytest.mark.unit
 def test_store_missing_file_reads_empty(tmp_path):
     assert IrCodeStore(tmp_path / "nope.json").load() == {}
 

@@ -33,7 +33,8 @@ firmware may require your TP-Link account login; otherwise leave blank.</p>
 <button onclick="irCapture()">Capture (press remote ONCE)</button></div>
 <div><button onclick="irCodes()">Show saved codes</button></div>
 <div>send saved: <select id="ir-send-sel"></select>
-<button onclick="irSendSel()">Send</button></div>
+<button onclick="irSendSel()">Send</button>
+× <input type="number" id="ir-times" value="1" min="1" max="100" style="width:4em"> times</div>
 <div>send raw: <input type="text" id="ir-send" placeholder="0,255,69">
 <button onclick="irSendRaw()">Send</button></div>
 <div id="ir"></div></div>
@@ -119,8 +120,9 @@ async function irCodes() {
 }
 async function irSendSel() {
   const label = document.getElementById("ir-send-sel").value;
+  const times = Math.min(Math.max(parseInt(document.getElementById("ir-times").value || "1", 10), 1), 100);
   if (!label) { out("ir", {error: "no saved codes — capture first"}, false); return; }
-  try { const r = await jpost("/api/testbench/ir/send", JSON.stringify({port: irPort(), label: label})); out("ir", r, r.ok); }
+  try { const r = await jpost("/api/testbench/ir/send", JSON.stringify({port: irPort(), label: label, times: times})); out("ir", r, r.ok); }
   catch (e) { out("ir", {error: String(e)}, false); }
 }
 async function irSendRaw() {

@@ -3,6 +3,7 @@
 
 import json
 import tempfile
+import time
 from pathlib import Path
 
 from .base import Module
@@ -118,11 +119,22 @@ class IrModule(Module):
         self.store.save_label(label, unique[0])
         return {"label": label, "code": unique[0]}
 
-    def send_label(self, label):
-        return self.drivers["usb"].apply({"send": self.store.get(label)})
+    def send_label(self, label, times=1, gap_s=0.1, sleep=time.sleep):
+        """Send a saved label N times (e.g. brightness ramps). Last result wins."""
+        return self._send_repeated(self.store.get(label), times, gap_s, sleep)
 
-    def send_code(self, code):
-        return self.drivers["usb"].apply({"send": code})
+    def send_code(self, code, times=1, gap_s=0.1, sleep=time.sleep):
+        return self._send_repeated(code, times, gap_s, sleep)
+
+    def _send_repeated(self, code, times, gap_s, sleep):
+        times = max(int(times), 1)
+        result = None
+        for i in range(times):
+            result = self.drivers["usb"].apply({"send": code})
+            if not result.ok or i == times - 1:
+                break
+            sleep(gap_s)
+        return result
 
     def codes(self):
         return self.store.load()
