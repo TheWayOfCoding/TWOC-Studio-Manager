@@ -59,6 +59,14 @@ class IrSendBody(IrPortBody):
     device: str | None = None
 
 
+class IrMarkBody(BaseModel):
+    label: str
+    works: bool | None = None
+    notes: str | None = None
+    studio: str | None = None
+    device: str | None = None
+
+
 @router.post("/api/testbench/ir/state")
 def ir_state(body: IrPortBody):
     """Check the IR serial port. Opens and closes it, emits nothing."""
@@ -103,3 +111,21 @@ def ir_send(body: IrSendBody):
     except IrModuleError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     return {"ok": result.ok, "state": result.state, "error": result.error}
+
+
+@router.post("/api/testbench/ir/mark")
+def ir_mark(body: IrMarkBody):
+    """Record replay effectiveness (and notes) for a captured label."""
+    store = (
+        _config_root()
+        / "studios.local"
+        / (body.studio or DEFAULT_STUDIO)
+        / "ir-codes"
+        / f"{body.device or DEFAULT_DEVICE}.json"
+    )
+    try:
+        return {"label": body.label, **IrModule("ir", {"usb": IrUsbSerialDriver("ir-usb")}, store).mark(
+            body.label, body.works, body.notes
+        )}
+    except IrModuleError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc

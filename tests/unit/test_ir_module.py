@@ -31,7 +31,7 @@ def test_capture_saves_single_press(module, tmp_path):
     mod, stub = module
     stub.heard = {"codes": [[0, 255, 69]], "raw_bytes": 3, "seconds": 1}
     assert mod.capture("power", seconds=1) == {"label": "power", "code": [0, 255, 69]}
-    assert mod.codes() == {"power": [0, 255, 69]}
+    assert mod.codes() == {"power": {"code": [0, 255, 69], "works": None, "notes": ""}}
     assert (tmp_path / "codes.json").exists()
 
 
@@ -71,6 +71,27 @@ def test_send_unknown_label(module):
     mod, _ = module
     with pytest.raises(IrModuleError, match="unknown IR label"):
         mod.send_label("nope")
+
+
+@pytest.mark.unit
+def test_mark_records_effectiveness(module):
+    mod, _ = module
+    mod.store.save_label("power", [0, 255, 69])
+    assert mod.mark("power", True, "strip toggles") == {
+        "code": [0, 255, 69],
+        "works": True,
+        "notes": "strip toggles",
+    }
+    assert mod.codes()["power"]["works"] is True
+    with pytest.raises(IrModuleError, match="unknown IR label"):
+        mod.mark("nope", False)
+
+
+@pytest.mark.unit
+def test_legacy_list_values_still_read(tmp_path):
+    store = IrCodeStore(tmp_path / "codes.json")
+    (tmp_path / "codes.json").write_text('{"power": [0, 255, 69]}', encoding="utf-8")
+    assert store.get("power") == [0, 255, 69]
 
 
 @pytest.mark.unit
