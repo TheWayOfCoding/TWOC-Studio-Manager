@@ -56,7 +56,7 @@ class IrSendBody(IrPortBody):
     label: str | None = None
     code: list[int] | None = None
     times: int = 1
-    gap_ms: int = 100
+    gap_ms: int = 300
     studio: str | None = None
     device: str | None = None
 

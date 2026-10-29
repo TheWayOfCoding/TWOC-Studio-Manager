@@ -5,12 +5,33 @@ Receive: remote press -> module emits 3 bytes.
 Transmit: write A1 F1 <d1> <d2> <d3> -> module blasts and replies F1.
 """
 
+import functools
+import threading
 import time
 
 from .base import Driver, DriverResult
 
 SEND_PREFIX = bytes((0xA1, 0xF1))
 CONFIRM_BYTE = 0xF1
+
+_port_locks = {}
+_port_locks_guard = threading.Lock()
+
+
+def _port_lock(port):
+    with _port_locks_guard:
+        return _port_locks.setdefault(port, threading.Lock())
+
+
+def _locked(fn):
+    """Serialize all port access: overlapping opens steal each other's bytes."""
+
+    @functools.wraps(fn)
+    def wrapper(self, *args, **kwargs):
+        with _port_lock(self.port):
+            return fn(self, *args, **kwargs)
+
+    return wrapper
 
 
 class IrError(Exception):
@@ -60,6 +81,7 @@ class IrUsbSerialDriver(Driver):
             "commands": ["send", "listen", "state"],
         }
 
+    @_locked
     def get_state(self):
         try:
             handle = open_port(self.port, self.baudrate, timeout=1.0)
@@ -80,6 +102,7 @@ class IrUsbSerialDriver(Driver):
             raise IrError("code bytes must be ints 0-255")
         return code
 
+    @_locked
     def apply(self, command):
         if not isinstance(command, dict) or "send" not in command:
             return DriverResult(ok=False, error='command needs {"send": [d1, d2, d3]}')
@@ -114,6 +137,7 @@ class IrUsbSerialDriver(Driver):
         state["probed"] = True
         return DriverResult(ok=result.ok, state=state, error=result.error)
 
+    @_locked
     def listen(self, seconds=5.0):
         """Listen for remote presses. Returns {codes, raw_bytes, seconds}."""
         try:
