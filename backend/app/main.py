@@ -9,10 +9,15 @@ from fastapi import FastAPI, Request
 from fastapi.responses import FileResponse
 
 from . import __version__
-from .api.routes import router
-from .config.loader import ConfigError, list_studios, load_all
 from .core.logging import bind_context, configure_logging, get_logger
-from .registry import Registry
+
+# Configure before importing routes: get_logger() calls at import time must
+# already see the final log directory.
+configure_logging(log_dir=os.environ.get("STUDIO_LOG_DIR", "logs"))
+
+from .api.routes import router  # noqa: E402
+from .config.loader import ConfigError, list_studios, load_all  # noqa: E402
+from .registry import Registry  # noqa: E402
 
 STATIC_DIR = Path(__file__).parent / "static"
 
@@ -25,7 +30,6 @@ def config_root():
 
 def create_app():
     """Build the app. Broken config yields degraded health, never a crash."""
-    configure_logging(log_dir=os.environ.get("STUDIO_LOG_DIR", "logs"))
     log = get_logger("core")
     app = FastAPI(title="TWOC Studio Hub", version=__version__)
 
