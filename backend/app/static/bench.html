@@ -26,7 +26,7 @@ pass <input type="password" id="k-pass" autocomplete="current-password">
 firmware may require your TP-Link account login; otherwise leave blank.</p>
 <div id="kasa"></div></div>
 <div class="card"><h2>IR capture (YS-IRTM)</h2>
-<div>port <input type="text" id="ir-port" value="/dev/ttyUSB0">
+<div>port <input type="text" id="ir-port" placeholder="server default (auto USB serial)">
 <button onclick="irState()">Check port</button>
 <button onclick="irListen()">Listen 8s</button></div>
 <div>label <input type="text" id="ir-label" placeholder="power">
@@ -38,6 +38,24 @@ firmware may require your TP-Link account login; otherwise leave blank.</p>
 <div>send raw: <input type="text" id="ir-send" placeholder="0,255,69">
 <button onclick="irSendRaw()">Send</button></div>
 <div id="ir"></div></div>
+<div class="card"><h2>GVM panels (BLE)</h2>
+<div><button onclick="gvmScan()">Scan 8s</button> <span id="gvm-devs"></span></div>
+<div>address <input type="text" id="gvm-addr" placeholder="AA:BB:CC:DD:EE:FF">
+<button onclick="gvmProbe()">Probe GATT</button>
+<button onclick="gvmState()">State</button></div>
+<div><button onclick="gvmPower('on')">Power on</button>
+<button onclick="gvmPower('off')">Power off</button></div>
+<div>brightness <input type="number" id="gvm-br" value="5" min="1" max="100" style="width:4em">
+<button onclick="gvmBright()">Set</button>
+CCT <input type="number" id="gvm-cct" value="4300" min="3200" max="5600" step="100" style="width:5em">
+<button onclick="gvmCct()">Set</button></div>
+<div>scene <input type="number" id="gvm-scene" value="3" min="1" max="18" style="width:4em">
+<button onclick="gvmScene()">Set scene</button>
+page <select id="gvm-page"><option value="cct">cct</option><option value="scene">scene</option></select>
+<button onclick="gvmPage()">Announce</button></div>
+<p>Scenes are photo-risk <b>intense</b> until verified gentle by eye; brightness
+above 10% asks first. Keep trials dim.</p>
+<div id="gvm"></div></div>
 <div id="drivers">loading…</div>
 <script>
 async function jget(path) {
@@ -132,6 +150,46 @@ async function irSendRaw() {
   try { const r = await jpost("/api/testbench/ir/send", JSON.stringify({port: irPort(), code: parts})); out("ir", r, r.ok); }
   catch (e) { out("ir", {error: String(e)}, false); }
 }
+function gvmAddr() { return document.getElementById("gvm-addr").value.trim() || null; }
+async function gvmScan() {
+  out("gvm", {status: "scanning 8s..."}, true);
+  try {
+    const r = await jpost("/api/testbench/gvm/scan", JSON.stringify({timeout: 8}));
+    document.getElementById("gvm-devs").innerHTML = r.devices.length
+      ? r.devices.map(d => "<button onclick=\"document.getElementById('gvm-addr').value='" +
+        d.address + "'\">" + (d.name || "(no name)") + " " + d.address + "</button>").join(" ")
+      : "nothing found";
+    out("gvm", r, true);
+  } catch (e) { out("gvm", {error: String(e)}, false); }
+}
+async function gvmProbe() {
+  if (!gvmAddr()) { out("gvm", {error: "scan first, then pick an address"}, false); return; }
+  try { const r = await jpost("/api/testbench/gvm/probe", JSON.stringify({address: gvmAddr()})); out("gvm", r, r.ok); }
+  catch (e) { out("gvm", {error: String(e)}, false); }
+}
+async function gvmState() {
+  if (!gvmAddr()) { out("gvm", {error: "scan first, then pick an address"}, false); return; }
+  try { const r = await jpost("/api/testbench/gvm/state", JSON.stringify({address: gvmAddr()})); out("gvm", r, r.ok); }
+  catch (e) { out("gvm", {error: String(e)}, false); }
+}
+async function gvmSet(body) {
+  if (!gvmAddr()) { out("gvm", {error: "scan first, then pick an address"}, false); return; }
+  try { const r = await jpost("/api/testbench/gvm/set", JSON.stringify({address: gvmAddr(), ...body})); out("gvm", r, r.ok); }
+  catch (e) { out("gvm", {error: String(e)}, false); }
+}
+async function gvmPower(on) { gvmSet({power: on}); }
+async function gvmBright() {
+  const v = parseInt(document.getElementById("gvm-br").value, 10);
+  if (v > 10 && !confirm("Brightness " + v + "% — look away from the panel. Continue?")) return;
+  gvmSet({brightness: v});
+}
+async function gvmCct() { gvmSet({cct: parseInt(document.getElementById("gvm-cct").value, 10)}); }
+async function gvmScene() {
+  const v = parseInt(document.getElementById("gvm-scene").value, 10);
+  if (!confirm("Scene " + v + " is UNTESTED (photo-risk intense). Look away. Continue?")) return;
+  gvmSet({scene: v, allow_intense: true});
+}
+async function gvmPage() { gvmSet({page: document.getElementById("gvm-page").value}); }
 (async () => {
   try {
     const drivers = await jget("/api/testbench/drivers");

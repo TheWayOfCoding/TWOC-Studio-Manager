@@ -14,3 +14,8 @@ venv/
 
 # Service logs (dated per-day files, see logging module).
 logs/
+
+captures/
+
+# Local pytest run debris (machine-specific directory).
+pytest-of-Scott/

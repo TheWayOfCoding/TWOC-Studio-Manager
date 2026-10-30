@@ -2,10 +2,11 @@
 """Unit tests for the YS-IRTM USB-serial driver with a faked serial port."""
 
 import sys
+from types import SimpleNamespace
 
 import pytest
 
-from app.drivers.ir_usb_serial import IrUsbSerialDriver, parse_codes
+from app.drivers.ir_usb_serial import IrUsbSerialDriver, default_port, parse_codes
 
 
 class FakeHandle:
@@ -91,7 +92,7 @@ def test_state_missing_port_errors():
 
 @pytest.mark.unit
 def test_apply_sends_prefixed_code_and_confirms():
-    result = IrUsbSerialDriver("ir").apply({"send": [0, 255, 69]})
+    result = IrUsbSerialDriver("ir", port="COM9").apply({"send": [0, 255, 69]})
     assert result.ok
     assert result.state == {"sent": [0, 255, 69], "confirmed": True}
     assert bytes(FakeSerial.handles[0].written) == b"\xa1\xf1\x00\xff\x45"
@@ -100,14 +101,14 @@ def test_apply_sends_prefixed_code_and_confirms():
 @pytest.mark.unit
 def test_apply_no_confirm_errors():
     FakeSerial.auto_confirm = False
-    result = IrUsbSerialDriver("ir").apply({"send": [0, 255, 69]})
+    result = IrUsbSerialDriver("ir", port="COM9").apply({"send": [0, 255, 69]})
     assert not result.ok
     assert "confirm" in result.error
 
 
 @pytest.mark.unit
 def test_apply_rejects_bad_shapes():
-    driver = IrUsbSerialDriver("ir")
+    driver = IrUsbSerialDriver("ir", port="COM9")
     assert not driver.apply({"send": [1, 2]}).ok
     assert not driver.apply({"send": [1, 2, 999]}).ok
     assert not driver.apply({"blink": True}).ok
@@ -117,13 +118,71 @@ def test_apply_rejects_bad_shapes():
 @pytest.mark.unit
 def test_listen_collects_window():
     FakeSerial.to_read = b"\x00\xff\x45\x01\x02"
-    heard = IrUsbSerialDriver("ir").listen(seconds=0.2)
+    heard = IrUsbSerialDriver("ir", port="COM9").listen(seconds=0.2)
     assert heard["codes"] == [[0, 255, 69]]
     assert heard["raw_bytes"] == 5
 
 
 @pytest.mark.unit
 def test_safe_stop_emits_nothing():
-    result = IrUsbSerialDriver("ir").safe_stop()
+    result = IrUsbSerialDriver("ir", port="COM9").safe_stop()
     assert result.ok
     assert FakeSerial.handles[0].written == bytearray()
+
+
+def _stub_comports(monkeypatch, entries):
+    tools = SimpleNamespace(list_ports=SimpleNamespace(comports=lambda: entries))
+    monkeypatch.setitem(sys.modules, "serial.tools", tools)
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    "entries,expected",
+    [
+        (
+            [
+                SimpleNamespace(device="COM1", hwid=r"ACPI\PNP0501", description="Communications Port"),
+                SimpleNamespace(device="COM3", hwid="USB VID:PID=1A86:7523", description="USB Serial Port"),
+            ],
+            "COM3",
+        ),
+        (
+            [
+                SimpleNamespace(device="/dev/ttyS0", hwid="PNP0501", description="ttyS0"),
+                SimpleNamespace(device="/dev/ttyUSB0", hwid="USB VID:PID=1A86:7523 SER=553", description="USB2.0-Serial"),
+            ],
+            "/dev/ttyUSB0",
+        ),
+    ],
+)
+def test_default_port_prefers_usb_serial(monkeypatch, entries, expected):
+    _stub_comports(monkeypatch, entries)
+    assert default_port() == expected
+
+
+@pytest.mark.unit
+def test_default_port_none_when_no_usb_serial(monkeypatch):
+    _stub_comports(
+        monkeypatch,
+        [SimpleNamespace(device="COM1", hwid=r"ACPI\PNP0501", description="Communications Port")],
+    )
+    assert default_port() is None
+
+
+@pytest.mark.unit
+def test_default_port_none_without_pyserial(monkeypatch):
+    monkeypatch.setitem(sys.modules, "serial", None)
+    monkeypatch.delitem(sys.modules, "serial.tools", raising=False)
+    assert default_port() is None
+
+
+@pytest.mark.unit
+def test_default_constructor_defers_detection():
+    assert IrUsbSerialDriver("ir").port is None
+
+
+@pytest.mark.unit
+def test_state_undetected_port_errors_helpfully():
+    result = IrUsbSerialDriver("ir").get_state()
+    assert not result.ok
+    assert "IR_PORT" in result.error

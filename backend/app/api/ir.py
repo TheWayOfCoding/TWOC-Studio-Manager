@@ -8,7 +8,7 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
 from ..core.logging import get_logger
-from ..drivers.ir_usb_serial import IrUsbSerialDriver
+from ..drivers.ir_usb_serial import IrUsbSerialDriver, default_port
 from ..modules.ir import IrModule, IrModuleError
 
 router = APIRouter()
@@ -24,7 +24,7 @@ def _config_root():
 
 
 def _port(body):
-    return body.port or os.environ.get("IR_PORT", "/dev/ttyUSB0")
+    return body.port or os.environ.get("IR_PORT") or default_port()
 
 
 def _module(body):

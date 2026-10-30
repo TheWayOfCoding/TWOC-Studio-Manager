@@ -38,8 +38,30 @@ class IrError(Exception):
     """Serial port or module failure."""
 
 
+def default_port():
+    """First USB serial port on this host, or None if none is detectable.
+
+    Cross-platform: pyserial names COM ports on Windows, /dev/ttyUSB* on
+    Linux, /dev/tty.usbserial* on macOS. Built-in ports (COM1, ttyS*)
+    never match the USB filter. Several USB adapters: first sorted wins,
+    override with IR_PORT.
+    """
+    try:
+        from serial.tools import list_ports
+    except ImportError:
+        return None
+    usb = sorted(
+        info.device
+        for info in list_ports.comports()
+        if "usb" in f"{info.hwid or ''} {info.description or ''}".lower()
+    )
+    return usb[0] if usb else None
+
+
 def open_port(port, baudrate=9600, timeout=2.0):
     """Open the serial port. Raises IrError with a human-readable cause."""
+    if port is None:
+        raise IrError("no USB serial port detected; set IR_PORT (e.g. COM3 or /dev/ttyUSB0)")
     try:
         import serial
     except ImportError as exc:
@@ -66,9 +88,9 @@ def parse_codes(raw):
 class IrUsbSerialDriver(Driver):
     """One YS-IRTM module on a USB-serial port."""
 
-    def __init__(self, driver_id, port="/dev/ttyUSB0", baudrate=9600, timeout=2.0):
+    def __init__(self, driver_id, port=None, baudrate=9600, timeout=2.0):
         super().__init__(driver_id)
-        self.port = port
+        self.port = port or default_port()
         self.baudrate = baudrate
         self.timeout = timeout
 
