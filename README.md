@@ -4,7 +4,11 @@ One-click studio director for content creators: zone power, lights, OBS scenes,
 and backdrop screens driven from one LAN web UI, with an AI lighting layer on top.
 Runs on a Raspberry Pi or a Windows Hub host; developed on a PC and deployed over the LAN.
 
-**Status:** Phase 0 scaffold — config model, mock drivers, Test Bench shell, health API.
+**Status:** Live on the Windows Hub host: real USB-DMX / Kasa / IR / GVM-BLE
+drivers, modes engine, OBS + screens + AI-director scaffolds, mode dashboard,
+Test Bench, health API, and a watchdog task. DMX is verified against two
+Viltrox lights (dwell-paced fades); the OBS handshake and screen persistence
+are still scaffold.
 
 ## Quickstart (PC)
 
@@ -31,6 +35,10 @@ elevated PowerShell there:
 
 Afterwards `tools\deploy-win.ps1 -TargetHost <hub-ip>` ships the tree, restarts
 the task, and health-checks (or set `STUDIO_HUB_HOST` once and run it bare).
+The Hub auto-starts at boot (the `StudioHub` task's boot trigger), and a
+`StudioHubWatchdog` task (every 2 min, created by the bootstrap) restarts it
+when `/api/health` stays dark — see `tools/hub-watchdog.ps1`.
+Web UI: `http://<hub-ip>:8000` (dashboard), `http://<hub-ip>:8000/bench`.
 
 ## Deploy (Pi)
 

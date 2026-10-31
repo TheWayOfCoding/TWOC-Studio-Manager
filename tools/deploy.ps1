@@ -9,7 +9,9 @@ if (-not $TargetHost) { throw "no Hub host: pass -TargetHost <ip> or set STUDIO_
 git push pi main
 
 if ($env:SUDO_PASSWORD) {
-    ssh -o BatchMode=yes pi@$TargetHost "echo $env:SUDO_PASSWORD | sudo -S systemctl restart studio-hub"
+    # Password via stdin: never appears in the remote process list, and shell
+    # metacharacters in it cannot break the remote command line.
+    $env:SUDO_PASSWORD | ssh -o BatchMode=yes pi@$TargetHost "sudo -S systemctl restart studio-hub"
 }
 
 $health = $null

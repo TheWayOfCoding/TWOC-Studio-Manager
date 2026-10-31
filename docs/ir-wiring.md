@@ -1,7 +1,8 @@
 # IR Wiring: YS-IRTM module + FTDI USB-TTL adapter
 
-Status: researched from module photos + community protocol docs. Pending live
-probe on the Pi (see "Bring-up" below). Resolves D-WIRING (wiring half).
+Status: verified live — capture/replay works through the bench workflow
+(`docs/ir-capture.md`). Originally researched from module photos + community
+protocol docs. Resolves D-WIRING (wiring half).
 
 ## Hardware identified
 
@@ -28,13 +29,14 @@ Product pages (Amazon, blocked to scrapers — identification from photos):
 | TXD | → | RXD | Crossover |
 | RXD | → | TXD | Crossover |
 
-Then: mini-USB cable from the FTDI adapter to the Pi (directly, or via the
-powered hub later). A long USB cable here is the whole point — it puts the IR
-emitter at the strip's receiver while the Pi stays put.
+Then: mini-USB cable from the FTDI adapter to the hub host (directly, or via
+the powered hub later). A long USB cable here is the whole point — it puts the
+IR emitter at the strip's receiver while the hub stays put.
 
-On the Pi the adapter appears as `/dev/ttyUSB0` (verify with `dmesg | tail`
-after plugging in). User `pi` must be in the `dialout` group
-(`groups pi`; add with `sudo usermod -aG dialout pi`, then re-login).
+On Windows the adapter is auto-detected as `IR_PORT` by the bootstrap; on a
+Pi it appears as `/dev/ttyUSB0` (verify with `dmesg | tail` after plugging
+in), where user `pi` must be in the `dialout` group (`groups pi`; add with
+`sudo usermod -aG dialout pi`, then re-login).
 
 ## Serial protocol (YS-IRTM)
 
@@ -54,7 +56,8 @@ do). If button presses yield no bytes, that assumption is suspect #1.
 ## Bring-up (hands-on session)
 
 1. Wire per the table above (power off while connecting).
-2. Plug USB into the Pi; confirm `/dev/ttyUSB0` exists.
+2. Plug USB into the hub; confirm the port exists (`IR_PORT` on Windows,
+   `/dev/ttyUSB0` on a Pi).
 3. Open the port at 9600 8N1; press remote buttons; confirm 3-byte codes arrive.
 4. For each button: press → label (function/color) → save to
    `config/studios.local/home-studio/ir-codes/bytech-strip.json`.

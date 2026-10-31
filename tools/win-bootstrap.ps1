@@ -5,7 +5,8 @@
 #   powershell -ExecutionPolicy Bypass -File tools\win-bootstrap.ps1
 # Installs Python if missing, builds .venv, detects the IR port, opens the
 # firewall, registers the StudioHub scheduled task (SYSTEM, at startup),
-# starts it, and health-checks. Safe to re-run.
+# registers the StudioHubWatchdog task (SYSTEM, every 2 min), starts the
+# Hub, and health-checks. Safe to re-run.
 param([string]$PythonVersion = "3.14.10")
 $ErrorActionPreference = "Stop"
 
@@ -60,6 +61,12 @@ New-Item -ItemType Directory -Force "$root\logs" | Out-Null
 schtasks /End /TN StudioHub 2>$null | Out-Null
 Start-Sleep 3
 schtasks /Run /TN StudioHub | Out-Null
+
+# 5b. Watchdog: every 2 min as SYSTEM, restarts StudioHub when /api/health
+# stays dark (skips the first 3 min after boot). Repeat-safe (/F).
+$watchdog = "powershell -NoProfile -ExecutionPolicy Bypass -File $root\tools\hub-watchdog.ps1"
+schtasks /Create /TN StudioHubWatchdog /SC MINUTE /MO 2 /RU SYSTEM /RL HIGHEST /TR "$watchdog" /F | Out-Null
+if ($LASTEXITCODE -ne 0) { throw "schtasks /Create StudioHubWatchdog failed" }
 
 # 6. Health-check loop.
 $health = $null
