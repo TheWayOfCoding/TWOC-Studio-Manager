@@ -19,6 +19,11 @@ from .api.routes import router  # noqa: E402
 from .api.kasa import router as kasa_router  # noqa: E402
 from .api.ir import router as ir_router  # noqa: E402
 from .api.gvm import router as gvm_router  # noqa: E402
+from .api.modes import router as modes_router  # noqa: E402
+from .api.obs import router as obs_router  # noqa: E402
+from .api.screen import router as screen_router  # noqa: E402
+from .api.dmx import router as dmx_router  # noqa: E402
+from .api.ai import router as ai_router  # noqa: E402
 from .config.loader import ConfigError, list_studios, load_all  # noqa: E402
 from .registry import Registry  # noqa: E402
 
@@ -50,6 +55,7 @@ def create_app():
             studio_id: Registry.from_loaded(loaded, data["profiles"])
             for studio_id, loaded in data["studios"].items()
         }
+        app.state.config_root = config_root()
         app.state.registries = registries
         app.state.studio_list = list_studios(config_root())
         app.state.health = {"status": "ok", "studios": sorted(registries)}
@@ -65,6 +71,11 @@ def create_app():
     app.include_router(kasa_router)
     app.include_router(ir_router)
     app.include_router(gvm_router)
+    app.include_router(modes_router)
+    app.include_router(obs_router)
+    app.include_router(screen_router)
+    app.include_router(dmx_router)
+    app.include_router(ai_router)
     app.include_router(router)
 
     @app.get("/", include_in_schema=False)
@@ -74,6 +85,10 @@ def create_app():
     @app.get("/bench", include_in_schema=False)
     def bench():
         return FileResponse(STATIC_DIR / "bench.html")
+
+    @app.get("/screen/{screen_id}", include_in_schema=False)
+    def screen_page(screen_id: str):
+        return FileResponse(STATIC_DIR / "screen.html")
 
     return app
 

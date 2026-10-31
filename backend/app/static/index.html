@@ -7,21 +7,89 @@
 <style>
 body { font-family: system-ui, sans-serif; margin: 1.5em; max-width: 48em; }
 .card { border: 1px solid #ccc; border-radius: 8px; padding: 1em; margin-bottom: 1em; }
-.ok { color: #0a0; } .bad { color: #c00; }
+.ok { color: #0a0; } .bad { color: #c00; } .warn { color: #a60; }
 nav a { margin-right: 1em; }
-pre { background: #f4f4f4; padding: 0.5em; overflow-x: auto; }
+pre { background: #f4f4f4; padding: 0.5em; overflow-x: auto; white-space: pre-wrap; }
+button { margin: 0.2em 0.4em 0.2em 0; }
+input[type=text] { width: 24em; max-width: 100%; }
+.subs span { margin-right: 1em; white-space: nowrap; }
 </style>
 </head>
 <body>
 <nav><strong>Studio Hub</strong> | <a href="/bench">Test Bench</a> | <a href="/docs">API docs</a></nav>
 <h1>Studio Hub</h1>
 <div class="card"><h2>Health</h2><div id="health">loading…</div></div>
-<div class="card"><h2>Studios</h2><div id="studios">loading…</div></div>
+<div class="card"><h2>Studio</h2><select id="studio"></select></div>
+<div class="card"><h2>Modes</h2><div id="modes">loading…</div><div id="mode-out"></div></div>
+<div class="card"><h2>Presets</h2><div id="presets">loading…</div><div id="preset-out"></div></div>
+<div class="card"><h2>AI look</h2>
+<div><input type="text" id="ai-prompt" placeholder="cozy interview">
+<select id="ai-targets"><option value="both">lights+screen</option>
+<option value="lights">lights</option><option value="screens">screen</option></select>
+<button onclick="aiLook()">Direct</button></div>
+<div id="ai-out"></div></div>
 <script>
 async function jget(path) {
   const r = await fetch(path);
   if (!r.ok) throw new Error(path + ": " + r.status);
   return r.json();
+}
+async function jpost(path, body) {
+  const r = await fetch(path, {method: "POST", headers: {"Content-Type": "application/json"}, body: body});
+  const j = await r.json();
+  if (!r.ok) throw new Error(JSON.stringify(j));
+  return j;
+}
+function out(id, obj, ok) {
+  document.getElementById(id).innerHTML =
+    '<span class="' + (ok === false ? "bad" : "ok") + '">●</span><pre>' + JSON.stringify(obj, null, 2) + "</pre>";
+}
+function dot(status) {
+  return status === "ready" ? "ok" : status === "skipped" ? "warn" : "bad";
+}
+function renderApply(id, r) {
+  const subs = Object.entries(r.subsystems).map(([name, s]) =>
+    '<span class="' + dot(s.status) + '">● ' + name + ": " + s.status + "</span>").join("");
+  document.getElementById(id).innerHTML =
+    '<div class="subs">' + subs + "</div><pre>" + JSON.stringify(r.subsystems, null, 2) + "</pre>";
+}
+let STUDIO = null;
+function studio() { return STUDIO || document.getElementById("studio").value; }
+async function loadModes() {
+  try {
+    const m = await jget("/api/studios/" + studio() + "/modes");
+    document.getElementById("modes").innerHTML = m.modes.map(x =>
+      "<button onclick=\"applyMode('" + x.id + "')\">" + x.label +
+      (x.id === m.default ? " ★" : "") + "</button>").join("") || "no modes";
+  } catch (e) { out("mode-out", {error: String(e)}, false); }
+}
+async function loadPresets() {
+  try {
+    const p = await jget("/api/studios/" + studio() + "/presets");
+    document.getElementById("presets").innerHTML = p.presets.map(x =>
+      "<button onclick=\"applyPreset('" + x.id + "')\">" + x.label + "</button>").join("") || "no presets";
+  } catch (e) { out("preset-out", {error: String(e)}, false); }
+}
+async function applyMode(id) {
+  out("mode-out", {status: "applying " + id + "…"}, true);
+  try { renderApply("mode-out", await jpost("/api/studios/" + studio() + "/modes/" + id + "/apply", "{}")); }
+  catch (e) { out("mode-out", {error: String(e)}, false); }
+}
+async function applyPreset(id) {
+  out("preset-out", {status: "applying " + id + "…"}, true);
+  try { renderApply("preset-out", await jpost("/api/studios/" + studio() + "/presets/" + id + "/apply", "{}")); }
+  catch (e) { out("preset-out", {error: String(e)}, false); }
+}
+async function aiLook() {
+  const body = JSON.stringify({prompt: document.getElementById("ai-prompt").value,
+    targets: document.getElementById("ai-targets").value});
+  out("ai-out", {status: "directing…"}, true);
+  try {
+    const r = await jpost("/api/studios/" + studio() + "/ai/look", body);
+    document.getElementById("ai-out").innerHTML =
+      "<pre>" + JSON.stringify({directives: r.directives, critique: r.critique,
+        apply: r.apply.subsystems}, null, 2) + "</pre>";
+  } catch (e) { out("ai-out", {error: String(e)}, false); }
 }
 (async () => {
   try {
@@ -30,9 +98,11 @@ async function jget(path) {
       (h.status === "ok" ? '<span class="ok">●</span>' : '<span class="bad">●</span>') +
       " " + h.status + " — v" + h.version + (h.error ? "<pre>" + h.error + "</pre>" : "");
     const s = await jget("/api/studios");
-    document.getElementById("studios").innerHTML =
-      s.length ? "<ul>" + s.map(x => "<li><b>" + x.label + "</b> (" + x.id + ", " + x.source + ")</li>").join("") + "</ul>"
-               : "no studios configured";
+    const sel = document.getElementById("studio");
+    sel.innerHTML = s.map(x => "<option value=\"" + x.id + "\">" + x.label + "</option>").join("");
+    sel.onchange = () => { STUDIO = sel.value; loadModes(); loadPresets(); };
+    STUDIO = (s.find(x => x.id === "home-studio") || s[0] || {}).id || null;
+    if (STUDIO) { sel.value = STUDIO; loadModes(); loadPresets(); }
   } catch (e) {
     document.getElementById("health").innerHTML = '<span class="bad">unreachable: ' + e + "</span>";
   }

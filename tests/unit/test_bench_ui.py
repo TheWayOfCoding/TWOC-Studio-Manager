@@ -1,0 +1,70 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+"""Static regression tests for the Test Bench page structure (no JS harness)."""
+
+from pathlib import Path
+
+import pytest
+
+BENCH_HTML = Path(__file__).resolve().parents[2] / "backend" / "app" / "static" / "bench.html"
+
+
+def _bench_html():
+    # File read, not HTTP: marker regression must run without a socket bind.
+    return BENCH_HTML.read_text(encoding="utf-8")
+
+
+@pytest.mark.unit
+def test_kasa_list_survives_toggle():
+    """The plug list lives in its own container; results go elsewhere."""
+    html = _bench_html()
+    assert 'id="kasa-list"' in html
+    assert 'id="kasa-out"' in html
+    assert 'out("kasa",' not in html  # the old list-wiping result call
+
+
+@pytest.mark.unit
+def test_kasa_row_actions_present():
+    """Rows keep On/Off/State actions plus list-level refresh."""
+    html = _bench_html()
+    for marker in ("kSet(", "kState(", "kRefreshAll()", "renderKasaList()"):
+        assert marker in html
+
+
+@pytest.mark.unit
+def test_obs_screen_cards_present():
+    """Scaffold cards exist with their readout containers and API calls."""
+    html = _bench_html()
+    for marker in (
+        'id="obs"',
+        'id="scr"',
+        "obsSwitch(",
+        "obsStream(",
+        "scrPush()",
+        "/api/testbench/obs/switch",
+        "/api/testbench/screen/push",
+    ):
+        assert marker in html
+
+
+@pytest.mark.unit
+def test_dmx_fixture_ui_present():
+    """DMX card leads with per-light panels; raw channels stay for bring-up."""
+    html = _bench_html()
+    for marker in (
+        'id="dmx"',
+        'id="dmx-lights"',
+        "dmxLightsLoad(",
+        "dmxLightSet(",
+        "dmxLightLook(",
+        "/api/testbench/dmx/fixtures",
+        "/api/testbench/dmx/light",
+        "allow-bright",
+        "dmxBrightOk(",
+        "dmxWhole(",
+        "dwell_s",
+        "per step",
+        "dmxSweep()",
+        "dmxBlackout(",
+        "/api/testbench/dmx/set",
+    ):
+        assert marker in html

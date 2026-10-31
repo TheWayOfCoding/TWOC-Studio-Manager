@@ -12,19 +12,26 @@ pre { background: #f4f4f4; padding: 0.5em; overflow-x: auto; white-space: pre-wr
 input[type=text] { width: 24em; max-width: 100%; }
 button { margin: 0.2em 0.4em 0.2em 0; }
 .ok { color: #0a0; } .bad { color: #c00; }
+.dmx-light h3 { margin: .6em 0 .2em; font-size: 1em; }
+.dmx-light small { font-weight: normal; color: #555; }
+details { margin-top: .5em; }
+details p { margin: .4em 0; max-width: 46em; }
 </style>
 </head>
 <body>
 <nav><a href="/">Studio Hub</a> | <strong>Test Bench</strong> | <a href="/docs">API docs</a></nav>
 <h1>Test Bench</h1>
 <p>Interactive bring-up surface. Phase 0 serves mock drivers; real drivers appear here as they land.</p>
-<div class="card"><h2>Kasa discovery (real hardware)</h2>
+<div class="card"><h2>Kasa plugs (real hardware)</h2>
 <div>user <input type="text" id="k-user" autocomplete="username" placeholder="(only if plugs need auth)">
 pass <input type="password" id="k-pass" autocomplete="current-password">
-<button onclick="kDiscover()">Discover</button></div>
+<button onclick="kDiscover()">Discover</button>
+<button onclick="kRefreshAll()">Refresh all</button></div>
 <p>Credentials pass through to the plugs and are never stored or logged. Newer plug
-firmware may require your TP-Link account login; otherwise leave blank.</p>
-<div id="kasa"></div></div>
+firmware may require your TP-Link account login; otherwise leave blank. The list
+below stays put — toggle and re-test without re-discovering.</p>
+<div id="kasa-list"></div>
+<div id="kasa-out"></div></div>
 <div class="card"><h2>IR capture (YS-IRTM)</h2>
 <div>port <input type="text" id="ir-port" placeholder="server default (auto USB serial)">
 <button onclick="irState()">Check port</button>
@@ -39,8 +46,7 @@ firmware may require your TP-Link account login; otherwise leave blank.</p>
 <button onclick="irSendRaw()">Send</button></div>
 <div id="ir"></div></div>
 <div class="card"><h2>GVM panels (BLE)</h2>
-<div><button onclick="gvmScan()">Scan 8s</button> <span id="gvm-devs"></span></div>
-<div>address <input type="text" id="gvm-addr" placeholder="AA:BB:CC:DD:EE:FF">
+<div>panel <select id="gvm-panel"></select>
 <button onclick="gvmProbe()">Probe GATT</button>
 <button onclick="gvmState()">State</button></div>
 <div><button onclick="gvmPower('on')">Power on</button>
@@ -53,9 +59,57 @@ CCT <input type="number" id="gvm-cct" value="4300" min="3200" max="5600" step="1
 <button onclick="gvmScene()">Set scene</button>
 page <select id="gvm-page"><option value="cct">cct</option><option value="scene">scene</option></select>
 <button onclick="gvmPage()">Announce</button></div>
-<p>Scenes are photo-risk <b>intense</b> until verified gentle by eye; brightness
-above 10% asks first. Keep trials dim.</p>
+<div><button onclick="gvmScan()">Scan 8s</button> <span id="gvm-devs"></span></div>
+<p>Panels come from the hub config — pick one, no scan needed. Scenes are
+photo-risk <b>intense</b> until verified gentle by eye.</p>
 <div id="gvm"></div></div>
+<div class="card"><h2>OBS (WebSocket)</h2>
+<div>host <input type="text" id="obs-host" value="127.0.0.1" style="width:10em">
+port <input type="number" id="obs-port" value="4455" style="width:5em">
+pass <input type="password" id="obs-pass">
+<button onclick="obsState()">State</button>
+<button onclick="obsScenes()">Scenes</button></div>
+<div>scene <input type="text" id="obs-scene" placeholder="Main">
+<button onclick="obsSwitch()">Switch</button></div>
+<div><button onclick="obsStream('start')">Start stream</button>
+<button onclick="obsStream('stop')">Stop stream</button>
+<span>stream actions ask for confirmation</span></div>
+<div id="obs"></div></div>
+<div class="card"><h2>DMX lights</h2>
+<p>Full fixture range. Power past 10% needs the <b>allow bright</b> tick on its row —
+these lights are blinding, and that tick is the only warning you get.
+Step time is decimal seconds held <b>per step</b>: power steps whole percents,
+color steps fixture increments. Look fades step power first, then color.</p>
+<div id="dmx-lights">loading fixtures…</div>
+<div style="margin-top:.5em">universe port <input type="text" id="dmx-port" placeholder="server default (auto USB serial)">
+<button onclick="dmxState()">State</button>
+<button onclick="dmxBlackout(true)">Blackout</button>
+<button onclick="dmxBlackout(false)">Restore</button></div>
+<details><summary>Raw channels &amp; channel finder</summary>
+<p>Channel finder: holds each channel alone at 5% for half a second, with dark gaps
+between steps — watch which fixture responds to which channel. Raw set is for
+bring-up only; prefer the light panels above.</p>
+<div>channel <input type="number" id="dmx-ch" value="1" min="1" max="512" style="width:5em">
+value <input type="range" id="dmx-val" min="0" max="255" value="13" oninput="dmxValOut()">
+<span id="dmx-val-out">13</span>
+<label><input type="checkbox" class="allow-bright" id="dmx-bright"> allow bright</label>
+<button onclick="dmxSet()">Set</button></div>
+<div>sweep <input type="number" id="dmx-start" value="1" min="1" max="512" style="width:5em">–
+<input type="number" id="dmx-end" value="12" min="1" max="512" style="width:5em">
+<button onclick="dmxSweep()">Sweep</button></div>
+</details>
+<div id="dmx"></div></div>
+<div class="card"><h2>Backdrop screens</h2>
+<div>screen <input type="text" id="scr-id" value="back" style="width:8em">
+theme <input type="text" id="scr-theme" value="live" style="width:8em">
+text <input type="text" id="scr-text" placeholder="topic">
+<button onclick="scrPush()">Push</button>
+<button onclick="scrState()">State</button></div>
+<div>track <input type="text" id="scr-track" value="bed" style="width:8em">
+<button onclick="scrAudio('play')">Play bed</button>
+<button onclick="scrAudio('stop')">Stop bed</button>
+<a id="scr-link" href="/screen/back" target="_blank">open kiosk</a></div>
+<div id="scr"></div></div>
 <div id="drivers">loading…</div>
 <script>
 async function jget(path) {
@@ -88,28 +142,66 @@ async function safeStop(id) {
   try { const r = await jpost("/api/testbench/" + id + "/safe-stop", "{}"); out("o-" + id, r, r.ok); }
   catch (e) { out("o-" + id, {error: String(e)}, false); }
 }
+let kasaPlugs = [];
 function kCreds() {
   return {username: document.getElementById("k-user").value || null,
           password: document.getElementById("k-pass").value || null};
 }
+function kRowState(p) { return (p.on === null || p.on === undefined) ? "?" : (p.on ? "on" : "off"); }
+function renderKasaList() {
+  document.getElementById("kasa-list").innerHTML = kasaPlugs.length
+    ? "<ul>" + kasaPlugs.map((p, i) =>
+        "<li><b>" + (p.alias || p.host) + "</b> " + p.host + " " + (p.model || "") +
+        " [" + kRowState(p) + "] " +
+        "<button onclick=\"kSet(" + i + ",true)\">On</button>" +
+        "<button onclick=\"kSet(" + i + ",false)\">Off</button>" +
+        "<button onclick=\"kState(" + i + ")\">State</button>" +
+        (p.error ? " <span class='bad'>" + p.error + "</span>" : "") + "</li>").join("") + "</ul>"
+    : "no plugs listed — Discover first";
+}
 async function kDiscover() {
+  out("kasa-out", {status: "discovering..."}, true);
   try {
     const r = await jpost("/api/testbench/kasa/discover", JSON.stringify({...kCreds(), discovery_timeout: 8}));
-    document.getElementById("kasa").innerHTML = r.plugs.length
-      ? "<ul>" + r.plugs.map(p =>
-          "<li><b>" + (p.alias || p.host) + "</b> " + p.host + " " + (p.model || "") +
-          " [" + (p.on === null ? "?" : (p.on ? "on" : "off")) + "] " +
-          "<button onclick=\"kSet('" + p.host + "',true)\">On</button>" +
-          "<button onclick=\"kSet('" + p.host + "',false)\">Off</button>" +
-          (p.error ? " <span class='bad'>" + p.error + "</span>" : "") + "</li>").join("") + "</ul>"
-      : "no plugs found";
-  } catch (e) { out("kasa", {error: String(e)}, false); }
+    kasaPlugs = r.plugs;
+    renderKasaList();
+    out("kasa-out", {plugs: r.plugs.length}, true);
+  } catch (e) { out("kasa-out", {error: String(e)}, false); }
 }
-async function kSet(host, on) {
+function kNote(i, r) {
+  const p = kasaPlugs[i];
+  if (r.ok && r.state && r.state.power) p.on = (r.state.power === "on");
+  p.error = r.ok ? null : (r.error || "failed");
+  renderKasaList();
+  out("kasa-out", {[p.alias || p.host]: r}, r.ok);
+}
+async function kSet(i, on) {
   try {
-    const r = await jpost("/api/testbench/kasa/set", JSON.stringify({...kCreds(), host: host, on: on}));
-    out("kasa", {[host]: r}, r.ok);
-  } catch (e) { out("kasa", {error: String(e)}, false); }
+    const r = await jpost("/api/testbench/kasa/set",
+      JSON.stringify({...kCreds(), host: kasaPlugs[i].host, on: on}));
+    kNote(i, r);
+  } catch (e) { out("kasa-out", {error: String(e)}, false); }
+}
+async function kState(i) {
+  try {
+    const r = await jpost("/api/testbench/kasa/state",
+      JSON.stringify({...kCreds(), host: kasaPlugs[i].host}));
+    kNote(i, r);
+  } catch (e) { out("kasa-out", {error: String(e)}, false); }
+}
+async function kRefreshAll() {
+  if (!kasaPlugs.length) { out("kasa-out", {error: "no plugs listed — Discover first"}, false); return; }
+  out("kasa-out", {status: "refreshing " + kasaPlugs.length + " plugs..."}, true);
+  for (let i = 0; i < kasaPlugs.length; i++) {
+    try {
+      const r = await jpost("/api/testbench/kasa/state",
+        JSON.stringify({...kCreds(), host: kasaPlugs[i].host}));
+      if (r.ok && r.state && r.state.power) kasaPlugs[i].on = (r.state.power === "on");
+      kasaPlugs[i].error = r.ok ? null : (r.error || "failed");
+    } catch (e) { kasaPlugs[i].error = String(e); }
+  }
+  renderKasaList();
+  out("kasa-out", {refreshed: kasaPlugs.length}, true);
 }
 function irPort() { return document.getElementById("ir-port").value || null; }
 async function irState() {
@@ -150,39 +242,40 @@ async function irSendRaw() {
   try { const r = await jpost("/api/testbench/ir/send", JSON.stringify({port: irPort(), code: parts})); out("ir", r, r.ok); }
   catch (e) { out("ir", {error: String(e)}, false); }
 }
-function gvmAddr() { return document.getElementById("gvm-addr").value.trim() || null; }
+function gvmPanel() { return document.getElementById("gvm-panel").value || null; }
+function fillGvmPanels(r) {
+  document.getElementById("gvm-panel").innerHTML = r.panels.length
+    ? r.panels.map(p => '<option value="' + p.id + '">' + p.name + "</option>").join("")
+    : "<option value=''>no configured panels</option>";
+}
 async function gvmScan() {
+  if (!confirm("BLE scan lists nearby devices on screen. Continue?")) return;
   out("gvm", {status: "scanning 8s..."}, true);
   try {
     const r = await jpost("/api/testbench/gvm/scan", JSON.stringify({timeout: 8}));
     document.getElementById("gvm-devs").innerHTML = r.devices.length
-      ? r.devices.map(d => "<button onclick=\"document.getElementById('gvm-addr').value='" +
-        d.address + "'\">" + (d.name || "(no name)") + " " + d.address + "</button>").join(" ")
+      ? r.devices.map(d => d.name || "(no name)").join(" · ")
       : "nothing found";
-    out("gvm", r, true);
+    out("gvm", {devices: r.devices.map(d => ({name: d.name, rssi: d.rssi}))}, true);
   } catch (e) { out("gvm", {error: String(e)}, false); }
 }
 async function gvmProbe() {
-  if (!gvmAddr()) { out("gvm", {error: "scan first, then pick an address"}, false); return; }
-  try { const r = await jpost("/api/testbench/gvm/probe", JSON.stringify({address: gvmAddr()})); out("gvm", r, r.ok); }
+  if (!gvmPanel()) { out("gvm", {error: "pick a panel first"}, false); return; }
+  try { const r = await jpost("/api/testbench/gvm/probe", JSON.stringify({panel: gvmPanel()})); out("gvm", r, r.ok); }
   catch (e) { out("gvm", {error: String(e)}, false); }
 }
 async function gvmState() {
-  if (!gvmAddr()) { out("gvm", {error: "scan first, then pick an address"}, false); return; }
-  try { const r = await jpost("/api/testbench/gvm/state", JSON.stringify({address: gvmAddr()})); out("gvm", r, r.ok); }
+  if (!gvmPanel()) { out("gvm", {error: "pick a panel first"}, false); return; }
+  try { const r = await jpost("/api/testbench/gvm/state", JSON.stringify({panel: gvmPanel()})); out("gvm", r, r.ok); }
   catch (e) { out("gvm", {error: String(e)}, false); }
 }
 async function gvmSet(body) {
-  if (!gvmAddr()) { out("gvm", {error: "scan first, then pick an address"}, false); return; }
-  try { const r = await jpost("/api/testbench/gvm/set", JSON.stringify({address: gvmAddr(), ...body})); out("gvm", r, r.ok); }
+  if (!gvmPanel()) { out("gvm", {error: "pick a panel first"}, false); return; }
+  try { const r = await jpost("/api/testbench/gvm/set", JSON.stringify({panel: gvmPanel(), ...body})); out("gvm", r, r.ok); }
   catch (e) { out("gvm", {error: String(e)}, false); }
 }
 async function gvmPower(on) { gvmSet({power: on}); }
-async function gvmBright() {
-  const v = parseInt(document.getElementById("gvm-br").value, 10);
-  if (v > 10 && !confirm("Brightness " + v + "% — look away from the panel. Continue?")) return;
-  gvmSet({brightness: v});
-}
+async function gvmBright() { gvmSet({brightness: parseInt(document.getElementById("gvm-br").value, 10)}); }
 async function gvmCct() { gvmSet({cct: parseInt(document.getElementById("gvm-cct").value, 10)}); }
 async function gvmScene() {
   const v = parseInt(document.getElementById("gvm-scene").value, 10);
@@ -190,7 +283,179 @@ async function gvmScene() {
   gvmSet({scene: v, allow_intense: true});
 }
 async function gvmPage() { gvmSet({page: document.getElementById("gvm-page").value}); }
+function obsBody(extra) {
+  return {host: document.getElementById("obs-host").value || "127.0.0.1",
+    port: parseInt(document.getElementById("obs-port").value, 10) || 4455,
+    password: document.getElementById("obs-pass").value || null, ...(extra || {})};
+}
+async function obsState() {
+  try { const r = await jpost("/api/testbench/obs/state", JSON.stringify(obsBody())); out("obs", r, r.ok); }
+  catch (e) { out("obs", {error: String(e)}, false); }
+}
+async function obsScenes() {
+  try { const r = await jpost("/api/testbench/obs/scenes", JSON.stringify(obsBody())); out("obs", r, r.ok); }
+  catch (e) { out("obs", {error: String(e)}, false); }
+}
+async function obsSwitch() {
+  const scene = document.getElementById("obs-scene").value;
+  if (!scene) { out("obs", {error: "type a scene name first"}, false); return; }
+  try { const r = await jpost("/api/testbench/obs/switch", JSON.stringify(obsBody({scene: scene}))); out("obs", r, r.ok); }
+  catch (e) { out("obs", {error: String(e)}, false); }
+}
+async function obsStream(action) {
+  if (!confirm("Really " + action + " the stream?")) return;
+  try { const r = await jpost("/api/testbench/obs/stream", JSON.stringify(obsBody({action: action, confirmed: true}))); out("obs", r, r.ok); }
+  catch (e) { out("obs", {error: String(e)}, false); }
+}
+function dmxPort() { return document.getElementById("dmx-port").value || null; }
+function dmxValOut() { document.getElementById("dmx-val-out").textContent = document.getElementById("dmx-val").value; }
+async function dmxState() {
+  try { const r = await jpost("/api/testbench/dmx/state", JSON.stringify({port: dmxPort()})); out("dmx", r, r.ok); }
+  catch (e) { out("dmx", {error: String(e)}, false); }
+}
+function dmxBrightOk(value, gentle, boxId) {
+  if (value > gentle && !document.getElementById(boxId).checked) {
+    out("dmx", {error: "past the gentle 10% range — tick allow bright on this row first"}, false);
+    return false;
+  }
+  return true;
+}
+async function dmxSet() {
+  const value = parseInt(document.getElementById("dmx-val").value, 10);
+  if (!dmxBrightOk(value, 26, "dmx-bright")) return;
+  const body = {port: dmxPort(), channel: parseInt(document.getElementById("dmx-ch").value, 10),
+    value: value, allow_bright: document.getElementById("dmx-bright").checked};
+  try { const r = await jpost("/api/testbench/dmx/set", JSON.stringify(body)); out("dmx", r, r.ok); }
+  catch (e) { out("dmx", {error: String(e)}, false); }
+}
+async function dmxBlackout(on) {
+  try { const r = await jpost("/api/testbench/dmx/blackout", JSON.stringify({port: dmxPort(), on: on})); out("dmx", r, r.ok); }
+  catch (e) { out("dmx", {error: String(e)}, false); }
+}
+let dmxFixtures = [];
+function dmxLightPanel(f) {
+  const cctNote = f.cct_range ? ("CCT " + f.cct_range[0] + "–" + f.cct_range[1] + "K")
+    : ("fixed " + (f.fixed_cct || "?") + "K");
+  const chNote = "DMX ch " + f.dimmer + (f.cct ? "+" + f.cct : "");
+  let html = '<div class="dmx-light" id="dmx-light-' + f.id + '"><h3>' + f.name +
+    " <small>" + chNote + " · " + cctNote + "</small></h3>";
+  html += '<div>Power <small>(1% per step)</small>' +
+    ' <input type="range" id="pw-' + f.id + '" min="0" max="100" step="1" value="0"' +
+    ' oninput="dmxSync(\'' + f.id + '\',\'pw\')">' +
+    ' <input type="number" id="pw-n-' + f.id + '" min="0" max="100" step="1" value="0" style="width:4.5em"' +
+    ' oninput="dmxSync(\'' + f.id + '\',\'pw-n\')"> %' +
+    ' <label><input type="checkbox" class="allow-bright" id="pw-b-' + f.id + '"> allow bright</label>' +
+    ' <label><input type="checkbox" id="pw-f-' + f.id + '"> fade</label>' +
+    ' <input type="number" id="pw-s-' + f.id + '" value="0.5" min="0" max="60" step="0.5"' +
+    ' style="width:4em" title="seconds per step"> s' +
+    ' <button onclick="dmxLightSet(\'' + f.id + '\',\'power\')">Set</button></div>';
+  if (f.cct_range) {
+    const stepK = Math.max(1, Math.round((f.cct_range[1] - f.cct_range[0]) / 255));
+    html += '<div>Color <small>(~' + stepK + 'K per step)</small>' +
+      ' <input type="range" id="ct-' + f.id + '" min="' + f.cct_range[0] +
+      '" max="' + f.cct_range[1] + '" step="100" value="5600" oninput="dmxSync(\'' + f.id + '\',\'ct\')">' +
+      ' <input type="number" id="ct-n-' + f.id + '" min="' + f.cct_range[0] + '" max="' + f.cct_range[1] +
+      '" step="100" value="5600" style="width:5em" oninput="dmxSync(\'' + f.id + '\',\'ct-n\')"> K' +
+      ' <label><input type="checkbox" id="ct-f-' + f.id + '"> fade</label>' +
+      ' <input type="number" id="ct-s-' + f.id + '" value="0.1" min="0" max="60" step="0.05"' +
+      ' style="width:4em" title="seconds per step"> s' +
+      ' <button onclick="dmxLightSet(\'' + f.id + '\',\'cct\')">Set</button></div>';
+    html += '<div>Fade look: power <input type="number" id="lk-pw-' + f.id + '" min="0" max="100"' +
+      ' step="1" placeholder="—" style="width:4.5em"> %' +
+      ' <label><input type="checkbox" class="allow-bright" id="lk-b-' + f.id + '"> allow bright</label> + color ' +
+      '<input type="number" id="lk-ct-' + f.id + '" min="' + f.cct_range[0] + '" max="' + f.cct_range[1] +
+      '" step="100" placeholder="—" style="width:5em"> K over ' +
+      '<input type="number" id="lk-s-' + f.id + '" value="0.5" min="0" max="60" step="0.5"' +
+      ' style="width:4em" title="seconds per step"> s' +
+      ' <button onclick="dmxLightLook(\'' + f.id + '\')">Fade</button>' +
+      " <small>blank = leave unchanged · power steps first, then color</small></div>";
+  }
+  return html + "</div>";
+}
+async function dmxLightsLoad() {
+  try {
+    const r = await jget("/api/testbench/dmx/fixtures?studio=home-studio");
+    dmxFixtures = r.fixtures;
+    document.getElementById("dmx-lights").innerHTML = r.fixtures.length
+      ? r.fixtures.map(dmxLightPanel).join("")
+      : "no DMX lights configured for home-studio";
+    if (r.skipped && r.skipped.length) {
+      document.getElementById("dmx-lights").innerHTML += '<div class="bad">skipped: ' +
+        r.skipped.map(s => s.target + " (" + s.reason + ")").join("; ") + "</div>";
+    }
+  } catch (e) {
+    document.getElementById("dmx-lights").innerHTML = "fixture load failed: " + e;
+  }
+}
+function dmxWhole(raw) {
+  return /^\d+$/.test(String(raw).trim()) ? parseInt(raw, 10) : NaN;
+}
+function dmxSync(id, which) {
+  const pairs = {"pw": ["pw-", "pw-n-"], "pw-n": ["pw-n-", "pw-"], "ct": ["ct-", "ct-n-"], "ct-n": ["ct-n-", "ct-"]};
+  const p = pairs[which];
+  document.getElementById(p[1] + id).value = document.getElementById(p[0] + id).value;
+}
+async function dmxLightSet(id, kind) {
+  const pre = kind === "power" ? "pw" : "ct";
+  const val = dmxWhole(document.getElementById(pre + "-n-" + id).value);
+  if (isNaN(val)) {
+    out("dmx", {error: (kind === "power" ? "power" : "color") + " must be a whole number"}, false);
+    return;
+  }
+  const fade = document.getElementById(pre + "-f-" + id).checked;
+  const secs = parseFloat(document.getElementById(pre + "-s-" + id).value) || 0;
+  const brightBox = document.getElementById(pre + "-b-" + id);
+  const bright = brightBox ? brightBox.checked : false;
+  if (kind === "power" && !dmxBrightOk(val, 10, pre + "-b-" + id)) return;
+  const body = {port: dmxPort(), fixture: id, dwell_s: fade ? secs : 0, allow_bright: bright};
+  body[kind === "power" ? "power" : "cct"] = val;
+  if (fade) out("dmx", {status: "fading…"}, true);
+  try { const r = await jpost("/api/testbench/dmx/light", JSON.stringify(body)); out("dmx", r, r.ok); }
+  catch (e) { out("dmx", {error: String(e)}, false); }
+}
+async function dmxLightLook(id) {
+  const p = document.getElementById("lk-pw-" + id).value;
+  const cEl = document.getElementById("lk-ct-" + id);
+  const c = cEl ? cEl.value : "";
+  if (p === "" && c === "") { out("dmx", {error: "give the look a power and/or color target"}, false); return; }
+  if (p !== "" && isNaN(dmxWhole(p))) { out("dmx", {error: "look power must be a whole number"}, false); return; }
+  if (c !== "" && isNaN(dmxWhole(c))) { out("dmx", {error: "look color must be a whole number"}, false); return; }
+  if (p !== "" && !dmxBrightOk(parseInt(p, 10), 10, "lk-b-" + id)) return;
+  const body = {port: dmxPort(), fixture: id,
+    dwell_s: parseFloat(document.getElementById("lk-s-" + id).value) || 0,
+    allow_bright: document.getElementById("lk-b-" + id).checked};
+  if (p !== "") body.power = parseInt(p, 10);
+  if (c !== "") body.cct = parseInt(c, 10);
+  out("dmx", {status: "fading…"}, true);
+  try { const r = await jpost("/api/testbench/dmx/light", JSON.stringify(body)); out("dmx", r, r.ok); }
+  catch (e) { out("dmx", {error: String(e)}, false); }
+}
+async function dmxSweep() {
+  const body = {port: dmxPort(), start: parseInt(document.getElementById("dmx-start").value, 10),
+    end: parseInt(document.getElementById("dmx-end").value, 10), value: 13, dwell_ms: 500};
+  out("dmx", {status: "sweeping… watch the fixtures"}, true);
+  try { const r = await jpost("/api/testbench/dmx/sweep", JSON.stringify(body)); out("dmx", r, r.ok); }
+  catch (e) { out("dmx", {error: String(e)}, false); }
+}
+function scrId() { return document.getElementById("scr-id").value || "back"; }
+async function scrPush() {
+  document.getElementById("scr-link").href = "/screen/" + encodeURIComponent(scrId());
+  const body = {screen: scrId(), theme: document.getElementById("scr-theme").value || null,
+    text: document.getElementById("scr-text").value || null};
+  try { const r = await jpost("/api/testbench/screen/push", JSON.stringify(body)); out("scr", r, r.ok); }
+  catch (e) { out("scr", {error: String(e)}, false); }
+}
+async function scrState() {
+  try { const r = await jpost("/api/testbench/screen/state", JSON.stringify({screen: scrId()})); out("scr", r, r.ok); }
+  catch (e) { out("scr", {error: String(e)}, false); }
+}
+async function scrAudio(action) {
+  const body = {screen: scrId(), action: action, track: document.getElementById("scr-track").value || null};
+  try { const r = await jpost("/api/testbench/screen/audio", JSON.stringify(body)); out("scr", r, r.ok); }
+  catch (e) { out("scr", {error: String(e)}, false); }
+}
 (async () => {
+  renderKasaList();
   try {
     const drivers = await jget("/api/testbench/drivers");
     document.getElementById("drivers").innerHTML = drivers.map(d =>
@@ -202,6 +467,8 @@ async function gvmPage() { gvmSet({page: document.getElementById("gvm-page").val
       '<div id="o-' + d.id + '"></div></div>'
     ).join("");
     jget("/api/testbench/ir/codes").then(fillSendSel).catch(() => {});
+    jget("/api/testbench/gvm/panels").then(fillGvmPanels).catch(() => {});
+    dmxLightsLoad();
   } catch (e) {
     document.getElementById("drivers").innerHTML = '<span class="bad">unreachable: ' + e + "</span>";
   }

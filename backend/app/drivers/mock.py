@@ -9,7 +9,7 @@ class MockDriver(Driver):
 
     def __init__(self, driver_id, initial_state=None, fail_on=()):
         super().__init__(driver_id)
-        self.state = dict(initial_state or {"power": "off"})
+        self.state = dict(initial_state if initial_state is not None else {"power": "off"})
         self.calls = []
         self.fail_on = set(fail_on)
 

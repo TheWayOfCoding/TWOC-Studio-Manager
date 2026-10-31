@@ -67,3 +67,18 @@ Example — brightness 16%:
   reaching >= 16 bytes.
 - `tools/bt_decode.py CAP [TAPLOG]` lists ATT writes; btsnoop timestamps
   are BOOTTIME, not epoch — correlate by intervals, not absolute time.
+
+## Named panels (Bench)
+
+The Bench drives configured panels by name — no scan needed. Give each
+panel a `driverAddress` in your `studios.local` devices file:
+
+```json
+{"driver": "gvm", "driverAddress": {"ble": "AA:BB:CC:DD:EE:FF"}}
+```
+
+`GET /api/testbench/gvm/panels` lists `{id, name, studio}` (never
+addresses); `probe`/`state`/`set` accept `panel` (the `studio/device`
+id) instead of `address`, and panel-based responses echo the name, not
+the address. A raw `address` still works for direct API use (e.g. a new
+panel found via `/scan`), but the Bench UI never sends or shows one.

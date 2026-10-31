@@ -15,6 +15,10 @@ class PowerError(Exception):
     """Zone has no plan: missing plug driver."""
 
 
+class UnknownPowerGroupError(PowerError):
+    """No device carries that power group (config error, not degraded hardware)."""
+
+
 class PowerModule(Module):
     """Switches registry zones through plug drivers. drivers: plug_id -> Driver."""
 
@@ -39,7 +43,20 @@ class PowerModule(Module):
         room never surges. Raises SafetyViolation before anything moves.
         """
         devices = self.registry.devices_in_zone(zone_id)
-        powered = [item for item in devices if item.get("powerPlug")]
+        return self._plan_steps([item for item in devices if item.get("powerPlug")], on)
+
+    def plan_group_power(self, group_id, on):
+        """Same plan over a power group instead of a zone. No hardware moves.
+
+        Raises UnknownPowerGroupError when no device carries the group.
+        """
+        devices = [self.registry.get_device(item) for item in self.registry.device_ids]
+        members = [item for item in devices if item.get("powerGroup") == group_id]
+        if not members:
+            raise UnknownPowerGroupError(f"unknown power group: {group_id}")
+        return self._plan_steps([item for item in members if item.get("powerPlug")], on)
+
+    def _plan_steps(self, powered, on):
         for device in powered:
             check_power(device, on)
             self._plug_driver(device)
@@ -67,7 +84,13 @@ class PowerModule(Module):
 
     def set_zone_power(self, zone_id, on, sleep=time.sleep):
         """Execute a zone plan step by step. Returns per-step results."""
-        plan = self.plan_zone_power(zone_id, on)
+        return self._execute(self.plan_zone_power(zone_id, on), sleep)
+
+    def set_group_power(self, group_id, on, sleep=time.sleep):
+        """Execute a power-group plan step by step. Returns per-step results."""
+        return self._execute(self.plan_group_power(group_id, on), sleep)
+
+    def _execute(self, plan, sleep):
         results = []
         for step in plan:
             driver = self.drivers[step["plug"]]

@@ -9,7 +9,7 @@ from app.config.loader import load_all
 from app.core.safety import SafetyViolation
 from app.registry import Registry
 from app.drivers.mock import MockDriver
-from app.modules.power import PowerError, PowerModule
+from app.modules.power import PowerError, PowerModule, UnknownPowerGroupError
 from app.registry import Registry
 
 CONFIG_ROOT = Path(__file__).resolve().parents[2] / "config"
@@ -77,3 +77,23 @@ def test_execute_records_and_sleeps(power):
     assert all(item["ok"] for item in results)
     assert sleeps == [2, 2]
     assert power.drivers["plug-1"].state["on"] is True
+
+
+@pytest.mark.unit
+def test_plan_group_power_mirrors_zone(power):
+    plan = power.plan_group_power("bench-power", True)
+    assert [step["device"] for step in plan] == ["demo-cam", "demo-key"]
+    assert [step["plug"] for step in plan] == ["plug-2", "plug-1"]
+
+
+@pytest.mark.unit
+def test_plan_group_unknown(power):
+    with pytest.raises(UnknownPowerGroupError, match="nope-group"):
+        power.plan_group_power("nope-group", True)
+
+
+@pytest.mark.unit
+def test_set_group_power_executes(power):
+    results = power.set_group_power("desk-power", True, sleep=lambda s: None)
+    assert [(item["device"], item["ok"]) for item in results] == [("demo-screen", True)]
+    assert power.drivers["plug-3"].state["on"] is True

@@ -3,7 +3,7 @@
 
 import pytest
 
-from app.core.safety import SafetyViolation, check_power
+from app.core.safety import SafetyViolation, check_power, check_stream
 
 
 def _device(device_id="d1", policy="auto"):
@@ -36,3 +36,14 @@ def test_never_off_refused():
 def test_power_on_always_allowed():
     check_power(_device(policy="never"), True)
     check_power(_device(policy="manual-only"), True)
+
+
+@pytest.mark.unit
+def test_stream_needs_confirmation():
+    check_stream("start", True)
+    check_stream("stop", True)
+    check_stream("switch", False)
+    with pytest.raises(SafetyViolation, match="unconfirmed stream start"):
+        check_stream("start", False)
+    with pytest.raises(SafetyViolation, match="unconfirmed stream stop"):
+        check_stream("stop", False)

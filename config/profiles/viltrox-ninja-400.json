@@ -1,8 +1,8 @@
 {
   "id": "viltrox-ninja-400",
   "kind": "light",
-  "spec": {"bicolor": true},
+  "spec": {"maxWatts": 400, "bicolor": true, "intensityRange": [0, 100], "cctRange": [2500, 8500]},
   "capabilities": {"intensity": true, "cct": true, "rgb": false, "dmx": true},
   "effects": [{"name": "steady", "photoRisk": "none"}],
-  "notes": "Bi-color COB with RJ45 DMX. Full spec TBD from manual. B-SWAP candidate for PC key."
+  "notes": "Bi-color COB with RJ45 DMX. Bench-verified: 2ch (dimmer, CCT 0=2500K..255=8500K linear); display floors (25->9, 26->10). B-SWAP candidate for PC key."
 }

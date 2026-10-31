@@ -50,9 +50,17 @@ $remote = "powershell -NoProfile -Command ""Expand-Archive -Path C:\studio\deplo
 ssh "$TargetUser@$TargetHost" $remote
 if ($LASTEXITCODE -ne 0) { throw "remote update failed (SSH transport)" }
 
+# Health loop over a literal IPv4: mDNS names can resolve to an unreachable
+# IPv6 first and stall .NET HTTP past the timeout (ssh falls through fine).
+$healthHost = $TargetHost
+try {
+    $resolved = Resolve-DnsName $TargetHost -Type A -ErrorAction Stop |
+        Where-Object { $_.IPAddress } | Select-Object -First 1 -ExpandProperty IPAddress
+    if ($resolved) { $healthHost = $resolved.ToString() }
+} catch { }
 $health = $null
 for ($i = 0; $i -lt 12; $i++) {
-    try { $health = Invoke-RestMethod "http://${TargetHost}:8000/api/health" -TimeoutSec 3; break }
+    try { $health = Invoke-RestMethod "http://${healthHost}:8000/api/health" -TimeoutSec 3; break }
     catch { Start-Sleep 5 }
 }
 Remove-Item $stage -Recurse -Force -ErrorAction SilentlyContinue
