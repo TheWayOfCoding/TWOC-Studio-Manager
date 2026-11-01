@@ -66,6 +66,26 @@ def default_port():
     return usb[0] if usb else None
 
 
+_shared_drivers = {}
+_shared_drivers_guard = threading.Lock()
+
+
+def get_shared_driver(port=None, driver_cls=None):
+    """One cached driver per (class, port): the buffer remembers last levels.
+
+    Fades walk from the buffered levels, so every surface driving one
+    universe (bench, modes) shares this instance instead of each replaying
+    from zero. The class joins the key so patched test doubles never collide.
+    """
+    cls = driver_cls or DmxUsbDriver
+    resolved = port or os.environ.get("DMX_PORT") or default_port()
+    key = (cls, resolved)
+    with _shared_drivers_guard:
+        if key not in _shared_drivers:
+            _shared_drivers[key] = cls("dmx-universe", resolved)
+        return _shared_drivers[key]
+
+
 def open_port(port, timeout=2.0):
     """Open the port at DMX line settings. Raises DmxError with a human cause."""
     if port is None:

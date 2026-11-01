@@ -52,13 +52,17 @@ below stays put — toggle and re-test without re-discovering.</p>
 <button onclick="gvmState()">State</button></div>
 <div><button onclick="gvmPower('on')">Power on</button>
 <button onclick="gvmPower('off')">Power off</button></div>
-<div>brightness <input type="number" id="gvm-br" value="5" min="1" max="100" style="width:4em">
+<div>brightness <input type="number" id="gvm-br" value="5" min="0" max="100" style="width:4em">
 <button onclick="gvmBright()">Set</button>
 CCT <input type="number" id="gvm-cct" value="4300" min="3200" max="5600" step="100" style="width:5em">
 <button onclick="gvmCct()">Set</button></div>
+<div>hue <input type="number" id="gvm-hue" value="220" min="0" max="360" step="5" style="width:4em">
+<button onclick="gvmHue()">Set</button>
+sat <input type="number" id="gvm-sat" value="60" min="0" max="100" style="width:4em">
+<button onclick="gvmSat()">Set</button></div>
 <div>scene <input type="number" id="gvm-scene" value="3" min="1" max="18" style="width:4em">
 <button onclick="gvmScene()">Set scene</button>
-page <select id="gvm-page"><option value="cct">cct</option><option value="scene">scene</option></select>
+page <select id="gvm-page"><option value="cct">cct</option><option value="hsi">hsi</option><option value="scene">scene</option></select>
 <button onclick="gvmPage()">Announce</button></div>
 <div><button onclick="gvmScan()">Scan 8s</button> <span id="gvm-devs"></span></div>
 <p>Panels come from the hub config — pick one, no scan needed. Scenes are
@@ -111,6 +115,14 @@ text <input type="text" id="scr-text" placeholder="topic">
 <button onclick="scrAudio('stop')">Stop bed</button>
 <a id="scr-link" href="/screen/back" target="_blank">open kiosk</a></div>
 <div id="scr"></div></div>
+<div class="card"><h2>Presentations</h2>
+<div>studio <input type="text" id="show-studio" value="home-studio" style="width:10em">
+<button onclick="showList()">List</button> <select id="show-sel"></select></div>
+<div><label><input type="checkbox" id="show-confirm"> confirm scene steps</label>
+<button onclick="showRun()">Run</button>
+<button onclick="showStop()">Stop</button>
+<button onclick="showStatus()">Status</button></div>
+<div id="show"></div></div>
 <div id="drivers">loading…</div>
 <script>
 async function jget(path) {
@@ -127,6 +139,36 @@ async function jpost(path, body) {
 function out(id, obj, ok) {
   document.getElementById(id).innerHTML =
     '<span class="' + (ok === false ? "bad" : "ok") + '">●</span><pre>' + JSON.stringify(obj, null, 2) + "</pre>";
+}
+function showStudio() { return document.getElementById("show-studio").value || "home-studio"; }
+function showSel() { return document.getElementById("show-sel").value; }
+async function showList() {
+  try { const r = await jget("/api/studios/" + showStudio() + "/shows");
+    document.getElementById("show-sel").innerHTML = r.shows.map(s =>
+      "<option value=\"" + s.id + "\">" + s.label + " (" + s.steps + ")</option>").join("");
+    out("show", r, true);
+  } catch (e) { out("show", {error: String(e)}, false); }
+}
+async function showRun() {
+  const body = JSON.stringify({confirm_scenes: document.getElementById("show-confirm").checked});
+  try { const r = await jpost("/api/studios/" + showStudio() + "/shows/" + showSel() + "/run", body);
+    out("show", r, r.state === "running"); showPoll();
+  } catch (e) { out("show", {error: String(e)}, false); }
+}
+async function showStop() {
+  try { const r = await jpost("/api/studios/" + showStudio() + "/shows/" + showSel() + "/stop", "{}"); out("show", r, true); }
+  catch (e) { out("show", {error: String(e)}, false); }
+}
+async function showStatus() {
+  try { const r = await jget("/api/studios/" + showStudio() + "/shows/" + showSel() + "/status"); out("show", r, true); return r; }
+  catch (e) { out("show", {error: String(e)}, false); }
+}
+async function showPoll() {
+  for (let i = 0; i < 120; i++) {
+    await new Promise(r => setTimeout(r, 1000));
+    const s = await showStatus();
+    if (!s || s.state !== "running") return;
+  }
 }
 async function probe(id) {
   try { const r = await jpost("/api/testbench/" + id + "/probe", "{}"); out("o-" + id, r, r.ok); }
@@ -278,6 +320,8 @@ async function gvmSet(body) {
 async function gvmPower(on) { gvmSet({power: on}); }
 async function gvmBright() { gvmSet({brightness: parseInt(document.getElementById("gvm-br").value, 10)}); }
 async function gvmCct() { gvmSet({cct: parseInt(document.getElementById("gvm-cct").value, 10)}); }
+async function gvmHue() { gvmSet({hue: parseInt(document.getElementById("gvm-hue").value, 10)}); }
+async function gvmSat() { gvmSet({saturation: parseInt(document.getElementById("gvm-sat").value, 10)}); }
 async function gvmScene() {
   const v = parseInt(document.getElementById("gvm-scene").value, 10);
   if (!confirm("Scene " + v + " is UNTESTED (photo-risk intense). Look away. Continue?")) return;

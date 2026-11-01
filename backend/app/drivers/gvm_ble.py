@@ -25,14 +25,21 @@ TRAILER = 0xFF
 MODE_POWER = 0x00
 MODE_BRIGHTNESS = 0x02
 MODE_TEMPERATURE = 0x03
+MODE_HUE = 0x04
+MODE_SATURATION = 0x05
 MODE_PAGE = 0x06
 MODE_SCENE = 0x07
 
-MIN_BRIGHTNESS = 1
+MIN_BRIGHTNESS = 0
 MAX_BRIGHTNESS = 100
 MIN_CCT = 3200
 MAX_CCT = 5600
 CCT_STEP = 100
+MIN_HUE = 0
+MAX_HUE = 360
+HUE_STEP = 5
+MIN_SATURATION = 0
+MAX_SATURATION = 100
 MAX_SCENE = 18  # 1300D/1500D manual scene list
 
 PAGE_NAMES = {"cct": 0x01, "hsi": 0x02, "scene": 0x03}
@@ -70,12 +77,33 @@ def power_frame(on):
 
 
 def brightness_frame(percent):
-    """Brightness frame. `percent` is an int 1-100."""
+    """Brightness frame. `percent` is an int 0-100 (HSI capture: 0 is a real setpoint)."""
     if not isinstance(percent, int) or isinstance(percent, bool):
-        raise GvmError(f"brightness must be an int 1-100, got {percent!r}")
+        raise GvmError(f"brightness must be an int 0-100, got {percent!r}")
     if not MIN_BRIGHTNESS <= percent <= MAX_BRIGHTNESS:
-        raise GvmError(f"brightness must be an int 1-100, got {percent!r}")
+        raise GvmError(f"brightness must be an int 0-100, got {percent!r}")
     return build_frame(MODE_BRIGHTNESS, percent)
+
+
+def hue_frame(degrees):
+    """Hue frame. `degrees` is 0-360 in steps of 5, sent as degrees/5."""
+    if (
+        not isinstance(degrees, int)
+        or isinstance(degrees, bool)
+        or not MIN_HUE <= degrees <= MAX_HUE
+        or degrees % HUE_STEP
+    ):
+        raise GvmError(f"hue must be 0-360 in steps of 5, got {degrees!r}")
+    return build_frame(MODE_HUE, degrees // HUE_STEP)
+
+
+def saturation_frame(percent):
+    """Saturation frame. `percent` is an int 0-100, sent raw."""
+    if not isinstance(percent, int) or isinstance(percent, bool):
+        raise GvmError(f"saturation must be an int 0-100, got {percent!r}")
+    if not MIN_SATURATION <= percent <= MAX_SATURATION:
+        raise GvmError(f"saturation must be an int 0-100, got {percent!r}")
+    return build_frame(MODE_SATURATION, percent)
 
 
 def cct_frame(kelvin):
@@ -98,7 +126,7 @@ def scene_frame(index):
 
 
 def page_frame(name_or_index):
-    """Page-announce frame. Accepts 'cct'/'hsi'/'scene' (hsi unverified) or 1-4."""
+    """Page-announce frame. Accepts 'cct'/'hsi'/'scene' (all capture-verified) or 1-4."""
     index = PAGE_NAMES.get(name_or_index, name_or_index)
     if not isinstance(index, int) or isinstance(index, bool) or not 1 <= index <= 4:
         raise GvmError(f"page must be cct/hsi/scene or 1-4, got {name_or_index!r}")
@@ -183,11 +211,41 @@ async def _awrite(address, frame, timeout):
         await client.disconnect()
 
 
+async def _awrite_many(address, frames, timeout):
+    """Write every frame on one connection. Returns one outcome per frame.
+
+    A failed write stops the batch: later frames are reported unsent rather
+    than shipped into an unknown panel state.
+    """
+    client = await _aconnect(address, timeout)
+    try:
+        uuid = _resolve_control(client)
+        outcomes = []
+        for frame in frames:
+            try:
+                await client.write_gatt_char(uuid, frame, response=False)
+            except Exception as exc:  # noqa: BLE001 - report per frame, stop the batch
+                outcomes.append({"ok": False, "error": str(exc)})
+                unsent = len(frames) - len(outcomes)
+                outcomes.extend({"ok": False, "error": f"not sent: {exc}"} for _ in range(unsent))
+                break
+            outcomes.append(
+                {
+                    "ok": True,
+                    "sent": {"address": address, "bytes": len(frame), "frame": frame.hex()},
+                }
+            )
+        return outcomes
+    finally:
+        await client.disconnect()
+
+
 class GvmBleDriver(Driver):
     """One GVM panel at a fixed BLE address.
 
-    Commands (exactly one key): {"power": "on"|"off"}, {"brightness": 1-100},
-    {"cct": 3200-5600 step 100}, {"scene": 1-18}, {"page": "cct"|"scene"|1-4}.
+    Commands (exactly one key): {"power": "on"|"off"}, {"brightness": 0-100},
+    {"cct": 3200-5600 step 100}, {"hue": 0-360 step 5}, {"saturation": 0-100},
+    {"scene": 1-18}, {"page": "cct"|"hsi"|"scene"|1-4}.
     """
 
     def __init__(self, driver_id, address, timeout=15):
@@ -200,7 +258,7 @@ class GvmBleDriver(Driver):
             "family": "gvm",
             "transport": "ble",
             "control_uuid": CONTROL_UUID,
-            "commands": ["power", "brightness", "cct", "scene", "page"],
+            "commands": ["power", "brightness", "cct", "hue", "saturation", "scene", "page"],
         }
 
     def get_state(self):
@@ -238,13 +296,19 @@ class GvmBleDriver(Driver):
         if "cct" in command:
             value = command["cct"]
             return cct_frame(value), {"cct": value}
+        if "hue" in command:
+            value = command["hue"]
+            return hue_frame(value), {"hue": value}
+        if "saturation" in command:
+            value = command["saturation"]
+            return saturation_frame(value), {"saturation": value}
         if "scene" in command:
             value = command["scene"]
             return scene_frame(value), {"scene": value}
         if "page" in command:
             value = command["page"]
             return page_frame(value), {"page": value}
-        raise GvmError("command needs one of: power, brightness, cct, scene, page")
+        raise GvmError("command needs one of: power, brightness, cct, hue, saturation, scene, page")
 
     def apply(self, command):
         try:
@@ -259,6 +323,44 @@ class GvmBleDriver(Driver):
             return DriverResult(ok=True, state={**summary, **sent})
         except Exception as exc:  # noqa: BLE001 - drivers report, never raise
             return DriverResult(ok=False, state=dict(summary), error=str(exc))
+
+    def apply_many(self, commands):
+        """Write several single-key commands on ONE connection (one show-step beat).
+
+        Plan-then-apply: every command is validated before anything ships, so
+        one bad key sends nothing. Returns one DriverResult per command.
+        """
+        planned = []
+        for command in commands:
+            try:
+                planned.append(self._frame_for(command))
+            except GvmError as exc:
+                return [DriverResult(ok=False, error=str(exc)) for _ in commands]
+        if not planned:
+            return []
+        err = _bleak_error()
+        if err:
+            return [DriverResult(ok=False, state=dict(summary), error=err) for _, summary in planned]
+        try:
+            outcomes = asyncio.run(
+                _awrite_many(self.address, [frame for frame, _ in planned], self.timeout)
+            )
+        except Exception as exc:  # noqa: BLE001 - drivers report, never raise
+            return [
+                DriverResult(ok=False, state=dict(summary), error=str(exc))
+                for _, summary in planned
+            ]
+        results = []
+        for (_, summary), outcome in zip(planned, outcomes):
+            if outcome.get("ok"):
+                results.append(DriverResult(ok=True, state={**summary, **outcome["sent"]}))
+            else:
+                results.append(
+                    DriverResult(ok=False, state=dict(summary), error=outcome.get("error"))
+                )
+        while len(results) < len(planned):
+            results.append(DriverResult(ok=False, error="batch returned too few outcomes"))
+        return results
 
     def safe_stop(self):
         """Power the panel off. Best-effort, never raises."""

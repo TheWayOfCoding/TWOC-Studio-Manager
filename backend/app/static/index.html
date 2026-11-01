@@ -20,13 +20,19 @@ input[type=text] { width: 24em; max-width: 100%; }
 <h1>Studio Hub</h1>
 <div class="card"><h2>Health</h2><div id="health">loading…</div></div>
 <div class="card"><h2>Studio</h2><select id="studio"></select></div>
-<div class="card"><h2>Modes</h2><div id="modes">loading…</div><div id="mode-out"></div></div>
+<div class="card"><h2>Modes</h2><div><label><input type="checkbox" id="pwr-delay-on"> stagger power</label> <input type="number" id="pwr-delay-s" value="1" min="0" max="5" step="0.1" style="width:4em"> s</div><div id="modes">loading…</div><div id="mode-out"></div></div>
 <div class="card"><h2>Presets</h2><div id="presets">loading…</div><div id="preset-out"></div></div>
+<div class="card"><h2>Presentations</h2>
+<div><label><input type="checkbox" id="show-confirm"> confirm scene steps</label>
+<button onclick="showStop()">Stop</button></div>
+<div id="shows">loading…</div><div id="show-out"></div></div>
 <div class="card"><h2>AI look</h2>
 <div><input type="text" id="ai-prompt" placeholder="cozy interview">
 <select id="ai-targets"><option value="both">lights+screen</option>
 <option value="lights">lights</option><option value="screens">screen</option></select>
 <button onclick="aiLook()">Direct</button></div>
+<div id="ai-save" style="display:none"><input type="text" id="ai-preset-id" placeholder="preset id">
+<button onclick="aiSave()">Save as preset</button></div>
 <div id="ai-out"></div></div>
 <script>
 async function jget(path) {
@@ -72,7 +78,11 @@ async function loadPresets() {
 }
 async function applyMode(id) {
   out("mode-out", {status: "applying " + id + "…"}, true);
-  try { renderApply("mode-out", await jpost("/api/studios/" + studio() + "/modes/" + id + "/apply", "{}")); }
+  let body = "{}";
+  if (document.getElementById("pwr-delay-on").checked) {
+    body = JSON.stringify({power_delay_s: parseFloat(document.getElementById("pwr-delay-s").value) || 0});
+  }
+  try { renderApply("mode-out", await jpost("/api/studios/" + studio() + "/modes/" + id + "/apply", body)); }
   catch (e) { out("mode-out", {error: String(e)}, false); }
 }
 async function applyPreset(id) {
@@ -80,15 +90,60 @@ async function applyPreset(id) {
   try { renderApply("preset-out", await jpost("/api/studios/" + studio() + "/presets/" + id + "/apply", "{}")); }
   catch (e) { out("preset-out", {error: String(e)}, false); }
 }
+async function loadShows() {
+  try {
+    const s = await jget("/api/studios/" + studio() + "/shows");
+    document.getElementById("shows").innerHTML = s.shows.map(x =>
+      "<button onclick=\"showRun('" + x.id + "')\">" + x.label + " (" + x.steps + ")</button>").join("") || "no shows";
+  } catch (e) { out("show-out", {error: String(e)}, false); }
+}
+let LAST_SHOW = null;
+async function showRun(id) {
+  LAST_SHOW = id;
+  const body = JSON.stringify({confirm_scenes: document.getElementById("show-confirm").checked});
+  out("show-out", {status: "starting " + id + "…"}, true);
+  try { const r = await jpost("/api/studios/" + studio() + "/shows/" + id + "/run", body);
+    out("show-out", r, r.state === "running"); showPoll(id);
+  } catch (e) { out("show-out", {error: String(e)}, false); }
+}
+async function showStop() {
+  if (!LAST_SHOW) { out("show-out", {error: "run a show first"}, false); return; }
+  try { out("show-out", await jpost("/api/studios/" + studio() + "/shows/" + LAST_SHOW + "/stop", "{}"), true); }
+  catch (e) { out("show-out", {error: String(e)}, false); }
+}
+async function showPoll(id) {
+  for (let i = 0; i < 120; i++) {
+    await new Promise(r => setTimeout(r, 1000));
+    try { const s = await jget("/api/studios/" + studio() + "/shows/" + id + "/status");
+      out("show-out", s, true);
+      if (s.state !== "running") return;
+    } catch (e) { out("show-out", {error: String(e)}, false); return; }
+  }
+}
+let AI_CANDIDATE = null;
 async function aiLook() {
   const body = JSON.stringify({prompt: document.getElementById("ai-prompt").value,
     targets: document.getElementById("ai-targets").value});
   out("ai-out", {status: "directing…"}, true);
   try {
     const r = await jpost("/api/studios/" + studio() + "/ai/look", body);
+    AI_CANDIDATE = r.preset_candidate || null;
+    document.getElementById("ai-save").style.display = AI_CANDIDATE ? "" : "none";
     document.getElementById("ai-out").innerHTML =
       "<pre>" + JSON.stringify({directives: r.directives, critique: r.critique,
         apply: r.apply.subsystems}, null, 2) + "</pre>";
+  } catch (e) { out("ai-out", {error: String(e)}, false); }
+}
+async function aiSave() {
+  const id = document.getElementById("ai-preset-id").value.trim();
+  if (!AI_CANDIDATE) { out("ai-out", {error: "direct a look first"}, false); return; }
+  if (!id) { out("ai-out", {error: "preset id required"}, false); return; }
+  try {
+    const r = await jpost("/api/studios/" + studio() + "/ai/save-preset", JSON.stringify({
+      preset_id: id, label: AI_CANDIDATE.label,
+      lights: AI_CANDIDATE.lights || {}, screen: AI_CANDIDATE.screen || {}}));
+    out("ai-out", {status: "saved preset " + r.preset + (r.overwrote ? " (overwrote)" : "")}, true);
+    loadPresets();
   } catch (e) { out("ai-out", {error: String(e)}, false); }
 }
 (async () => {
@@ -100,9 +155,9 @@ async function aiLook() {
     const s = await jget("/api/studios");
     const sel = document.getElementById("studio");
     sel.innerHTML = s.map(x => "<option value=\"" + x.id + "\">" + x.label + "</option>").join("");
-    sel.onchange = () => { STUDIO = sel.value; loadModes(); loadPresets(); };
+    sel.onchange = () => { STUDIO = sel.value; loadModes(); loadPresets(); loadShows(); };
     STUDIO = (s.find(x => x.id === "home-studio") || s[0] || {}).id || null;
-    if (STUDIO) { sel.value = STUDIO; loadModes(); loadPresets(); }
+    if (STUDIO) { sel.value = STUDIO; loadModes(); loadPresets(); loadShows(); }
   } catch (e) {
     document.getElementById("health").innerHTML = '<span class="bad">unreachable: ' + e + "</span>";
   }

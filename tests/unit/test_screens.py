@@ -57,3 +57,23 @@ def test_apply_mapping_unknown_screen(module):
     assert results["back"].ok is True
     assert results["nope"].ok is False
     assert "nope" in results["nope"].error
+
+
+@pytest.mark.unit
+def test_wash_splash_and_clear(module):
+    """Wash tints the kiosk behind the caption; null clears it back off."""
+    splashed = module.drivers["back"].apply({"wash": {"color": "#2040ff", "opacity": 0.5}})
+    assert splashed.ok is True
+    assert splashed.state["wash"] == {"color": "#2040ff", "opacity": 0.5}
+    assert module.drivers["back"].get_state().state["wash"] == {"color": "#2040ff", "opacity": 0.5}
+    cleared = module.drivers["back"].apply({"wash": None})
+    assert cleared.ok is True
+    assert "wash" not in cleared.state
+    assert "wash" not in module.drivers["back"].get_state().state
+
+
+@pytest.mark.unit
+def test_wash_rejects_bad_shape(module):
+    assert module.drivers["back"].apply({"wash": "blue"}).ok is False
+    assert module.drivers["back"].apply({"wash": {"color": "#fff", "opacity": 9}}).ok is False
+    assert module.drivers["back"].apply({"wash": {}}).ok is False

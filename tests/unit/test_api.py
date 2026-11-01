@@ -3,6 +3,7 @@
 
 import sys
 from contextlib import contextmanager
+from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
@@ -12,6 +13,44 @@ from app.main import app
 from app.registry import Registry
 
 client = TestClient(app)
+CONFIG_ROOT = Path(__file__).resolve().parents[2] / "config"
+
+
+class StubUniverse:
+    """Recording stand-in for the shared DMX universe driver (no hardware)."""
+
+    def __init__(self):
+        self.channels = {}
+        self.calls = []
+
+    def apply(self, command):
+        self.calls.append(("apply", dict(command["channels"])))
+        self.channels.update(command["channels"])
+        return DriverResult(ok=True, state={"channels": dict(self.channels)})
+
+    def fade(self, target, seconds, units="dmx", dwell_s=None):
+        self.calls.append(("fade", dict(target), units, dwell_s))
+        if units == "dmx":
+            self.channels.update(target)
+        return 1
+
+    def get_state(self):
+        return DriverResult(ok=True, state={"channels": dict(self.channels)})
+
+
+class FakeGvm:
+    """Recording stand-in for a GVM BLE driver (no radio)."""
+
+    instances = {}
+
+    def __init__(self, driver_id, address, timeout=15):
+        self.driver_id = driver_id
+        self.calls = []
+        FakeGvm.instances[driver_id] = self
+
+    def apply(self, command):
+        self.calls.append(dict(command))
+        return DriverResult(ok=True, state=dict(command))
 
 
 @pytest.mark.unit
@@ -213,6 +252,134 @@ def test_modes_apply_unknown_mode_404():
 
 
 @pytest.mark.unit
+def test_plug_drivers_wire_optional_credentials(tmp_path):
+    """plug-map entries may carry Kasa creds; modes wiring passes them through."""
+    import json
+
+    from app.api import modes as modes_api
+
+    local = tmp_path / "studios.local"
+    local.mkdir()
+    (local / "plug-map.json").write_text(
+        json.dumps(
+            {
+                "plugs": [
+                    {
+                        "plug": "plug-a",
+                        "host": "192.0.2.21",
+                        "zone": "tzone",
+                        "username": "user",
+                        "password": "secret",
+                    },
+                    {"plug": "plug-b", "host": "192.0.2.22", "zone": "tzone"},
+                    {
+                        "plug": "plug-x",
+                        "host": "192.0.2.23",
+                        "zone": "elsewhere",
+                        "username": "u",
+                        "password": "p",
+                    },
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
+    loaded = {
+        "studio": {"id": "x", "label": "X"},
+        "devices": [],
+        "zones": [{"id": "tzone", "label": "T"}],
+        "modes": [],
+        "presets": {},
+    }
+    drivers = modes_api._plug_drivers(Registry.from_loaded(loaded, {}), tmp_path)
+    assert set(drivers) == {"plug-a", "plug-b"}
+    assert (drivers["plug-a"].username, drivers["plug-a"].password) == ("user", "secret")
+    assert (drivers["plug-b"].username, drivers["plug-b"].password) == (None, None)
+
+
+@pytest.mark.unit
+def test_obs_applier_scoped_per_studio_and_disconnects(tmp_path, monkeypatch):
+    """obs.json maps studio ids to OBS hosts; applies switch then disconnects."""
+    import json
+
+    from app.api import modes as modes_api
+    from app.drivers.base import DriverResult
+
+    local = tmp_path / "studios.local"
+    local.mkdir()
+    (local / "obs.json").write_text(
+        json.dumps({"studios": {"x": {"host": "192.0.2.9", "password": "pw"}}}),
+        encoding="utf-8",
+    )
+    made = {}
+
+    class FakeObs:
+        def __init__(self, driver_id, host, port, password):
+            made["ctor"] = (driver_id, host, port, password)
+            self.closed = False
+
+        def apply(self, command):
+            made["apply"] = dict(command)
+            return DriverResult(ok=True, state={"scene": command["scene"]})
+
+        def safe_stop(self):
+            self.closed = True
+            made["closed"] = True
+            return DriverResult(ok=True, state={"connected": False})
+
+    monkeypatch.setattr(modes_api, "ObsWsDriver", FakeObs)
+    loaded = {
+        "studio": {"id": "x", "label": "X"},
+        "devices": [],
+        "zones": [],
+        "modes": [],
+        "presets": {},
+    }
+    applier = modes_api._obs_applier(Registry.from_loaded(loaded, {}), tmp_path)
+    assert callable(applier)
+    result = applier("Main")
+    assert result.ok is True and result.state == {"scene": "Main"}
+    assert made["ctor"] == ("obs-modes", "192.0.2.9", 4455, "pw")
+    assert made["apply"] == {"action": "switch", "scene": "Main"}
+    assert made["closed"] is True
+
+    other = dict(loaded, studio={"id": "y", "label": "Y"})
+    assert modes_api._obs_applier(Registry.from_loaded(other, {}), tmp_path) is None
+    assert modes_api._obs_applier(Registry.from_loaded(loaded, {}), tmp_path / "empty") is None
+
+
+@pytest.mark.unit
+def test_screens_applier_wires_screen_devices():
+    """Studios with screen-driver devices get a modes screens applier."""
+    from app.api import modes as modes_api
+    from app.drivers.screen import SCREEN_STATE
+
+    SCREEN_STATE.clear()
+    try:
+        loaded = {
+            "studio": {"id": "x", "label": "X"},
+            "devices": [
+                {"id": "kqc", "zone": "tzone", "type": "screen", "driver": "screen"},
+                {"id": "cam", "zone": "tzone", "type": "camera", "driver": None},
+            ],
+            "zones": [{"id": "tzone", "label": "T"}],
+            "modes": [],
+            "presets": {},
+        }
+        applier = modes_api._screens_applier(Registry.from_loaded(loaded, {}))
+        assert callable(applier)
+        results = applier({"kqc": {"theme": "live", "text": "Hi"}})
+        assert results["kqc"].ok is True
+        assert results["kqc"].state["text"] == "Hi"
+        assert applier({"ghost": {"theme": "x"}})["ghost"].ok is False
+
+        bare = dict(loaded, devices=[loaded["devices"][1]])
+        assert modes_api._screens_applier(Registry.from_loaded(bare, {})) is None
+    finally:
+        SCREEN_STATE.clear()
+
+
+@pytest.mark.unit
 def test_modes_unknown_studio_404():
     assert client.get("/api/studios/nope/modes").status_code == 404
     assert client.post("/api/studios/nope/modes/demo_work/apply").status_code == 404
@@ -266,6 +433,94 @@ def test_modes_apply_validation_422():
         response = client.post("/api/studios/x/modes/bad/apply")
         assert response.status_code == 422
         assert "intensity" in response.json()["detail"]
+
+
+@pytest.mark.unit
+def test_modes_apply_fade_override_accepted_and_validated():
+    ok = client.post("/api/studios/example-studio/modes/demo_work/apply", json={"fade_s": 0.5})
+    assert ok.status_code == 200
+    bad = client.post("/api/studios/example-studio/modes/demo_work/apply", json={"fade_s": "soon"})
+    assert bad.status_code == 422
+    assert "fade_s" in bad.json()["detail"]
+    preset = client.post(
+        "/api/studios/example-studio/presets/default/apply", json={"fade_s": "soon"}
+    )
+    assert preset.status_code == 422
+
+
+@pytest.mark.unit
+def test_modes_apply_power_delay_accepted_and_validated():
+    ok = client.post(
+        "/api/studios/example-studio/modes/demo_work/apply", json={"power_delay_s": 1.5}
+    )
+    assert ok.status_code == 200
+    bad = client.post(
+        "/api/studios/example-studio/modes/demo_work/apply", json={"power_delay_s": 9}
+    )
+    assert bad.status_code == 422
+    assert "power_delay_s" in bad.json()["detail"]
+
+
+@pytest.mark.unit
+def test_modes_apply_home_hands_on_drives_dmx(monkeypatch):
+    """hands_on sets both DMX fixtures (stub universe, plugs unwired: no hardware)."""
+    from app.api import modes as modes_api
+    from app.drivers.dmx_usb import dmx_for_cct, dmx_for_percent
+
+    stub = StubUniverse()
+    FakeGvm.instances = {}
+    monkeypatch.setattr(modes_api, "_plug_drivers", lambda registry, root: {})
+    monkeypatch.setattr(modes_api, "_obs_applier", lambda registry, root: None)
+    monkeypatch.setattr(modes_api, "_screens_applier", lambda registry: None)
+    monkeypatch.setattr(modes_api, "get_shared_driver", lambda port=None: stub)
+    monkeypatch.setattr(modes_api, "GvmBleDriver", FakeGvm)
+    response = client.post("/api/studios/home-studio/modes/hands_on/apply")
+    assert response.status_code == 200
+    lights = response.json()["subsystems"]["lights"]
+    assert lights["status"] == "ready"
+    assert stub.channels == {
+        1: dmx_for_percent(2),
+        2: dmx_for_cct(5600, 2500, 8500),
+        20: dmx_for_percent(2),
+    }
+    assert FakeGvm.instances["gvm-ho"].calls == [{"brightness": 5}, {"cct": 5000}]
+    faded = client.post("/api/studios/home-studio/modes/hands_on/apply", json={"fade_s": 0.5})
+    assert faded.status_code == 200
+    assert faded.json()["subsystems"]["lights"]["status"] == "ready"
+    assert ("fade", {1: 2}, "percent", 0.5) in stub.calls
+    assert ("fade", {20: 2}, "percent", 0.5) in stub.calls
+
+
+@pytest.mark.unit
+def test_build_modes_module_wires_home_dmx_without_http(monkeypatch):
+    """Same hands_on path through the module directly (runs socket-free)."""
+    from app.api import modes as modes_api
+    from app.config.loader import load_all
+    from app.drivers.dmx_usb import dmx_for_cct, dmx_for_percent
+    from app.registry import Registry as RegistryCls
+
+    data = load_all(CONFIG_ROOT)
+    registry = RegistryCls.from_loaded(data["studios"]["home-studio"], data["profiles"])
+    stub = StubUniverse()
+    FakeGvm.instances = {}
+    monkeypatch.setattr(modes_api, "_plug_drivers", lambda reg, root: {})
+    monkeypatch.setattr(modes_api, "_obs_applier", lambda reg, root: None)
+    monkeypatch.setattr(modes_api, "_screens_applier", lambda reg: None)
+    monkeypatch.setattr(modes_api, "get_shared_driver", lambda port=None: stub)
+    monkeypatch.setattr(modes_api, "GvmBleDriver", FakeGvm)
+    module = modes_api.build_modes_module(registry, CONFIG_ROOT)
+    result = module.apply_mode("hands_on", sleep=lambda s: None)
+    assert result["subsystems"]["lights"]["status"] == "ready"
+    assert stub.channels == {
+        1: dmx_for_percent(2),
+        2: dmx_for_cct(5600, 2500, 8500),
+        20: dmx_for_percent(2),
+    }
+    assert FakeGvm.instances["gvm-ho"].calls == [{"brightness": 5}, {"cct": 5000}]
+    faded = module.apply_mode("hands_on", sleep=lambda s: None, fade_s=0.5)
+    assert faded["subsystems"]["lights"]["status"] == "ready"
+    assert ("fade", {1: 2}, "percent", 0.5) in stub.calls
+    assert ("fade", {20: 2}, "percent", 0.5) in stub.calls
 
 
 @pytest.mark.unit

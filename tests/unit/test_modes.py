@@ -219,15 +219,24 @@ def test_gvm_keys_translated_per_key(modes):
     assert modes.lights["demo-key"].state == {"brightness": 30, "cct": 5000}
     calls = [call for call in modes.lights["demo-key"].calls if call[0] == "apply"]
     assert [sorted(call[1]) for call in calls] == [["brightness"], ["cct"]]
+    modes.registry._devices["demo-rgb"]["driver"] = "gvm"
+    modes.registry._modes["h"] = {
+        "id": "h",
+        "label": "H",
+        "lights": {"demo-rgb": {"hue": 220, "saturation": 60}},
+    }
+    hued = modes.apply_mode("h", sleep=lambda s: None)
+    assert hued["subsystems"]["lights"]["status"] == "ready"
+    assert modes.lights["demo-rgb"].state == {"hue": 220, "saturation": 60}
 
 
 @pytest.mark.unit
 def test_unknown_driver_family_degraded(modes):
-    modes.registry._devices["demo-screen"]["driver"] = "dmx"
+    modes.registry._devices["demo-screen"]["driver"] = "hyperlight"
     result = modes.apply_mode("demo_work", sleep=lambda s: None)
     lights = result["subsystems"]["lights"]
     assert lights["status"] == "degraded"
-    assert any("dmx" in item["reason"] for item in lights["skipped"])
+    assert any("hyperlight" in item["reason"] for item in lights["skipped"])
 
 
 @pytest.mark.unit
@@ -280,3 +289,382 @@ def test_describe_reports_readiness(modes):
         "obs": "missing",
         "screens": "missing",
     }
+
+
+class FadeDriver:
+    """Fade-capable fake: records apply/fade calls like MockDriver."""
+
+    def __init__(self, driver_id):
+        self.driver_id = driver_id
+        self.state = {}
+        self.calls = []
+
+    def apply(self, command):
+        self.calls.append(("apply", dict(command)))
+        self.state.update(command)
+        return DriverResult(ok=True, state=dict(self.state))
+
+    def fade(self, command, dwell_s):
+        self.calls.append(("fade", dict(command), dwell_s))
+        self.state.update(command)
+        return DriverResult(ok=True, state=dict(self.state))
+
+
+class InstantDriver:
+    """Fade-less fake: apply only, like the GVM driver."""
+
+    def __init__(self, driver_id):
+        self.driver_id = driver_id
+        self.state = {}
+        self.calls = []
+
+    def apply(self, command):
+        self.calls.append(("apply", dict(command)))
+        self.state.update(command)
+        return DriverResult(ok=True, state=dict(self.state))
+
+
+DMX_PROFILES = {
+    "dmx-bicolor": {
+        "spec": {"intensityRange": [0, 100], "cctRange": [2500, 8500]},
+        "capabilities": {"intensity": True, "cct": True, "rgb": False},
+    },
+    "dmx-dimmer": {
+        "spec": {"intensityRange": [0, 100]},
+        "capabilities": {"intensity": True, "cct": False, "rgb": False},
+    },
+}
+
+
+def make_dmx_registry():
+    devices = [
+        {
+            "id": "dmx-key",
+            "name": "DMX key",
+            "type": "light",
+            "zone": "bench",
+            "profile": "dmx-bicolor",
+            "controllable": True,
+            "driver": "dmx",
+            "driverAddress": {"dmx": {"dimmer": 1, "cct": 2}},
+        },
+        {
+            "id": "dmx-fill",
+            "name": "DMX fill",
+            "type": "light",
+            "zone": "bench",
+            "profile": "dmx-dimmer",
+            "controllable": True,
+            "driver": "dmx",
+            "driverAddress": {"dmx": {"dimmer": 20}},
+        },
+        {
+            "id": "dmx-broken",
+            "name": "DMX broken",
+            "type": "light",
+            "zone": "bench",
+            "profile": "dmx-dimmer",
+            "controllable": True,
+            "driver": "dmx",
+        },
+    ]
+    loaded = {
+        "studio": {"id": "s", "label": "s"},
+        "devices": devices,
+        "zones": [{"id": "bench"}],
+        "modes": [],
+        "presets": {},
+    }
+    return Registry.from_loaded(loaded, DMX_PROFILES)
+
+
+@pytest.fixture()
+def dmx_modes():
+    registry = make_dmx_registry()
+    lights = {device: FadeDriver(device) for device in ("dmx-key", "dmx-fill", "dmx-broken")}
+    return ModesModule("modes", registry, lights=lights)
+
+
+@pytest.mark.unit
+def test_dmx_keys_translate_and_apply(dmx_modes):
+    dmx_modes.registry._modes["look"] = {
+        "id": "look",
+        "label": "Look",
+        "lights": {"dmx-key": {"intensity": 5, "cct": 5600}, "dmx-fill": {"intensity": 3}},
+    }
+    result = dmx_modes.apply_mode("look", sleep=lambda s: None)
+    assert result["subsystems"]["lights"]["status"] == "ready"
+    assert dmx_modes.lights["dmx-key"].state == {"intensity": 5, "cct": 5600}
+    assert dmx_modes.lights["dmx-fill"].state == {"intensity": 3}
+    calls = [call for call in dmx_modes.lights["dmx-key"].calls if call[0] == "apply"]
+    assert [sorted(call[1]) for call in calls] == [["intensity"], ["cct"]]
+
+
+@pytest.mark.unit
+def test_dmx_missing_channel_map_degraded(dmx_modes):
+    dmx_modes.registry._modes["look"] = {
+        "id": "look",
+        "label": "Look",
+        "lights": {"dmx-broken": {"intensity": 5}},
+    }
+    result = dmx_modes.apply_mode("look", sleep=lambda s: None)
+    lights = result["subsystems"]["lights"]
+    assert lights["status"] == "degraded"
+    assert any("dmx-broken" in item["reason"] for item in lights["skipped"])
+
+
+@pytest.mark.unit
+def test_dmx_power_key_skipped_with_hint(dmx_modes):
+    dmx_modes.registry._modes["look"] = {
+        "id": "look",
+        "label": "Look",
+        "lights": {"dmx-key": {"power": "off"}},
+    }
+    result = dmx_modes.apply_mode("look", sleep=lambda s: None)
+    lights = result["subsystems"]["lights"]
+    assert lights["status"] == "degraded"
+    assert any("intensity 0" in item["reason"] for item in lights["skipped"])
+    assert dmx_modes.lights["dmx-key"].state == {}
+
+
+@pytest.mark.unit
+def test_dmx_cct_without_channel_skipped(dmx_modes):
+    dmx_modes.registry._devices["dmx-fill"]["profile"] = "dmx-bicolor"
+    dmx_modes.registry._modes["look"] = {
+        "id": "look",
+        "label": "Look",
+        "lights": {"dmx-fill": {"intensity": 3, "cct": 5600}},
+    }
+    result = dmx_modes.apply_mode("look", sleep=lambda s: None)
+    lights = result["subsystems"]["lights"]
+    assert lights["status"] == "degraded"
+    assert any("CCT" in item["reason"] for item in lights["skipped"])
+    assert dmx_modes.lights["dmx-fill"].state == {"intensity": 3}
+
+
+@pytest.mark.unit
+def test_mode_fade_calls_driver_fade(dmx_modes):
+    dmx_modes.registry._modes["look"] = {
+        "id": "look",
+        "label": "Look",
+        "fade_s": 0.5,
+        "lights": {"dmx-key": {"intensity": 5, "cct": 5600}},
+    }
+    result = dmx_modes.apply_mode("look", sleep=lambda s: None)
+    assert result["subsystems"]["lights"]["status"] == "ready"
+    calls = dmx_modes.lights["dmx-key"].calls
+    assert calls == [("fade", {"intensity": 5, "cct": 5600}, 0.5)]
+
+
+@pytest.mark.unit
+def test_per_light_fade_overrides_mode(dmx_modes):
+    dmx_modes.registry._modes["look"] = {
+        "id": "look",
+        "label": "Look",
+        "fade_s": 0.5,
+        "lights": {"dmx-key": {"intensity": 5, "fade_s": 0}, "dmx-fill": {"intensity": 3}},
+    }
+    result = dmx_modes.apply_mode("look", sleep=lambda s: None)
+    assert result["subsystems"]["lights"]["status"] == "ready"
+    assert dmx_modes.lights["dmx-key"].calls == [("apply", {"intensity": 5})]
+    assert dmx_modes.lights["dmx-fill"].calls == [("fade", {"intensity": 3}, 0.5)]
+
+
+@pytest.mark.unit
+def test_apply_time_fade_overrides_all(dmx_modes):
+    dmx_modes.registry._modes["look"] = {
+        "id": "look",
+        "label": "Look",
+        "fade_s": 0.5,
+        "lights": {"dmx-key": {"intensity": 5, "fade_s": 0.1}},
+    }
+    result = dmx_modes.apply_mode("look", sleep=lambda s: None, fade_s=1.5)
+    assert result["subsystems"]["lights"]["status"] == "ready"
+    assert dmx_modes.lights["dmx-key"].calls == [("fade", {"intensity": 5}, 1.5)]
+
+
+@pytest.mark.unit
+def test_fade_unsupported_applies_instantly_with_note(dmx_modes):
+    dmx_modes.lights["dmx-key"] = InstantDriver("dmx-key")
+    dmx_modes.registry._modes["look"] = {
+        "id": "look",
+        "label": "Look",
+        "fade_s": 0.5,
+        "lights": {"dmx-key": {"intensity": 5}},
+    }
+    result = dmx_modes.apply_mode("look", sleep=lambda s: None)
+    lights = result["subsystems"]["lights"]
+    assert lights["status"] == "ready"
+    assert dmx_modes.lights["dmx-key"].state == {"intensity": 5}
+    assert any("dmx-key" in item["reason"] for item in lights["notes"])
+
+
+@pytest.mark.unit
+def test_bad_fade_rejected_before_moving(dmx_modes):
+    dmx_modes.registry._modes["bad"] = {
+        "id": "bad",
+        "label": "Bad",
+        "fade_s": "soon",
+        "lights": {"dmx-key": {"intensity": 5}},
+    }
+    with pytest.raises(ModesError, match="fade_s"):
+        dmx_modes.apply_mode("bad", sleep=lambda s: None)
+    assert dmx_modes.lights["dmx-key"].state == {}
+    assert dmx_modes.lights["dmx-key"].calls == []
+    dmx_modes.registry._modes["bad"]["fade_s"] = 0
+    dmx_modes.registry._modes["bad"]["lights"] = {"dmx-key": {"intensity": 5, "fade_s": -1}}
+    with pytest.raises(ModesError, match="fade_s"):
+        dmx_modes.apply_mode("bad", sleep=lambda s: None)
+    assert dmx_modes.lights["dmx-key"].calls == []
+
+
+@pytest.mark.unit
+def test_ai_cap_clamps_and_reports(dmx_modes):
+    dmx_modes.registry._devices["dmx-key"]["aiCap"] = {"intensity": 20}
+    result = dmx_modes.apply_custom(
+        "ai-x", {"lights": {"dmx-key": {"intensity": 50, "cct": 5600}}}, sleep=lambda s: None
+    )
+    lights = result["subsystems"]["lights"]
+    assert lights["status"] == "ready"
+    assert dmx_modes.lights["dmx-key"].state == {"intensity": 20, "cct": 5600}
+    assert lights["capped"] == [{"target": "dmx-key", "key": "intensity", "asked": 50, "capped": 20}]
+
+
+@pytest.mark.unit
+def test_ai_cap_applies_all_families(modes):
+    modes.registry._devices["demo-key"]["aiCap"] = {"intensity": 10}
+    result = modes.apply_custom("ai-x", {"lights": {"demo-key": {"intensity": 30}}}, sleep=lambda s: None)
+    assert result["subsystems"]["lights"]["status"] == "ready"
+    assert modes.lights["demo-key"].state == {"intensity": 10}
+    assert result["subsystems"]["lights"]["capped"][0]["capped"] == 10
+
+
+@pytest.mark.unit
+def test_authored_modes_ignore_ai_cap(modes):
+    modes.registry._devices["demo-key"]["aiCap"] = {"intensity": 10}
+    modes.registry._modes["bright"] = {
+        "id": "bright",
+        "label": "Bright",
+        "lights": {"demo-key": {"intensity": 60}},
+    }
+    result = modes.apply_mode("bright", sleep=lambda s: None)
+    assert result["subsystems"]["lights"]["status"] == "ready"
+    assert modes.lights["demo-key"].state == {"intensity": 60}
+    assert result["subsystems"]["lights"]["capped"] == []
+
+
+@pytest.mark.unit
+def test_apply_power_delay_staggers_plugs(modes):
+    sleeps = []
+    result = modes.apply_mode("demo_stream", sleep=sleeps.append, power_delay_s=0.5)
+    assert result["subsystems"]["power"]["status"] == "ready"
+    assert sleeps == [0.5]
+    assert modes.power.drivers["plug-1"].state["on"] is True
+
+
+@pytest.mark.unit
+def test_apply_power_delay_defaults_instant(modes):
+    sleeps = []
+    result = modes.apply_mode("demo_stream", sleep=sleeps.append)
+    assert result["subsystems"]["power"]["status"] == "ready"
+    assert sleeps == []
+
+
+@pytest.mark.unit
+def test_bad_power_delay_rejected_before_moving(modes):
+    with pytest.raises(ModesError, match="power_delay_s"):
+        modes.apply_mode("demo_stream", sleep=lambda s: None, power_delay_s="soon")
+    with pytest.raises(ModesError, match="power_delay_s"):
+        modes.apply_mode("demo_stream", sleep=lambda s: None, power_delay_s=5.5)
+    assert "on" not in modes.power.drivers["plug-1"].state
+
+
+@pytest.mark.unit
+def test_preset_fade_and_dmx(dmx_modes):
+    dmx_modes.registry._presets["look"] = {
+        "label": "Look",
+        "fade_s": 0.5,
+        "lights": {"dmx-key": {"intensity": 5}},
+    }
+    result = dmx_modes.apply_preset("look", sleep=lambda s: None)
+    assert result["kind"] == "preset"
+    assert result["subsystems"]["lights"]["status"] == "ready"
+    assert dmx_modes.lights["dmx-key"].calls == [("fade", {"intensity": 5}, 0.5)]
+
+
+@pytest.mark.unit
+def test_custom_skips_ai_cap_when_asked(modes):
+    """Authored shows bypass the AI intensity cap (they are not AI asks)."""
+    modes.registry._devices["demo-key"]["aiCap"] = {"intensity": 10}
+    result = modes.apply_custom(
+        "show-x", {"lights": {"demo-key": {"intensity": 30}}}, sleep=lambda s: None, ai_caps=False
+    )
+    assert result["subsystems"]["lights"]["status"] == "ready"
+    assert modes.lights["demo-key"].state == {"intensity": 30}
+    assert result["subsystems"]["lights"]["capped"] == []
+
+
+@pytest.mark.unit
+def test_custom_scene_refused_unless_allowed(modes):
+    """Scenes stay refused on the automation path; confirmed shows may pass."""
+    with pytest.raises(SafetyViolation, match="scene"):
+        modes.apply_custom("ai-x", {"lights": {"demo-key": {"scene": 3}}}, sleep=lambda s: None)
+    result = modes.apply_custom(
+        "show-x", {"lights": {"demo-key": {"scene": 3}}}, sleep=lambda s: None, allow_scenes=True
+    )
+    assert result["subsystems"]["lights"]["status"] == "ready"
+    assert ("apply", {"scene": 3}) in modes.lights["demo-key"].calls
+
+
+@pytest.mark.unit
+def test_gvm_keys_plan_page_first_scene_last(modes):
+    """GVM plans follow the proven bench order, not JSON key order."""
+    modes.registry._devices["demo-rgb"]["driver"] = "gvm"
+    plan = modes.plan_custom(
+        "show-x",
+        {"lights": {"demo-rgb": {"hue": 220, "intensity": 100, "page": "hsi",
+                                 "saturation": 60, "scene": 3}}},
+        allow_scenes=True,
+    )
+    keys = [key for key, _value in plan["lights"]["devices"][0]["commands"]]
+    assert keys == ["page", "brightness", "hue", "saturation", "scene"]
+
+
+class BatchDriver:
+    """Fake batch-capable driver: records apply_many, explodes on apply."""
+
+    def __init__(self, results=None):
+        self.batches = []
+        self.results = results
+
+    def apply(self, command):
+        raise AssertionError("batch driver must not take single applies")
+
+    def apply_many(self, commands):
+        self.batches.append(commands)
+        if self.results is not None:
+            return self.results
+        return [DriverResult(ok=True, state=dict(cmd)) for cmd in commands]
+
+
+@pytest.mark.unit
+def test_exec_batches_multi_key_steps(modes):
+    modes.lights["demo-key"] = BatchDriver()
+    result = modes.apply_custom(
+        "show-x", {"lights": {"demo-key": {"intensity": 40, "cct": 5000}}}, sleep=lambda s: None
+    )
+    applied = result["subsystems"]["lights"]["applied"]
+    assert [(item["key"], item["value"]) for item in applied] == [("intensity", 40), ("cct", 5000)]
+    assert all(item["ok"] for item in applied)
+    assert modes.lights["demo-key"].batches == [[{"intensity": 40}, {"cct": 5000}]]
+
+
+@pytest.mark.unit
+def test_exec_batch_shortfall_fails_missing_keys(modes):
+    modes.lights["demo-key"] = BatchDriver(results=[DriverResult(ok=True, state={})])
+    result = modes.apply_custom(
+        "show-x", {"lights": {"demo-key": {"intensity": 40, "cct": 5000}}}, sleep=lambda s: None
+    )
+    applied = result["subsystems"]["lights"]["applied"]
+    assert [item["ok"] for item in applied] == [True, False]
+    assert "too few" in applied[1]["error"]

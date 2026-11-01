@@ -8,12 +8,35 @@ from Pi-local config, never from the repo.
 """
 
 import asyncio
+import time
 
 from .base import Driver, DriverResult
+
+# First-contact flakiness: freshly-booted plugs answer discovery but fumble
+# the first handshake ("response did not match our challenge"), then behave
+# once woken. One retry heals it — but only for quick fumbles. A failure
+# that burned the whole timeout is a silence, not a fumble: retrying it
+# would just double the wait, so long failures report immediately.
+KASA_RETRY_PAUSE_S = 1.0
+KASA_RETRY_SLOW_S = 8.0
 
 
 class KasaError(Exception):
     """Plug unreachable, auth failed, or command rejected."""
+
+
+async def _retry_handshake(operation):
+    """Run an async plug handshake, retrying quick fumbles once."""
+    start = time.monotonic()
+    try:
+        return await operation()
+    except asyncio.CancelledError:
+        raise
+    except Exception:
+        if time.monotonic() - start >= KASA_RETRY_SLOW_S:
+            raise
+        await asyncio.sleep(KASA_RETRY_PAUSE_S)
+        return await operation()
 
 
 def _creds(username, password):
@@ -25,11 +48,14 @@ def _creds(username, password):
 async def _connected_device(host, username, password, timeout):
     import kasa
 
-    device = await kasa.Discover.discover_single(host, timeout=timeout, **_creds(username, password))
-    if device is None:
-        raise KasaError(f"no Kasa device at {host}")
-    await device.update()
-    return device
+    async def connect():
+        device = await kasa.Discover.discover_single(host, timeout=timeout, **_creds(username, password))
+        if device is None:
+            raise KasaError(f"no Kasa device at {host}")
+        await device.update()
+        return device
+
+    return await _retry_handshake(connect)
 
 
 async def _apply_and_verify(host, want, username, password, timeout):
@@ -46,7 +72,7 @@ async def _apply_and_verify(host, want, username, password, timeout):
         await device.turn_on() if want == "on" else await device.turn_off()
     except Exception as exc:  # noqa: BLE001 - verified below, not trusted
         ack_error = str(exc)
-    await device.update()
+    await _retry_handshake(device.update)
     actual = "on" if device.is_on else "off"
     if actual != want:
         raise KasaError(ack_error or f"plug did not switch (still {actual})")
@@ -66,7 +92,7 @@ async def adiscover_plugs(username=None, password=None, discovery_timeout=8):
     plugs = []
     for host, device in found.items():
         try:
-            await device.update()
+            await _retry_handshake(device.update)
             plugs.append(
                 {"host": host, "alias": device.alias, "model": device.model, "on": device.is_on}
             )

@@ -14,8 +14,10 @@ from app.drivers.gvm_ble import (
     build_frame,
     cct_frame,
     crc_xmodem,
+    hue_frame,
     page_frame,
     power_frame,
+    saturation_frame,
     scan_devices,
     scene_frame,
 )
@@ -38,6 +40,12 @@ def test_frames_match_captured_bytes():
     assert power_frame(False).hex() == "4c54090030570000010032feff"
     assert power_frame(True).hex() == "4c54090030570000010122dfff"
     assert page_frame("cct").hex() == "4c540900305700060101907fff"
+    assert page_frame("hsi").hex() == "4c540900305700060102a01cff"
+    assert hue_frame(100).hex() == "4c540900305700040114bc8bff"
+    assert hue_frame(345).hex() == "4c540900305700040145f65fff"
+    assert saturation_frame(100).hex() == "4c540900305700050164f52cff"
+    assert saturation_frame(5).hex() == "4c54090030570005010589abff"
+    assert brightness_frame(0).hex() == "4c5409003057000201005c9eff"
 
 
 def test_build_frame_rejects_non_bytes():
@@ -49,12 +57,18 @@ def test_build_frame_rejects_non_bytes():
 
 
 def test_value_ranges_rejected():
-    for bad in (0, 101, -5, "16", None):
+    for bad in (101, -5, "16", None, True):
         with pytest.raises(GvmError):
             brightness_frame(bad)
     for bad in (3100, 5700, 4350, 3200.0, None):
         with pytest.raises(GvmError):
             cct_frame(bad)
+    for bad in (-5, 361, 222, 100.0, "100", None, True):
+        with pytest.raises(GvmError):
+            hue_frame(bad)
+    for bad in (-1, 101, "50", None, True):
+        with pytest.raises(GvmError):
+            saturation_frame(bad)
     for bad in (0, 19, -1, "3", None):
         with pytest.raises(GvmError):
             scene_frame(bad)
@@ -73,7 +87,25 @@ def test_driver_rejects_bad_commands_without_touching_ble():
     assert driver.apply({}).ok is False
     assert driver.apply({"brightness": 500}).ok is False
     assert driver.apply({"power": "maybe"}).ok is False
+    assert driver.apply({"hue": 999}).ok is False
+    assert driver.apply({"saturation": -1}).ok is False
     assert driver.capabilities()["family"] == "gvm"
+
+
+def test_hue_saturation_endpoints():
+    assert hue_frame(0)[9] == 0x00
+    assert hue_frame(360)[9] == 0x48
+    assert saturation_frame(0)[9] == 0x00
+    assert saturation_frame(100)[9] == 0x64
+
+
+def test_module_hue_saturation_passthrough():
+    module = GvmModule("gvm", {"ble": MockDriver("mock-gvm")})
+    assert module.set_hue(220).ok
+    assert module.set_saturation(60).ok
+    assert module.drivers["ble"].state == {"power": "off", "hue": 220, "saturation": 60}
+    assert module.describe()["photo_risk"]["hue"] == "low"
+    assert module.describe()["photo_risk"]["saturation"] == "low"
 
 
 def test_safe_stop_never_raises():
@@ -131,3 +163,41 @@ def test_resolve_control_missing_raises():
     client = SimpleNamespace(services=[SimpleNamespace(characteristics=[])])
     with pytest.raises(GvmError):
         _resolve_control(client)
+
+
+def test_apply_many_writes_all_frames_on_one_connection(monkeypatch):
+    """One step, one BLE connection: every frame rides a single session."""
+    import app.drivers.gvm_ble as ble
+
+    calls = []
+
+    async def fake_write_many(address, frames, timeout):
+        calls.append((address, list(frames), timeout))
+        return [
+            {"ok": True, "sent": {"address": address, "bytes": len(frame), "frame": frame.hex()}}
+            for frame in frames
+        ]
+
+    monkeypatch.setattr(ble, "_awrite_many", fake_write_many, raising=False)
+    monkeypatch.setattr(ble, "_bleak_error", lambda: None)
+    driver = GvmBleDriver("gvm-ble", "AA:BB:CC:DD:EE:FF")
+    results = driver.apply_many([{"brightness": 72}, {"page": "scene"}, {"scene": 3}])
+    assert len(calls) == 1
+    assert calls[0][1] == [brightness_frame(72), page_frame("scene"), scene_frame(3)]
+    assert [item.ok for item in results] == [True, True, True]
+    assert results[0].state["brightness"] == 72
+    assert results[2].state["scene"] == 3
+
+
+def test_apply_many_rejects_bad_command_without_touching_ble(monkeypatch):
+    """Plan-then-apply inside the batch: one bad key sends nothing."""
+    import app.drivers.gvm_ble as ble
+
+    def explode(address, frames, timeout):
+        raise AssertionError("no frames may ship when one command is bad")
+
+    monkeypatch.setattr(ble, "_awrite_many", explode, raising=False)
+    driver = GvmBleDriver("gvm-ble", "AA:BB:CC:DD:EE:FF")
+    results = driver.apply_many([{"brightness": 50}, {"brightness": 999}])
+    assert [item.ok for item in results] == [False, False]
+    assert "brightness" in results[0].error

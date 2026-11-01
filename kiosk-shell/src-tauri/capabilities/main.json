@@ -1,0 +1,6 @@
+{
+  "identifier": "main",
+  "description": "Kiosk window may close itself on double-ESC.",
+  "windows": ["main"],
+  "permissions": ["core:window:allow-close"]
+}

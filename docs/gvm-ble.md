@@ -35,14 +35,18 @@ Panel: BT_LED (example address `AA:BB:CC:DD:EE:FF`; use your panel's), APP mode,
 
 - Leading `00 30 57 00` is constant in this session (group/channel?
   TBD — replay verbatim).
-- `MODE`: `00` = power, `02` = CCT brightness, `03` = CCT temperature,
-  `06` = page announce, `07` = scene.
+- `MODE`: `00` = power, `02` = brightness, `03` = CCT temperature,
+  `04` = HSI hue, `05` = HSI saturation, `06` = page announce, `07` = scene.
 - `VAL`:
   - Power: `0x00` = off, `0x01` = on (app greys/blues the button).
-  - Brightness: percent, `0x01`–`0x64` (verified 1/5/16).
+  - Brightness: percent, `0x00`–`0x64` (verified 0/1/3/5/16; the app sends
+    `0x00` as a genuine HSI setpoint, UI-confirmed at 0%).
   - Temperature: Kelvin/100, `0x20`–`0x38` (verified 35/43/51 = 3500/4300/5100K).
-  - Page announce: `0x01` on entering CCT tab, `0x03` on entering Scene tab
-    (hypothesis: 1-based tab index; panel likely just mirrors it).
+  - Hue: degrees/5, `0x00`–`0x48` (verified 100°→20, 155°→31, 245°→49,
+    345°→69; app only emits multiples of 5°).
+  - Saturation: percent, `0x00`–`0x64` (verified 5/24/48/71/95/100).
+  - Page announce: `0x01` on entering CCT tab, `0x02` on entering HSI tab,
+    `0x03` on entering Scene tab (1-based tab index; panel mirrors it).
   - Scene: 1-based tile index (`0x03` = Candle).
 
 Example — brightness 16%:
@@ -55,8 +59,16 @@ Example — brightness 16%:
 
 - Dials emit intermediate writes ~200 ms apart during a drag, plus the
   final value. Taps emit a single write.
+- The HSI brightness slider reuses MODE `02` (same encoding as CCT).
+- Sliders ignore taps — only drags move them. The hue wheel takes taps.
+- Entering/exiting HSI announces the tab both ways (`06 01 02` in,
+  `06 01 01` back to CCT); no extra toggle traffic like scenes.
 - One 14-byte (`0E`) setup frame at connect is still undecoded; not needed
   for open-loop control.
+
+HSI source: `captures/run5/` (Oct-2026 re-run: scripted tab switches, hue
+taps at 100/155/245/345°, saturation drags 100→5→100, brightness drags
+1→3→0% — all dim, screenshots + tap logs alongside).
 
 ## Capture method (for re-runs)
 

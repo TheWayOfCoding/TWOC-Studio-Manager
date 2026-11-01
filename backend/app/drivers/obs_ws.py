@@ -1,13 +1,21 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later
 """OBS Studio driver over OBS WebSocket v5 (scene switch, state, guarded stream).
 
-Scaffold: the wire client is injected (tests, bench trials) or built lazily
-from `websocket-client` when installed. Live bring-up fills the handshake.
+The wire client is injected (tests) or built lazily from `websocket-client`:
+Hello -> Identify (v5 password auth when the server demands it) -> Identified,
+then request/response calls with stray events skipped. Guarded stream control
+stays unimplemented (module enforces confirmation first).
 """
+
+import base64
+import hashlib
+import json
 
 from .base import Driver, DriverResult
 
 DEFAULT_PORT = 4455
+DEFAULT_TIMEOUT = 10
+RPC_VERSION = 1
 
 
 class ObsError(Exception):
@@ -62,7 +70,7 @@ class ObsWsDriver(Driver):
                 client.call("SetCurrentProgramScene", {"sceneName": scene})
                 return DriverResult(ok=True, state={"scene": scene})
             if action == "stream":
-                return DriverResult(ok=False, error="stream control is not implemented in the scaffold")
+                return DriverResult(ok=False, error="stream control is not implemented")
             return DriverResult(ok=False, error=f"unknown obs action: {action}")
         except Exception as exc:  # noqa: BLE001 - drivers report, never raise
             return DriverResult(ok=False, error=str(exc))
@@ -92,10 +100,87 @@ class ObsWsDriver(Driver):
         return self._client
 
 
+def _auth_secret(password, salt, challenge):
+    """v5 auth string: b64(sha256(b64(sha256(password + salt)) + challenge))."""
+    inner = base64.b64encode(hashlib.sha256((password + salt).encode()).digest()).decode()
+    return base64.b64encode(hashlib.sha256((inner + challenge).encode()).digest()).decode()
+
+
+class ObsWsClient:
+    """Sync v5 client over one websocket-client connection. call/close surface."""
+
+    def __init__(self, sock):
+        self._sock = sock
+        self._seq = 0
+
+    @classmethod
+    def connect(cls, host, port, password, timeout=DEFAULT_TIMEOUT):
+        try:
+            import websocket
+        except ImportError as exc:
+            raise ObsError("obs-websocket client not installed (need websocket-client)") from exc
+        try:
+            sock = websocket.create_connection(f"ws://{host}:{port}", timeout=timeout)
+        except Exception as exc:
+            raise ObsError(f"obs connect failed ({host}:{port}): {exc}") from exc
+        try:
+            hello = cls._recv(sock)
+            if hello.get("op") != 0:
+                raise ObsError(f"obs handshake: expected Hello, got op {hello.get('op')}")
+            identify = {"rpcVersion": RPC_VERSION, "eventSubscriptions": 0}
+            auth = (hello.get("d") or {}).get("authentication")
+            if auth is not None:
+                if not password:
+                    raise ObsError("obs requires a password (set one in the bench card)")
+                identify["authentication"] = _auth_secret(password, auth["salt"], auth["challenge"])
+            sock.send(json.dumps({"op": 1, "d": identify}))
+            identified = cls._recv(sock)
+            if identified.get("op") != 2:
+                raise ObsError(f"obs handshake: expected Identified, got op {identified.get('op')}")
+        except Exception:
+            try:
+                sock.close()
+            except Exception:  # noqa: BLE001 - handshake failure already reports
+                pass
+            raise
+        return cls(sock)
+
+    @staticmethod
+    def _recv(sock):
+        try:
+            return json.loads(sock.recv())
+        except Exception as exc:
+            raise ObsError(f"obs connection lost: {exc}") from exc
+
+    def call(self, request, data):
+        """One request/response round trip. Stray events are skipped."""
+        self._seq += 1
+        request_id = str(self._seq)
+        try:
+            self._sock.send(json.dumps({"op": 6, "d": {"requestType": request, "requestId": request_id, "requestData": data or {}}}))
+        except Exception as exc:
+            raise ObsError(f"obs send failed ({request}): {exc}") from exc
+        while True:
+            frame = self._recv(self._sock)
+            if frame.get("op") == 5:
+                continue
+            if frame.get("op") != 7:
+                raise ObsError(f"obs call {request}: unexpected op {frame.get('op')}")
+            body = frame.get("d") or {}
+            if body.get("requestId") != request_id:
+                continue
+            status = body.get("requestStatus") or {}
+            if status.get("result") is not True:
+                raise ObsError(f"obs call {request} failed ({status.get('code')}): {status.get('comment')}")
+            return body.get("responseData") or {}
+
+    def close(self):
+        try:
+            self._sock.close()
+        except Exception:  # noqa: BLE001 - close must never raise
+            pass
+
+
 def _default_client(host, port, password):
-    """Build a live v5 client. Raises ObsError until bring-up lands."""
-    try:
-        import websocket  # noqa: F401 - live handshake fills this in
-    except ImportError as exc:
-        raise ObsError("obs-websocket client not installed (live bring-up pending)") from exc
-    raise ObsError("obs-websocket v5 handshake not implemented (live bring-up pending)")
+    """Build a live v5 client (connects + identifies immediately)."""
+    return ObsWsClient.connect(host, port, password)

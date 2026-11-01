@@ -42,7 +42,8 @@ class ScreensModule(Module):
                 continue
             spec = spec if isinstance(spec, dict) else {}
             results[screen_id] = driver.apply(
-                {key: spec[key] for key in ("theme", "text") if key in spec} or {"theme": "default"}
+                {key: spec[key] for key in ("theme", "text", "wash") if key in spec}
+                or {"theme": "default"}
             )
         return results
 

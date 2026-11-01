@@ -95,3 +95,142 @@ def test_state_offline_without_client():
 @pytest.mark.unit
 def test_safe_stop_disconnects(module):
     assert module.drivers["ws"].safe_stop().state == {"connected": False}
+
+
+class FakeSocket:
+    """Scripted websocket-client connection: queued inbound frames, recorded sends."""
+
+    def __init__(self, inbound):
+        import json as _json
+
+        self._json = _json
+        self._inbound = [self._json.dumps(frame) for frame in inbound]
+        self.sent = []
+        self.closed = False
+
+    def send(self, payload):
+        self.sent.append(self._json.loads(payload))
+
+    def recv(self):
+        return self._inbound.pop(0)
+
+    def close(self):
+        self.closed = True
+
+
+class FakeWebsocketModule:
+    def __init__(self, sock):
+        self.sock = sock
+        self.urls = []
+
+    def create_connection(self, url, timeout=None):
+        self.urls.append((url, timeout))
+        return self.sock
+
+
+def _patch_websocket(monkeypatch, sock):
+    import sys
+
+    module = FakeWebsocketModule(sock)
+    monkeypatch.setitem(sys.modules, "websocket", module)
+    return module
+
+
+def _hello(auth=None):
+    data = {"obsWebSocketVersion": "5.5", "rpcVersion": 1}
+    if auth is not None:
+        data["authentication"] = auth
+    return {"op": 0, "d": data}
+
+
+@pytest.mark.unit
+def test_live_handshake_without_auth_and_event_skip(monkeypatch):
+    """Hello -> Identify -> Identified; stray events are skipped while awaiting."""
+    from app.drivers import obs_ws
+
+    sock = FakeSocket(
+        [
+            _hello(),
+            {"op": 2, "d": {"negotiatedRpcVersion": 1}},
+            {"op": 5, "d": {"eventType": "CurrentProgramSceneChanged", "eventData": {}}},
+            {
+                "op": 7,
+                "d": {
+                    "requestType": "GetVersion",
+                    "requestId": "1",
+                    "requestStatus": {"result": True, "code": 100},
+                    "responseData": {"obsVersion": "31.0-live"},
+                },
+            },
+        ]
+    )
+    wsmod = _patch_websocket(monkeypatch, sock)
+    client = obs_ws._default_client("obs-pc", 4455, None)
+    assert wsmod.urls == [("ws://obs-pc:4455", 10)]
+    assert sock.sent[0] == {"op": 1, "d": {"rpcVersion": 1, "eventSubscriptions": 0}}
+    assert client.call("GetVersion", {}) == {"obsVersion": "31.0-live"}
+    assert sock.sent[1]["op"] == 6
+    assert sock.sent[1]["d"]["requestType"] == "GetVersion"
+    client.close()
+    assert sock.closed is True
+
+
+@pytest.mark.unit
+def test_live_handshake_with_auth_matches_v5_algorithm(monkeypatch):
+    """Password auth uses the v5 secret: b64(sha256(b64(sha256(pw+salt))+challenge))."""
+    import base64
+    import hashlib
+
+    from app.drivers import obs_ws
+
+    salt, challenge = "salty1234567890ab", "challenger1234567890abcdef"
+    sock = FakeSocket(
+        [
+            _hello({"challenge": challenge, "salt": salt}),
+            {"op": 2, "d": {"negotiatedRpcVersion": 1}},
+            {
+                "op": 7,
+                "d": {
+                    "requestType": "GetSceneList",
+                    "requestId": "1",
+                    "requestStatus": {"result": True, "code": 100},
+                    "responseData": {"scenes": []},
+                },
+            },
+        ]
+    )
+    _patch_websocket(monkeypatch, sock)
+    client = obs_ws._default_client("obs-pc", 4455, "hunter2")
+    secret = base64.b64encode(hashlib.sha256(("hunter2" + salt).encode()).digest()).decode()
+    expected = base64.b64encode(hashlib.sha256((secret + challenge).encode()).digest()).decode()
+    assert sock.sent[0]["d"]["authentication"] == expected
+    assert client.call("GetSceneList", {}) == {"scenes": []}
+
+
+@pytest.mark.unit
+def test_live_handshake_missing_password_and_failed_request(monkeypatch):
+    from app.drivers import obs_ws
+
+    sock = FakeSocket([_hello({"challenge": "c", "salt": "s"})])
+    _patch_websocket(monkeypatch, sock)
+    with pytest.raises(obs_ws.ObsError, match="requires a password"):
+        obs_ws._default_client("obs-pc", 4455, None)
+
+    sock = FakeSocket(
+        [
+            _hello(),
+            {"op": 2, "d": {"negotiatedRpcVersion": 1}},
+            {
+                "op": 7,
+                "d": {
+                    "requestType": "SetCurrentProgramScene",
+                    "requestId": "1",
+                    "requestStatus": {"result": False, "code": 600, "comment": "No scene"},
+                },
+            },
+        ]
+    )
+    _patch_websocket(monkeypatch, sock)
+    client = obs_ws._default_client("obs-pc", 4455, None)
+    with pytest.raises(obs_ws.ObsError, match="No scene"):
+        client.call("SetCurrentProgramScene", {"sceneName": "Missing"})

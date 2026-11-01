@@ -7,9 +7,6 @@ Automated testing stays in the gentle range; the flag exists for the human
 operator driving the bench on purpose.
 """
 
-import os
-import threading
-
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel
 
@@ -19,17 +16,15 @@ from ..drivers.dmx_usb import (
     GENTLE_PERCENT_MAX,
     DmxUsbDriver,
     cct_for_dmx,
-    default_port,
     display_percent,
     dmx_for_cct,
     dmx_for_percent,
+    get_shared_driver,
 )
 
 log = get_logger("api")
 router = APIRouter()
 
-_drivers = {}
-_drivers_guard = threading.Lock()
 SWEEP_CHANNEL_MAX = 32
 SWEEP_DWELL_MS_MIN = 200
 SWEEP_DWELL_MS_MAX = 2000
@@ -76,18 +71,8 @@ class LightBody(PortBody):
 
 
 def _driver(body):
-    """One cached driver per (class, port): the buffer remembers last levels.
-
-    Fades walk from the buffered levels, so a cached buffer is what makes a
-    fade continue from the current look instead of replaying from zero. The
-    class joins the key so patched test doubles never collide.
-    """
-    port = body.port or os.environ.get("DMX_PORT") or default_port()
-    key = (DmxUsbDriver, port)
-    with _drivers_guard:
-        if key not in _drivers:
-            _drivers[key] = DmxUsbDriver("dmx-bench", port)
-        return _drivers[key]
+    """Shared universe driver: one buffer per (class, port), modes included."""
+    return get_shared_driver(body.port, DmxUsbDriver)
 
 
 def _check_value(value, allow_bright=False):

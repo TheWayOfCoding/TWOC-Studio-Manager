@@ -47,6 +47,37 @@ def test_obs_screen_cards_present():
 
 
 @pytest.mark.unit
+def test_shows_card_present():
+    """Presentations card lists, runs (with scene confirm), stops, polls."""
+    html = _bench_html()
+    for marker in (
+        'id="show-studio"',
+        'id="show-sel"',
+        'id="show-confirm"',
+        "showList()",
+        "showRun()",
+        "showStop()",
+        "showStatus()",
+        "/shows/",
+    ):
+        assert marker in html
+
+
+@pytest.mark.unit
+def test_gvm_hsi_controls_present():
+    """GVM card drives hue/saturation and announces the hsi page."""
+    html = _bench_html()
+    for marker in (
+        'id="gvm-hue"',
+        'id="gvm-sat"',
+        "gvmHue()",
+        "gvmSat()",
+        '<option value="hsi">hsi</option>',
+    ):
+        assert marker in html
+
+
+@pytest.mark.unit
 def test_dmx_fixture_ui_present():
     """DMX card leads with per-light panels; raw channels stay for bring-up."""
     html = _bench_html()

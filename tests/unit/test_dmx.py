@@ -269,12 +269,13 @@ def test_cct_for_dmx_inverts_dmx_for_cct():
 def test_bench_driver_cached_per_port():
     from app.api import dmx as dmx_api
 
-    dmx_api._drivers.clear()
+    dmx_usb._shared_drivers.clear()
     try:
         first = dmx_api._driver(dmx_api.PortBody(port="COM9"))
         second = dmx_api._driver(dmx_api.PortBody(port="COM9"))
         other = dmx_api._driver(dmx_api.PortBody(port="COM10"))
         assert first is second
         assert first is not other
+        assert dmx_usb.get_shared_driver("COM9") is first
     finally:
-        dmx_api._drivers.clear()
+        dmx_usb._shared_drivers.clear()

@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later
-"""Unit tests for staged zone power plans and execution."""
+"""Unit tests for zone power plans and execution (no staging pauses)."""
 
 from pathlib import Path
 
@@ -37,23 +37,10 @@ def test_plan_off_order_descending(power):
 
 
 @pytest.mark.unit
-def test_plan_delays_scale_with_watts(power):
-    plan = {step["device"]: step["delay_after_s"] for step in power.plan_zone_power("bench", True)}
-    assert plan["demo-cam"] == 2
-    assert plan["demo-key"] == 2
-    loaded = {
-        "studio": {"id": "s", "label": "s"},
-        "devices": [
-            {"id": "mid", "zone": "z", "powerPlug": "plug-1", "bootOrder": 1, "estWatts": 350},
-            {"id": "huge", "zone": "z", "powerPlug": "plug-2", "bootOrder": 2, "estWatts": 5000},
-        ],
-        "zones": [{"id": "z", "label": "z"}],
-        "modes": [],
-        "presets": {},
-    }
-    big = PowerModule("power", Registry.from_loaded(loaded, {}), power.drivers)
-    delays = {step["device"]: step["delay_after_s"] for step in big.plan_zone_power("z", True)}
-    assert delays == {"mid": 5, "huge": 10}
+def test_plan_carries_no_delays(power):
+    plan = power.plan_zone_power("bench", True)
+    assert all("delay_after_s" not in step for step in plan)
+    assert [step["device"] for step in plan] == ["demo-cam", "demo-key"]
 
 
 @pytest.mark.unit
@@ -70,13 +57,24 @@ def test_plan_missing_driver(power):
 
 
 @pytest.mark.unit
-def test_execute_records_and_sleeps(power):
+def test_execute_records_without_sleeping(power):
     sleeps = []
     results = power.set_zone_power("bench", True, sleep=sleeps.append)
     assert [item["device"] for item in results] == ["demo-cam", "demo-key"]
     assert all(item["ok"] for item in results)
-    assert sleeps == [2, 2]
+    assert sleeps == []
     assert power.drivers["plug-1"].state["on"] is True
+
+
+@pytest.mark.unit
+def test_execute_delay_pauses_between_steps_only(power):
+    sleeps = []
+    results = power.set_zone_power("bench", True, sleep=sleeps.append, delay_s=0.5)
+    assert all(item["ok"] for item in results)
+    assert sleeps == [0.5]
+    solo = power.set_zone_power("desk", True, sleep=sleeps.append, delay_s=0.5)
+    assert all(item["ok"] for item in solo)
+    assert sleeps == [0.5]
 
 
 @pytest.mark.unit

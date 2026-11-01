@@ -9,6 +9,7 @@ from app.drivers.kasa import KasaDriver, discover_plugs
 
 class FakeDevice:
     fail_ack = False
+    update_failures = 0
 
     def __init__(self, host, on=False):
         self.host = host
@@ -21,6 +22,9 @@ class FakeDevice:
         return self._on
 
     async def update(self):
+        if FakeDevice.update_failures > 0:
+            FakeDevice.update_failures -= 1
+            raise Exception("Device response did not match our challenge")
         return None
 
     async def turn_on(self):
@@ -56,6 +60,7 @@ def fake_kasa(monkeypatch):
     FakeDiscover.devices = {}
     FakeDiscover.missing = False
     FakeDevice.fail_ack = False
+    FakeDevice.update_failures = 0
     monkeypatch.setattr(kasa, "Discover", FakeDiscover)
     yield
 
@@ -114,3 +119,39 @@ def test_discover_lists_plugs_sorted():
     plugs = discover_plugs()
     assert [plug["host"] for plug in plugs] == ["192.0.2.7", "192.0.2.9"]
     assert plugs[0]["model"] == "HS103"
+
+
+@pytest.mark.unit
+def test_first_contact_challenge_healed_by_retry():
+    FakeDevice.update_failures = 1
+    result = KasaDriver("k7", "192.0.2.17").get_state()
+    assert result.ok
+    assert result.state["model"] == "HS103"
+
+
+@pytest.mark.unit
+def test_discover_retries_flaky_update():
+    FakeDevice.update_failures = 1
+    FakeDiscover.devices = {"192.0.2.18": FakeDevice("192.0.2.18")}
+    plugs = discover_plugs()
+    assert plugs[0]["model"] == "HS103"
+    assert plugs[0]["on"] is False
+
+
+@pytest.mark.unit
+def test_retry_exhaustion_reports_error():
+    FakeDevice.update_failures = 99
+    result = KasaDriver("k8", "192.0.2.19").get_state()
+    assert not result.ok
+    assert "challenge" in result.error
+
+
+@pytest.mark.unit
+def test_slow_failure_skips_retry(monkeypatch):
+    import app.drivers.kasa as kasa_mod
+
+    monkeypatch.setattr(kasa_mod, "KASA_RETRY_SLOW_S", 0)
+    FakeDevice.update_failures = 1
+    result = KasaDriver("k9", "192.0.2.20").get_state()
+    assert not result.ok
+    assert "challenge" in result.error

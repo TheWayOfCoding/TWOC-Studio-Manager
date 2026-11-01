@@ -4,15 +4,26 @@
 Plan phase validates everything (unknown ids, ranges, safety) and raises
 before anything moves. Execute phase runs power -> lights -> OBS -> screen;
 anything degraded is skipped and named, never silent (mode-catalog rule).
+
+Lights translate per driver family (mock, gvm, dmx). Fades are opt-in
+dwell seconds per step: a mode/preset default with per-light overrides and
+an apply-time override that wins over both. AI (custom) plans additionally
+clamp intensity to each fixture's configured aiCap, reporting every clamp,
+and refuse scene selects; confirmed shows opt out of both (ai_caps=False,
+allow_scenes=True). Multi-key steps ride one driver batch when the driver
+offers apply_many, so a step lands as one beat instead of smeared frames.
 """
 
 import time
 
 from ..core.safety import SafetyViolation
+from ..drivers.base import DriverResult
 from .base import Module
 from .power import PowerError, UnknownPowerGroupError
 
 LOG_CAP = 100
+DWELL_MAX_S = 60
+POWER_DELAY_MAX_S = 5
 
 # Generic light keys to profile spec range names. Only enforced for type=light
 # devices whose profile declares the range; anything else passes through and
@@ -28,11 +39,41 @@ LIGHT_CAPS = {"intensity": "intensity", "cct": "cct", "hue": "rgb", "saturation"
 # Per-family translation of generic light keys to driver keys. Drivers take
 # one key per apply (GVM frames carry a single command), so plans expand to
 # sequential single-key commands for every family.
-GVM_TRANSLATE = {"power": "power", "intensity": "brightness", "cct": "cct", "page": "page"}
+GVM_TRANSLATE = {
+    "power": "power",
+    "intensity": "brightness",
+    "cct": "cct",
+    "hue": "hue",
+    "saturation": "saturation",
+    "page": "page",
+    "scene": "scene",
+}
+
+# Canonical GVM frame order (matches the proven bench order): page context
+# first so hue/saturation/scene frames land on the right panel page.
+GVM_KEY_ORDER = ("page", "power", "brightness", "cct", "hue", "saturation", "scene")
 
 
 class ModesError(Exception):
     """Malformed mode/preset content (config error, fails the apply)."""
+
+
+def _check_dwell(value, where):
+    """Validate a fade dwell (seconds held per step). Raises ModesError."""
+    if isinstance(value, bool) or not isinstance(value, (int, float)) or not 0 <= value <= DWELL_MAX_S:
+        raise ModesError(f"{where} must be 0..{DWELL_MAX_S} (dwell seconds per step): {value!r}")
+    return value
+
+
+def _check_power_delay(value):
+    """Validate an apply-time power stagger (0..5s between plug steps)."""
+    if isinstance(value, bool) or not isinstance(value, (int, float)) or not 0 <= value <= POWER_DELAY_MAX_S:
+        raise ModesError(f"power_delay_s must be 0..{POWER_DELAY_MAX_S} (seconds between plug steps): {value!r}")
+    return value
+
+
+def _is_dmx_channel(channel):
+    return isinstance(channel, int) and not isinstance(channel, bool) and 1 <= channel <= 512
 
 
 class ModesModule(Module):
@@ -74,58 +115,78 @@ class ModesModule(Module):
             "last": self.log[-1] if self.log else None,
         }
 
-    def plan_mode(self, mode_id):
+    def plan_mode(self, mode_id, fade_s=None):
         """Validate a mode into an executable plan. Raises before anything moves."""
-        return self.plan_custom(mode_id, self.registry.get_mode(mode_id), kind="mode")
+        return self.plan_custom(mode_id, self.registry.get_mode(mode_id), kind="mode", fade_s=fade_s)
 
-    def plan_custom(self, plan_id, content, kind="custom"):
+    def plan_custom(self, plan_id, content, kind="custom", fade_s=None, ai_caps=True, allow_scenes=False):
         """Validate ad-hoc mode-like content (AI directives). Same rules as modes."""
         if not isinstance(content, dict):
             raise ModesError("custom plan content must be an object")
+        if fade_s is None:
+            default_dwell = _check_dwell(content.get("fade_s", 0), "fade_s")
+            fade_lock = None
+        else:
+            default_dwell = fade_lock = _check_dwell(fade_s, "fade_s")
+        if kind != "custom":
+            ai_caps = False
         return {
             "kind": kind,
             "id": plan_id,
             "intent": content.get("intent"),
             "toggles": content.get("toggles") or {},
             "power": self._plan_power(content.get("powerOn") or [], content.get("powerOff") or []),
-            "lights": self._plan_lights(content.get("lights") or {}),
+            "lights": self._plan_lights(
+                content.get("lights") or {}, default_dwell, ai_caps, fade_lock,
+                allow_scenes=allow_scenes,
+            ),
             "obs": {"scene": content.get("obsScene")},
             "screens": {"screens": content.get("screen") or {}},
         }
 
-    def apply_mode(self, mode_id, sleep=None):
+    def apply_mode(self, mode_id, sleep=None, fade_s=None, power_delay_s=None):
         """Plan, then execute power -> lights -> OBS -> screen. Returns the result."""
-        plan = self.plan_mode(mode_id)
-        return self._execute(plan, sleep or time.sleep)
+        delay = _check_power_delay(power_delay_s) if power_delay_s is not None else 0
+        plan = self.plan_mode(mode_id, fade_s=fade_s)
+        return self._execute(plan, sleep or time.sleep, delay)
 
-    def apply_custom(self, plan_id, content, sleep=None):
+    def apply_custom(self, plan_id, content, sleep=None, fade_s=None, power_delay_s=None,
+                     ai_caps=True, allow_scenes=False):
         """Plan, then apply ad-hoc mode-like content. Returns the result."""
-        plan = self.plan_custom(plan_id, content)
-        return self._execute(plan, sleep or time.sleep)
+        delay = _check_power_delay(power_delay_s) if power_delay_s is not None else 0
+        plan = self.plan_custom(plan_id, content, fade_s=fade_s, ai_caps=ai_caps, allow_scenes=allow_scenes)
+        return self._execute(plan, sleep or time.sleep, delay)
 
-    def plan_preset(self, preset_id):
+    def plan_preset(self, preset_id, fade_s=None):
         """Validate a preset (lights + screen only) into an executable plan."""
         preset = self.registry.get_preset(preset_id)
+        if fade_s is None:
+            default_dwell = _check_dwell(preset.get("fade_s", 0), "fade_s")
+            fade_lock = None
+        else:
+            default_dwell = fade_lock = _check_dwell(fade_s, "fade_s")
         return {
             "kind": "preset",
             "id": preset_id,
             "intent": None,
             "toggles": {},
             "power": {"plans": [], "skipped": []},
-            "lights": self._plan_lights(preset.get("lights") or {}),
+            "lights": self._plan_lights(preset.get("lights") or {}, default_dwell, False, fade_lock),
             "obs": {"scene": None},
             "screens": {"screens": preset.get("screen") or {}},
             "preset_power_note": "presets don't change power",
             "preset_obs_note": "presets don't change OBS",
         }
 
-    def apply_preset(self, preset_id, sleep=None):
+    def apply_preset(self, preset_id, sleep=None, fade_s=None, power_delay_s=None):
         """Plan, then apply a preset's lights (and screen when wired)."""
-        plan = self.plan_preset(preset_id)
+        if power_delay_s is not None:
+            _check_power_delay(power_delay_s)  # validated, then ignored: presets don't change power
+        plan = self.plan_preset(preset_id, fade_s=fade_s)
         return self._execute(plan, sleep or time.sleep)
 
-    def _execute(self, plan, sleep):
-        power = self._exec_power(plan["power"], sleep, plan.get("preset_power_note"))
+    def _execute(self, plan, sleep, power_delay_s=0):
+        power = self._exec_power(plan["power"], sleep, plan.get("preset_power_note"), power_delay_s)
         lights = self._exec_lights(plan["lights"])
         obs = self._exec_obs(plan["obs"], plan.get("preset_obs_note"))
         screens = self._exec_screens(plan["screens"])
@@ -166,18 +227,28 @@ class ModesModule(Module):
                 skipped.append({"target": group, "reason": f"group {group}: {exc}"})
         return {"plans": planned, "skipped": skipped}
 
-    def _plan_lights(self, lights):
+    def _plan_lights(self, lights, default_dwell=0, ai_caps=False, fade_lock=None, allow_scenes=False):
         if not isinstance(lights, dict):
             raise ModesError("lights must be an object of device_id to command")
-        devices, skipped = [], []
-        for device_id, command in lights.items():
+        devices, skipped, capped = [], [], []
+        for device_id, raw in lights.items():
             device = self.registry.get_device(device_id)
-            if not isinstance(command, dict):
+            if not isinstance(raw, dict):
                 raise ModesError(f"lights[{device_id}] must be an object")
-            if device.get("type") == "light" and "scene" in command:
+            command = dict(raw)
+            dwell = default_dwell
+            if "fade_s" in command:
+                per_light = _check_dwell(command.pop("fade_s"), f"lights[{device_id}].fade_s")
+                if fade_lock is None:
+                    dwell = per_light
+            if fade_lock is not None:
+                dwell = fade_lock
+            if device.get("type") == "light" and "scene" in command and not allow_scenes:
                 raise SafetyViolation(
                     f"refusing scene {command['scene']} on {device_id} via automation (bench-only)"
                 )
+            if ai_caps:
+                self._clamp_ai_cap(device_id, device, command, capped)
             if not device.get("controllable", True):
                 skipped.append({"target": device_id, "reason": f"{device_id} is not controllable"})
                 continue
@@ -200,6 +271,11 @@ class ModesModule(Module):
                         )
                         continue
                     translated.append((GVM_TRANSLATE[key], kept[key]))
+                translated.sort(key=lambda pair: GVM_KEY_ORDER.index(pair[0]))
+            elif family == "dmx":
+                translated = self._translate_dmx(device_id, device, kept, skipped)
+                if translated is None:
+                    continue
             else:
                 skipped.append(
                     {"target": device_id, "reason": f"no translator for driver family '{family}' ({device_id})"}
@@ -208,8 +284,69 @@ class ModesModule(Module):
             if (self.lights or {}).get(device_id) is None:
                 skipped.append({"target": device_id, "reason": f"no light driver wired for {device_id}"})
                 continue
-            devices.append({"device": device_id, "commands": translated})
-        return {"devices": devices, "skipped": skipped}
+            devices.append({"device": device_id, "commands": translated, "dwell_s": dwell})
+        return {"devices": devices, "skipped": skipped, "capped": capped}
+
+    def _clamp_ai_cap(self, device_id, device, command, capped):
+        """Clamp an AI intensity ask to the fixture's aiCap. Records every clamp."""
+        cap = (device.get("aiCap") or {}).get("intensity")
+        if cap is None:
+            return
+        if isinstance(cap, bool) or not isinstance(cap, (int, float)) or not 0 <= cap <= 100:
+            raise ModesError(f"{device_id}.aiCap.intensity must be 0..100: {cap!r}")
+        value = command.get("intensity")
+        if isinstance(value, bool) or not isinstance(value, (int, float)):
+            return  # range check reports non-numbers
+        if value > cap:
+            command["intensity"] = cap
+            capped.append({"target": device_id, "key": "intensity", "asked": value, "capped": cap})
+
+    def _translate_dmx(self, device_id, device, kept, skipped):
+        """Generic intensity/cct keys pass through; the adapter maps channels.
+
+        Returns None (whole device skipped) when the channel map itself is
+        bad; per-key problems are skipped and named individually.
+        """
+        address = (device.get("driverAddress") or {}).get("dmx") or {}
+        dimmer, cct_ch = address.get("dimmer"), address.get("cct")
+        if not _is_dmx_channel(dimmer) or (cct_ch is not None and not _is_dmx_channel(cct_ch)):
+            skipped.append(
+                {"target": device_id, "reason": f"{device_id} has a bad DMX channel map: {address!r}"}
+            )
+            return None
+        spec = self.registry.effective_device(device_id).get("spec") or {}
+        bounds = spec.get("cctRange")
+        tunable = cct_ch is not None and isinstance(bounds, list) and len(bounds) == 2
+        translated = []
+        for key in kept:
+            if key == "intensity":
+                translated.append((key, kept[key]))
+            elif key == "cct":
+                if cct_ch is None:
+                    skipped.append(
+                        {"target": f"{device_id}.cct", "reason": f"{device_id} has no CCT channel"}
+                    )
+                elif not tunable:
+                    skipped.append(
+                        {
+                            "target": f"{device_id}.cct",
+                            "reason": f"{device_id} has no cctRange to map kelvin",
+                        }
+                    )
+                else:
+                    translated.append((key, kept[key]))
+            elif key == "power":
+                skipped.append(
+                    {
+                        "target": f"{device_id}.power",
+                        "reason": f"{device_id}: dmx has no power key (use intensity 0)",
+                    }
+                )
+            else:
+                skipped.append(
+                    {"target": f"{device_id}.{key}", "reason": f"dmx does not support {key}"}
+                )
+        return translated
 
     def _check_light_ranges(self, device_id, command):
         merged = self.registry.effective_device(device_id)
@@ -245,7 +382,7 @@ class ModesModule(Module):
             kept[key] = value
         return kept, skipped
 
-    def _exec_power(self, power_plan, sleep, preset_note=None):
+    def _exec_power(self, power_plan, sleep, preset_note=None, power_delay_s=0):
         skipped = list(power_plan["skipped"])
         if preset_note is not None:
             return {"status": "skipped", "applied": [], "skipped": [{"target": "power", "reason": preset_note}]}
@@ -260,7 +397,7 @@ class ModesModule(Module):
         applied = []
         for item in power_plan["plans"]:
             plugs = {step["device"]: step["plug"] for step in item["steps"]}
-            for res in self.power.set_group_power(item["group"], item["on"], sleep):
+            for res in self.power.set_group_power(item["group"], item["on"], sleep, power_delay_s):
                 applied.append(
                     {
                         "device": res["device"],
@@ -276,17 +413,80 @@ class ModesModule(Module):
 
     def _exec_lights(self, lights_plan):
         skipped = list(lights_plan["skipped"])
+        capped = list(lights_plan.get("capped") or [])
+        notes = []
         if not lights_plan["devices"] and not skipped:
             return {
                 "status": "skipped",
                 "applied": [],
                 "skipped": [{"target": "lights", "reason": "mode declares no lights"}],
+                "capped": capped,
+                "notes": notes,
             }
         if not self.lights:
-            return {"status": "skipped", "applied": [], "skipped": skipped}
+            return {"status": "skipped", "applied": [], "skipped": skipped, "capped": capped, "notes": notes}
         applied = []
         for item in lights_plan["devices"]:
             driver = self.lights[item["device"]]
+            dwell = item.get("dwell_s") or 0
+            fade = getattr(driver, "fade", None)
+            if dwell and item["commands"] and fade is not None:
+                commands = dict(item["commands"])
+                try:
+                    outcome = fade(commands, dwell)
+                    applied.append(
+                        {
+                            "device": item["device"],
+                            "fade": True,
+                            "dwell_s": dwell,
+                            "commands": commands,
+                            "ok": outcome.ok,
+                            "state": outcome.state,
+                            "error": outcome.error,
+                        }
+                    )
+                except Exception as exc:  # noqa: BLE001 - one light must not stop the mode
+                    applied.append(
+                        {
+                            "device": item["device"],
+                            "fade": True,
+                            "dwell_s": dwell,
+                            "commands": commands,
+                            "ok": False,
+                            "state": {},
+                            "error": str(exc),
+                        }
+                    )
+                continue
+            if dwell and item["commands"] and fade is None:
+                notes.append(
+                    {
+                        "target": item["device"],
+                        "reason": f"{item['device']}: fade unsupported by driver, applied instantly",
+                    }
+                )
+            batched = getattr(driver, "apply_many", None)
+            if batched is not None and len(item["commands"]) > 1:
+                try:
+                    outcomes = list(
+                        batched([{key: value} for key, value in item["commands"]]) or []
+                    )
+                except Exception as exc:  # noqa: BLE001 - one batch must not stop the mode
+                    outcomes = [DriverResult(ok=False, error=str(exc)) for _ in item["commands"]]
+                while len(outcomes) < len(item["commands"]):
+                    outcomes.append(DriverResult(ok=False, error="batch returned too few outcomes"))
+                for (key, value), outcome in zip(item["commands"], outcomes):
+                    applied.append(
+                        {
+                            "device": item["device"],
+                            "key": key,
+                            "value": value,
+                            "ok": outcome.ok,
+                            "state": outcome.state,
+                            "error": outcome.error,
+                        }
+                    )
+                continue
             for key, value in item["commands"]:
                 try:
                     outcome = driver.apply({key: value})
@@ -305,7 +505,7 @@ class ModesModule(Module):
                         {"device": item["device"], "key": key, "value": value, "ok": False, "state": {}, "error": str(exc)}
                     )
         status = "ready" if not skipped and all(item["ok"] for item in applied) else "degraded"
-        return {"status": status, "applied": applied, "skipped": skipped}
+        return {"status": status, "applied": applied, "skipped": skipped, "capped": capped, "notes": notes}
 
     def _exec_obs(self, obs_plan, preset_note=None):
         if preset_note is not None:

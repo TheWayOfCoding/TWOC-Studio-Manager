@@ -12,6 +12,10 @@ __pycache__/
 venv/
 *.egg-info/
 
+# Rust kiosk shell build output.
+kiosk-shell/src-tauri/target/
+kiosk-shell/src-tauri/gen/
+
 # Service logs (dated per-day files, see logging module).
 logs/
 

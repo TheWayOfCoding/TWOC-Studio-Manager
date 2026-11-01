@@ -24,6 +24,7 @@ from .api.obs import router as obs_router  # noqa: E402
 from .api.screen import router as screen_router  # noqa: E402
 from .api.dmx import router as dmx_router  # noqa: E402
 from .api.ai import router as ai_router  # noqa: E402
+from .api.shows import router as shows_router  # noqa: E402
 from .config.loader import ConfigError, list_studios, load_all  # noqa: E402
 from .registry import Registry  # noqa: E402
 
@@ -65,6 +66,7 @@ def create_app():
         app.state.studio_list = []
         app.state.health = {"status": "degraded", "studios": [], "error": str(exc)}
         log.error("config load failed: %s", exc)
+    app.state.show_runs = {}
 
     # Specific bench routers first: the generic /api/testbench/{driver_id}/
     # routes below would otherwise shadow real-driver endpoints like gvm/probe.
@@ -76,6 +78,7 @@ def create_app():
     app.include_router(screen_router)
     app.include_router(dmx_router)
     app.include_router(ai_router)
+    app.include_router(shows_router)
     app.include_router(router)
 
     @app.get("/", include_in_schema=False)

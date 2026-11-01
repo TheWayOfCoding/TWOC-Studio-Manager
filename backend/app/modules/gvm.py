@@ -33,6 +33,8 @@ class GvmModule(Module):
                 "power": "low",
                 "brightness": "low",
                 "cct": "low",
+                "hue": "low",
+                "saturation": "low",
                 "page": "low",
                 "scene": "intense-until-verified",
             },
@@ -48,6 +50,12 @@ class GvmModule(Module):
 
     def set_cct(self, kelvin):
         return self.drivers["ble"].apply({"cct": kelvin})
+
+    def set_hue(self, degrees):
+        return self.drivers["ble"].apply({"hue": degrees})
+
+    def set_saturation(self, percent):
+        return self.drivers["ble"].apply({"saturation": percent})
 
     def announce_page(self, name_or_index):
         return self.drivers["ble"].apply({"page": name_or_index})

@@ -29,6 +29,8 @@ class SetBody(AddrBody):
     power: str | None = None
     brightness: int | None = None
     cct: int | None = None
+    hue: int | None = None
+    saturation: int | None = None
     scene: int | None = None
     page: str | int | None = None
     allow_intense: bool = False
@@ -147,7 +149,7 @@ def gvm_state(body: AddrBody, request: Request):
 
 @router.post("/api/testbench/gvm/set")
 def gvm_set(body: SetBody, request: Request):
-    """Apply CCT/scene commands in page, power, brightness, cct, scene order.
+    """Apply commands in page, power, brightness, cct, hue, saturation, scene order.
 
     Explicit human trial (Bench), no policy gate — except scenes, which need
     allow_intense until verified gentle (D-PHOTO).
@@ -165,6 +167,10 @@ def gvm_set(body: SetBody, request: Request):
         requested.append(("brightness", lambda: module.set_brightness(body.brightness)))
     if body.cct is not None:
         requested.append(("cct", lambda: module.set_cct(body.cct)))
+    if body.hue is not None:
+        requested.append(("hue", lambda: module.set_hue(body.hue)))
+    if body.saturation is not None:
+        requested.append(("saturation", lambda: module.set_saturation(body.saturation)))
     if body.scene is not None:
         requested.append(
             ("scene", lambda: module.set_scene(body.scene, allow_intense=body.allow_intense))

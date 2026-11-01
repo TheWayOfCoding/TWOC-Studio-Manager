@@ -1,7 +1,7 @@
 {
   "id": "gvm-1500d",
   "kind": "light",
-  "spec": {"maxWatts": 75, "rgbww": true},
+  "spec": {"maxWatts": 75, "rgbww": true, "hueRange": [0, 360], "saturationRange": [0, 100]},
   "capabilities": {"intensity": true, "cct": true, "rgb": true},
   "effects": [{"name": "steady", "photoRisk": "none"}],
   "notes": "75W RGBWW panel. Wireless protocol via libgvmled fork (Phase 3). Scene modes TBD."

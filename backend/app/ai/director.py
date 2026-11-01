@@ -25,6 +25,8 @@ def build_manifest(registry):
         lights[device_id] = {
             "capabilities": merged.get("capabilities") or {},
             "spec": merged.get("spec") or {},
+            "usual": device.get("usual") or {},
+            "aiCap": device.get("aiCap") or {},
         }
     return {"lights": lights, "screens": []}
 

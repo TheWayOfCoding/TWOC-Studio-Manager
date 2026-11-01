@@ -10,14 +10,65 @@ body { font-family: system-ui, sans-serif; margin: 0; min-height: 100vh; display
 #text { font-size: 4vw; max-width: 80vw; }
 #theme { position: fixed; top: 0.5em; right: 1em; font-size: 0.9em; opacity: 0.6; }
 #audio { position: fixed; bottom: 0.5em; right: 1em; font-size: 0.9em; opacity: 0.6; }
+#exit { position: fixed; bottom: 0.5em; left: 1em; font-size: 0.9em; opacity: 0.6; }
+#wash { position: fixed; inset: 0; pointer-events: none; opacity: 0; transition: opacity 1s, background 1s; }
+#wash.candle { animation: flicker 1.6s ease-in-out infinite; }
+@keyframes flicker { 0%,100% { filter: brightness(1); } 30% { filter: brightness(1.25); } 55% { filter: brightness(0.9); } 75% { filter: brightness(1.15); } }
 </style>
 </head>
 <body>
+<div id="wash"></div>
 <div id="theme"></div>
 <div id="text">waiting for push…</div>
 <div id="audio"></div>
+<div id="exit"></div>
 <script>
 const id = decodeURIComponent(location.pathname.split("/").pop());
+// Audio bed: tiny WebAudio synth (no assets). Browsers require a user gesture
+// before sound, so the first click anywhere arms the context; the ♪ indicator
+// shows regardless. Track names shift the base pitch deterministically.
+let actx = null, bed = null;
+addEventListener("click", () => {
+  try {
+    if (!actx) actx = new (window.AudioContext || window.webkitAudioContext)();
+    if (actx.state === "suspended") actx.resume();
+  } catch (e) { /* silent kiosk stays silent */ }
+});
+function trackShift(track) {
+  let h = 0;
+  for (const ch of (track || "bed")) h = (h * 31 + ch.charCodeAt(0)) >>> 0;
+  return 1 + (h % 7) * 0.06;
+}
+function bedPlaying() { return bed !== null; }
+function startBed(track) {
+  if (!actx || bedPlaying()) return;
+  try {
+    const base = 110 * trackShift(track);
+    const gain = actx.createGain(), filter = actx.createBiquadFilter();
+    gain.gain.value = 0.0;
+    filter.type = "lowpass"; filter.frequency.value = 600;
+    const oscs = [1, 1.5, 2.02].map((mult) => {
+      const o = actx.createOscillator();
+      o.type = "sine"; o.frequency.value = base * mult; o.connect(filter); o.start();
+      return o;
+    });
+    const lfo = actx.createOscillator(), lfoGain = actx.createGain();
+    lfo.frequency.value = 0.1; lfoGain.gain.value = 0.012;
+    lfo.connect(lfoGain); lfoGain.connect(gain.gain); lfo.start();
+    filter.connect(gain); gain.connect(actx.destination);
+    gain.gain.linearRampToValueAtTime(0.035, actx.currentTime + 2);
+    bed = { oscs, lfo, gain };
+  } catch (e) { bed = null; }
+}
+function stopBed() {
+  if (!bedPlaying()) return;
+  try {
+    const { oscs, lfo, gain } = bed;
+    gain.gain.linearRampToValueAtTime(0.0, actx.currentTime + 0.5);
+    setTimeout(() => { oscs.forEach((o) => { try { o.stop(); } catch (e) {} }); try { lfo.stop(); } catch (e) {} }, 700);
+  } catch (e) { /* already quiet */ }
+  bed = null;
+}
 async function tick() {
   try {
     const r = await fetch("/api/screens/" + encodeURIComponent(id) + "/state");
@@ -28,10 +79,34 @@ async function tick() {
     document.getElementById("audio").textContent =
       s.audio === "play" ? "♪ " + (s.track || "bed") : "";
     document.body.style.background = s.theme === "work" ? "#1a2a1a" : s.theme === "live" ? "#2a1a1a" : "#111";
+    const wash = document.getElementById("wash");
+    if (s.wash && s.wash.color) {
+      wash.style.background = s.wash.color;
+      wash.style.opacity = s.wash.opacity == null ? 0.5 : s.wash.opacity;
+    } else {
+      wash.style.opacity = 0;
+    }
+    wash.className = s.theme === "candle" ? "candle" : "";
+    if (s.audio === "play") startBed(s.track); else stopBed();
   } catch (e) { document.getElementById("text").textContent = "hub unreachable"; }
 }
 tick();
-setInterval(tick, 2000);
+setInterval(tick, 500);
+// Tauri shell escape: ESC twice within 2s closes the window. Plain browsers
+// have no __TAURI_INTERNALS__, so they ignore this and keep native ESC.
+let escAt = 0;
+addEventListener("keydown", (e) => {
+  if (e.key !== "Escape" || !window.__TAURI_INTERNALS__) return;
+  const now = Date.now(), hint = document.getElementById("exit");
+  if (now - escAt < 2000) {
+    hint.textContent = "";
+    window.__TAURI_INTERNALS__.invoke("plugin:window|close", { label: "main" });
+  } else {
+    escAt = now;
+    hint.textContent = "ESC again to exit";
+    setTimeout(() => { if (escAt === now) hint.textContent = ""; }, 2000);
+  }
+});
 </script>
 </body>
 </html>

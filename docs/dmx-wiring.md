@@ -8,7 +8,9 @@ DMX OUT → DMX IN down the line.
 ## The adapter trap
 
 Generic 3-pin-XLR-male → RJ45-female adapters are **not** wired to any
-DMX standard. One measured unit (SiYear, printed `CHSM-250603014`) maps:
+DMX standard. Ours is labeled `DMX-CON` (SiYear family, printed
+`CHSM-250603014`) — almost certainly a vendor-proprietary pinout, not
+ESTA. The measured unit maps:
 
 | XLR pin | Signal | → RJ45 pin on that adapter |
 |---|---|---|

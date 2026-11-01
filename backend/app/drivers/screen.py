@@ -17,7 +17,11 @@ def screen_state(screen_id):
 
 
 class ScreenDriver(Driver):
-    """One backdrop screen. Commands: {theme?, text?} or {audio, track?}."""
+    """One backdrop screen. Commands: {theme?, text?, wash?} or {audio, track?}.
+
+    Wash is {"color": css, "opacity": 0..1} (tints the kiosk behind the
+    caption) or null to clear it back off.
+    """
 
     def __init__(self, driver_id, screen=None):
         super().__init__(driver_id)
@@ -52,8 +56,23 @@ class ScreenDriver(Driver):
                 state["theme"] = command["theme"]
             if "text" in command:
                 state["text"] = command["text"]
-            if "theme" not in command and "text" not in command:
-                return DriverResult(ok=False, error="push needs theme and/or text")
+            if "wash" in command:
+                wash = command["wash"]
+                if wash is None:
+                    state.pop("wash", None)
+                elif (
+                    not isinstance(wash, dict)
+                    or not isinstance(wash.get("color"), str)
+                    or not wash["color"]
+                    or isinstance(wash.get("opacity"), bool)
+                    or not isinstance(wash.get("opacity"), (int, float))
+                    or not 0 <= wash["opacity"] <= 1
+                ):
+                    return DriverResult(ok=False, error='wash needs {"color": css, "opacity": 0..1}')
+                else:
+                    state["wash"] = {"color": wash["color"], "opacity": wash["opacity"]}
+            if "theme" not in command and "text" not in command and "wash" not in command:
+                return DriverResult(ok=False, error="push needs theme, text, and/or wash")
         SCREEN_STATE[self.screen] = state
         return DriverResult(ok=True, state={"screen": self.screen, **state})
 

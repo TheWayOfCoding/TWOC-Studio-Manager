@@ -1,5 +1,10 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later
-"""Power module: zone switching with staged boot and safety enforcement."""
+"""Power module: zone switching with safety enforcement.
+
+Switches immediately in boot order by default (operator call: the room
+comes up at relay speed). An opt-in delay_s staggers steps for inrush
+caution, pausing between steps only.
+"""
 
 import time
 
@@ -7,8 +12,6 @@ from ..core.safety import SafetyViolation, check_power
 from .base import Module
 
 DEFAULT_ORDER = 100
-BASE_DELAY_S = 2
-MAX_DELAY_S = 10
 
 
 class PowerError(Exception):
@@ -39,8 +42,8 @@ class PowerModule(Module):
         """Compute the ordered, safety-checked action list. No hardware moves.
 
         Power-on runs bootOrder ascending (PC first, lights settle after);
-        power-off runs it descending. Delays scale with estimated watts so the
-        room never surges. Raises SafetyViolation before anything moves.
+        power-off runs it descending. Raises SafetyViolation before anything
+        moves.
         """
         devices = self.registry.devices_in_zone(zone_id)
         return self._plan_steps([item for item in devices if item.get("powerPlug")], on)
@@ -70,29 +73,28 @@ class PowerModule(Module):
             ordered = list(reversed(ordered))
         plan = []
         for device in ordered:
-            watts = device.get("estWatts", 0) or 0
             plan.append(
                 {
                     "device": device["id"],
                     "plug": device["powerPlug"],
                     "on": on,
                     "order": device.get("bootOrder", DEFAULT_ORDER),
-                    "delay_after_s": min(BASE_DELAY_S + watts // 100, MAX_DELAY_S),
                 }
             )
         return plan
 
-    def set_zone_power(self, zone_id, on, sleep=time.sleep):
+    def set_zone_power(self, zone_id, on, sleep=time.sleep, delay_s=0):
         """Execute a zone plan step by step. Returns per-step results."""
-        return self._execute(self.plan_zone_power(zone_id, on), sleep)
+        return self._execute(self.plan_zone_power(zone_id, on), sleep, delay_s)
 
-    def set_group_power(self, group_id, on, sleep=time.sleep):
+    def set_group_power(self, group_id, on, sleep=time.sleep, delay_s=0):
         """Execute a power-group plan step by step. Returns per-step results."""
-        return self._execute(self.plan_group_power(group_id, on), sleep)
+        return self._execute(self.plan_group_power(group_id, on), sleep, delay_s)
 
-    def _execute(self, plan, sleep):
+    def _execute(self, plan, sleep, delay_s=0):
+        """Switch every step. delay_s > 0 pauses between steps only (never after)."""
         results = []
-        for step in plan:
+        for index, step in enumerate(plan):
             driver = self.drivers[step["plug"]]
             try:
                 outcome = driver.apply({"on": step["on"]})
@@ -101,5 +103,6 @@ class PowerModule(Module):
                 )
             except Exception as exc:  # noqa: BLE001 - one plug must not stop the zone
                 results.append({"device": step["device"], "ok": False, "state": {}, "error": str(exc)})
-            sleep(step["delay_after_s"])
+            if delay_s and index < len(plan) - 1:
+                sleep(delay_s)
         return results

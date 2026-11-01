@@ -4,3 +4,4 @@ jsonschema>=4.21
 python-kasa>=0.12
 pyserial>=3.5
 bleak>=1.0
+websocket-client>=1.8
