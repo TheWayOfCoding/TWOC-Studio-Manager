@@ -15,6 +15,7 @@ class FakeObsClient:
     def __init__(self, scenes=("Main", "BRB"), fail_on=()):
         self.scenes = list(scenes)
         self.current = self.scenes[0] if self.scenes else None
+        self.streaming = False
         self.calls = []
         self.fail_on = set(fail_on)
         self.closed = False
@@ -33,6 +34,14 @@ class FakeObsClient:
                 raise KeyError(f"no scene {name}")
             self.current = name
             return {}
+        if request == "StartStream":
+            self.streaming = True
+            return {}
+        if request == "StopStream":
+            self.streaming = False
+            return {}
+        if request == "GetStreamStatus":
+            return {"outputActive": self.streaming}
         raise KeyError(f"unexpected {request}")
 
     def close(self):
@@ -82,7 +91,25 @@ def test_stream_needs_confirmation(module):
         module.set_streaming("start")
     with pytest.raises(SafetyViolation, match="unconfirmed stream stop"):
         module.set_streaming("stop")
-    assert module.set_streaming("start", confirmed=True).ok is False  # scaffold: unimplemented
+    assert module.set_streaming("start", confirmed=True).ok is True
+    assert module.stream_status().state == {"outputActive": True}
+    assert module.set_streaming("stop", confirmed=True).ok is True
+    assert module.stream_status().state == {"outputActive": False}
+
+
+@pytest.mark.unit
+def test_switch_falls_back_to_safe_scene(module):
+    switched = module.switch_scene("Nope", safe_scene="BRB")
+    assert switched.ok is True
+    assert switched.state == {"scene": "BRB", "fallback": True, "requested": "Nope"}
+    assert module.list_scenes().state["currentProgramSceneName"] == "BRB"
+
+
+@pytest.mark.unit
+def test_switch_safe_fallback_can_fail(module):
+    failed = module.switch_scene("Nope", safe_scene="AlsoNope")
+    assert failed.ok is False
+    assert "Nope" in failed.error
 
 
 @pytest.mark.unit

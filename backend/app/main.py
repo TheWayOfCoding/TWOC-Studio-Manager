@@ -20,9 +20,12 @@ from .api.kasa import router as kasa_router  # noqa: E402
 from .api.ir import router as ir_router  # noqa: E402
 from .api.gvm import router as gvm_router  # noqa: E402
 from .api.modes import router as modes_router  # noqa: E402
+from .api.ninja import router as ninja_router  # noqa: E402
 from .api.obs import router as obs_router  # noqa: E402
+from .api.power import router as power_router  # noqa: E402
 from .api.screen import router as screen_router  # noqa: E402
 from .api.dmx import router as dmx_router  # noqa: E402
+from .api.equipment import router as equipment_router  # noqa: E402
 from .api.ai import router as ai_router  # noqa: E402
 from .api.shows import router as shows_router  # noqa: E402
 from .config.loader import ConfigError, list_studios, load_all  # noqa: E402
@@ -68,6 +71,7 @@ def create_app():
         app.state.health = {"status": "degraded", "studios": [], "error": str(exc)}
         log.error("config load failed: %s", exc)
     app.state.show_runs = {}
+    app.state.action_log = {}  # studio_id -> [mode/preset/AI applies], undo replays the tail
 
     # Specific bench routers first: the generic /api/testbench/{driver_id}/
     # routes below would otherwise shadow real-driver endpoints like gvm/probe.
@@ -75,9 +79,12 @@ def create_app():
     app.include_router(ir_router)
     app.include_router(gvm_router)
     app.include_router(modes_router)
+    app.include_router(ninja_router)
     app.include_router(obs_router)
+    app.include_router(power_router)
     app.include_router(screen_router)
     app.include_router(dmx_router)
+    app.include_router(equipment_router)
     app.include_router(ai_router)
     app.include_router(shows_router)
     app.include_router(router)
@@ -89,6 +96,10 @@ def create_app():
     @app.get("/bench", include_in_schema=False)
     def bench():
         return FileResponse(STATIC_DIR / "bench.html")
+
+    @app.get("/equipment", include_in_schema=False)
+    def equipment():
+        return FileResponse(STATIC_DIR / "equipment.html")
 
     @app.get("/screen/{screen_id}", include_in_schema=False)
     def screen_page(screen_id: str):

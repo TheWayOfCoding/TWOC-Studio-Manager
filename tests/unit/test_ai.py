@@ -1,6 +1,7 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later
 """Unit tests for the AI director scaffold (mock provider, no network)."""
 
+import json
 from contextlib import contextmanager
 from pathlib import Path
 
@@ -35,7 +36,7 @@ def test_manifest_lists_controllable_lights(modes):
 def test_mock_provider_targets(modes):
     manifest = build_manifest(modes.registry)
     both = MockProvider().direct("cozy", "both", manifest)
-    assert both["lights"] == {"demo-key": {"intensity": 30, "cct": 4200}}
+    assert both["lights"] == {"demo-key": {"intensity": 25, "cct": 4600}}  # half the usual 50/4600
     assert both["screens"] == {}
     assert MockProvider().direct("cozy", "screens", manifest)["lights"] == {}
 
@@ -46,7 +47,7 @@ def test_apply_look_end_to_end(modes):
     assert outcome["provider"] == "mock"
     assert outcome["critique"] == ["clean: all directives within declared capabilities"]
     assert outcome["apply"]["subsystems"]["lights"]["status"] == "ready"
-    assert modes.lights["demo-key"].state == {"intensity": 30, "cct": 4200}
+    assert modes.lights["demo-key"].state == {"intensity": 25, "cct": 4600}
     assert outcome["preset_candidate"]["label"] == "cozy interview"
 
 
@@ -60,7 +61,7 @@ def test_bad_targets_rejected(modes):
 def test_invalid_directives_rejected_before_moving(modes):
     class WildProvider(MockProvider):
         def direct(self, prompt, targets, manifest):
-            return {"lights": {"demo-key": {"intensity": 999}}}
+            return {"lights": {"nope": {"intensity": 50}}}
 
     with pytest.raises(ModesError, match="rejected"):
         apply_look(WildProvider(), modes, "blinding", "lights")
@@ -74,12 +75,95 @@ def test_critique_flags_empty_and_zero():
 
 
 @pytest.mark.unit
+def test_mock_falls_back_without_usual():
+    bare = {"lights": {"k": {"capabilities": {"cct": True}, "usual": {}}}, "screens": []}
+    assert MockProvider().direct("cozy", "lights", bare)["lights"] == {"k": {"intensity": 15, "cct": 4200}}
+    no_cct = {"lights": {"k": {"capabilities": {"cct": False}, "usual": {"intensity": 40}}}, "screens": []}
+    assert MockProvider().direct("cozy", "lights", no_cct)["lights"] == {"k": {"intensity": 20}}
+
+
+@pytest.mark.unit
+def test_meta_prompt_teaches_baseline_and_off():
+    from app.ai.meta import PROMPT_TEMPLATE
+
+    assert "usual" in PROMPT_TEMPLATE
+    assert "baseline" in PROMPT_TEMPLATE
+    assert "intensity 0 means dark" in PROMPT_TEMPLATE
+    assert '"power": "off"' in PROMPT_TEMPLATE
+    assert "keys matching the requested look" in PROMPT_TEMPLATE
+
+
+@pytest.mark.unit
 def test_manifest_includes_usual_and_ai_cap(modes):
     modes.registry._devices["demo-key"]["aiCap"] = {"intensity": 20}
     manifest = build_manifest(modes.registry)
     entry = manifest["lights"]["demo-key"]
     assert entry["usual"] == {"intensity": 50, "cct": 4600}
     assert entry["aiCap"] == {"intensity": 20}
+
+
+@pytest.mark.unit
+def test_apply_look_clamps_ranges_and_steps(modes):
+    """AI range misses clamp to the profile (recorded), never 422 or misfire."""
+
+    class WarmProvider(MockProvider):
+        def direct(self, prompt, targets, manifest):
+            return {"lights": {"demo-key": {"intensity": 999, "cct": 2700}}}
+
+    outcome = apply_look(WarmProvider(), modes, "warm", "lights")
+    assert modes.lights["demo-key"].state == {"intensity": 100, "cct": 3200}
+    capped = outcome["apply"]["subsystems"]["lights"]["capped"]
+    assert {"target": "demo-key", "key": "intensity", "asked": 999, "capped": 100} in capped
+    assert {"target": "demo-key", "key": "cct", "asked": 2700, "capped": 3200} in capped
+
+
+@pytest.mark.unit
+def test_apply_look_quantizes_hue_to_panel_steps(modes):
+    """Hue 28 lands on the 5-degree panel grid (clamp records the rounding)."""
+
+    class HueProvider(MockProvider):
+        def direct(self, prompt, targets, manifest):
+            return {"lights": {"demo-rgb": {"hue": 28, "saturation": 75}}}
+
+    outcome = apply_look(HueProvider(), modes, "amber", "lights")
+    capped = outcome["apply"]["subsystems"]["lights"]["capped"]
+    assert {"target": "demo-rgb", "key": "hue", "asked": 28, "capped": 30} in capped
+
+
+@pytest.mark.unit
+def test_manifest_carries_spatial_context(modes):
+    """The AI sees zone/position/role/distance/modifiers/power, not just ranges."""
+    entry = build_manifest(modes.registry)["lights"]["demo-key"]
+    assert entry["zone"] == "bench"
+    assert entry["position"] == "Bench left, aimed at subject"
+    assert entry["role"] == "key"
+    assert entry["distanceToSubjectM"] == 1.0
+    assert entry["modifiers"] == []
+    assert entry["estWatts"] == 60
+    assert entry["details"] == {}
+
+
+@pytest.mark.unit
+def test_gvm_profile_ranges_match_driver():
+    """gvm-1500d declares the driver's real CCT/intensity bounds (2700 must clamp)."""
+    spec = json.loads((CONFIG_ROOT / "profiles" / "gvm-1500d.json").read_text(encoding="utf-8"))[
+        "spec"
+    ]
+    assert spec["cctRange"] == [3200, 5600]
+    assert spec["intensityRange"] == [0, 100]
+
+
+@pytest.mark.unit
+def test_apply_look_scope_drops_out_of_scope(modes):
+    """Allowed-list filters directives; dropped ids are named, not silent."""
+
+    class GreedyProvider(MockProvider):
+        def direct(self, prompt, targets, manifest):
+            return {"lights": {"demo-key": {"intensity": 10}, "demo-rgb": {"intensity": 10}}}
+
+    outcome = apply_look(GreedyProvider(), modes, "all", "lights", allowed=["demo-key"])
+    assert sorted(outcome["directives"]["lights"]) == ["demo-key"]
+    assert outcome["scope"]["skipped"] == ["demo-rgb"]
 
 
 @pytest.mark.unit

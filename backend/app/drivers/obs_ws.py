@@ -29,18 +29,22 @@ class ObsWsDriver(Driver):
     Stream actions additionally pass the safety gate (module enforces it).
     """
 
-    def __init__(self, driver_id, host="127.0.0.1", port=DEFAULT_PORT, password=None, client=None):
+    def __init__(
+        self, driver_id, host="127.0.0.1", port=DEFAULT_PORT, password=None, client=None,
+        timeout=DEFAULT_TIMEOUT,
+    ):
         super().__init__(driver_id)
         self.host = host
         self.port = port
         self.password = password
         self._client = client
+        self.timeout = timeout
 
     def capabilities(self):
         return {
             "family": "obs",
             "transport": "websocket-v5",
-            "actions": ["state", "scenes", "switch", "stream"],
+            "actions": ["state", "scenes", "switch", "stream", "stream-status"],
             "guards": ["stream start/stop need explicit confirmation"],
         }
 
@@ -70,7 +74,16 @@ class ObsWsDriver(Driver):
                 client.call("SetCurrentProgramScene", {"sceneName": scene})
                 return DriverResult(ok=True, state={"scene": scene})
             if action == "stream":
-                return DriverResult(ok=False, error="stream control is not implemented")
+                which = command.get("stream")
+                if which == "start":
+                    client.call("StartStream", {})
+                    return DriverResult(ok=True, state={"streaming": True})
+                if which == "stop":
+                    client.call("StopStream", {})
+                    return DriverResult(ok=True, state={"streaming": False})
+                return DriverResult(ok=False, error='stream needs "start"|"stop"')
+            if action == "stream-status":
+                return DriverResult(ok=True, state=client.call("GetStreamStatus", {}))
             return DriverResult(ok=False, error=f"unknown obs action: {action}")
         except Exception as exc:  # noqa: BLE001 - drivers report, never raise
             return DriverResult(ok=False, error=str(exc))
@@ -96,7 +109,7 @@ class ObsWsDriver(Driver):
 
     def _connected_client(self):
         if self._client is None:
-            self._client = _default_client(self.host, self.port, self.password)
+            self._client = _default_client(self.host, self.port, self.password, self.timeout)
         return self._client
 
 
@@ -181,6 +194,6 @@ class ObsWsClient:
             pass
 
 
-def _default_client(host, port, password):
+def _default_client(host, port, password, timeout=DEFAULT_TIMEOUT):
     """Build a live v5 client (connects + identifies immediately)."""
-    return ObsWsClient.connect(host, port, password)
+    return ObsWsClient.connect(host, port, password, timeout)

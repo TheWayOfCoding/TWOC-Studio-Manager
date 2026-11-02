@@ -59,9 +59,45 @@ class PowerModule(Module):
             raise UnknownPowerGroupError(f"unknown power group: {group_id}")
         return self._plan_steps([item for item in members if item.get("powerPlug")], on)
 
-    def _plan_steps(self, powered, on):
+    def plan_all_power(self, on, include_manual=False):
+        """Plan over every plugged device, skipping protected policies by name.
+
+        `never` devices never switch programmatically. `manual-only` devices
+        switch only when include_manual is set (the dashboard checkbox).
+        Returns (plan, skipped) so nothing is ever silent.
+        """
+        powered, skipped = [], []
+        for device_id in self.registry.device_ids:
+            device = self.registry.get_device(device_id)
+            if not device.get("powerPlug"):
+                continue
+            policy = device.get("powerOffPolicy", "auto")
+            if not on and policy == "never":
+                skipped.append(
+                    {"device": device["id"], "plug": device["powerPlug"], "reason": "never off programmatically"}
+                )
+            elif not on and policy == "manual-only" and not include_manual:
+                skipped.append(
+                    {
+                        "device": device["id"],
+                        "plug": device["powerPlug"],
+                        "reason": "manual-only (tick the box to include)",
+                    }
+                )
+            else:
+                powered.append(device)
+        return self._plan_steps(powered, on, include_manual=include_manual), skipped
+
+    def set_all_power(self, on, include_manual=False, sleep=time.sleep, delay_s=0):
+        """Execute a whole-studio plan. Returns (results, skipped)."""
+        plan, skipped = self.plan_all_power(on, include_manual=include_manual)
+        return self._execute(plan, sleep, delay_s), skipped
+
+    def _plan_steps(self, powered, on, include_manual=False):
         for device in powered:
-            check_power(device, on)
+            policy = device.get("powerOffPolicy", "auto")
+            if not (include_manual and policy == "manual-only"):
+                check_power(device, on)
             self._plug_driver(device)
         seen, unique = set(), []
         for device in powered:

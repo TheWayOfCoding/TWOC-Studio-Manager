@@ -50,6 +50,28 @@ def test_plan_off_refused_for_manual_only(power):
 
 
 @pytest.mark.unit
+def test_plan_all_off_skips_manual_only(power):
+    plan, skipped = power.plan_all_power(False)
+    assert sorted(step["plug"] for step in plan) == ["plug-1", "plug-2"]
+    assert skipped == [{"device": "demo-screen", "plug": "plug-3", "reason": "manual-only (tick the box to include)"}]
+
+
+@pytest.mark.unit
+def test_plan_all_off_include_manual(power):
+    plan, skipped = power.plan_all_power(False, include_manual=True)
+    assert sorted(step["plug"] for step in plan) == ["plug-1", "plug-2", "plug-3"]
+    assert skipped == []
+
+
+@pytest.mark.unit
+def test_plan_all_off_never_always_skipped(power):
+    power.registry._devices["demo-cam"]["powerOffPolicy"] = "never"
+    plan, skipped = power.plan_all_power(False, include_manual=True)
+    assert "plug-2" not in [step["plug"] for step in plan]
+    assert skipped == [{"device": "demo-cam", "plug": "plug-2", "reason": "never off programmatically"}]
+
+
+@pytest.mark.unit
 def test_plan_missing_driver(power):
     del power.drivers["plug-1"]
     with pytest.raises(PowerError, match="plug-1"):

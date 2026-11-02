@@ -288,18 +288,52 @@ class ModesModule(Module):
         return {"devices": devices, "skipped": skipped, "capped": capped}
 
     def _clamp_ai_cap(self, device_id, device, command, capped):
-        """Clamp an AI intensity ask to the fixture's aiCap. Records every clamp."""
+        """Clamp AI asks to aiCap, profile ranges, and panel steps. Records every clamp.
+
+        AI output is advisory: near-misses land on the nearest legal value
+        and say so, instead of failing the whole look (user-authored modes
+        and presets keep the strict gate).
+        """
         cap = (device.get("aiCap") or {}).get("intensity")
-        if cap is None:
+        if cap is not None:
+            if isinstance(cap, bool) or not isinstance(cap, (int, float)) or not 0 <= cap <= 100:
+                raise ModesError(f"{device_id}.aiCap.intensity must be 0..100: {cap!r}")
+            value = command.get("intensity")
+            if not isinstance(value, bool) and isinstance(value, (int, float)) and value > cap:
+                command["intensity"] = cap
+                capped.append({"target": device_id, "key": "intensity", "asked": value, "capped": cap})
+        if device.get("type") != "light":
             return
-        if isinstance(cap, bool) or not isinstance(cap, (int, float)) or not 0 <= cap <= 100:
-            raise ModesError(f"{device_id}.aiCap.intensity must be 0..100: {cap!r}")
-        value = command.get("intensity")
-        if isinstance(value, bool) or not isinstance(value, (int, float)):
-            return  # range check reports non-numbers
-        if value > cap:
-            command["intensity"] = cap
-            capped.append({"target": device_id, "key": "intensity", "asked": value, "capped": cap})
+        spec = self.registry.effective_device(device_id).get("spec") or {}
+        for key, range_name in LIGHT_RANGES.items():
+            if key not in command:
+                continue
+            value = command[key]
+            if isinstance(value, bool) or not isinstance(value, (int, float)):
+                continue  # range check reports non-numbers
+            bounds = spec.get(range_name)
+            if bounds is not None and not (
+                isinstance(bounds, list)
+                and len(bounds) == 2
+                and all(isinstance(end, (int, float)) and not isinstance(end, bool) for end in bounds)
+            ):
+                raise ModesError(f"{device_id}.{range_name} must be [min, max]: {bounds!r}")
+            new = value
+            if bounds is not None:
+                new = min(bounds[1], max(bounds[0], value))
+            if key == "cct":
+                new = round(new / 100) * 100
+            elif key == "hue":
+                new = round(new / 5) * 5
+            else:
+                new = round(new)
+            if bounds is not None:
+                new = min(bounds[1], max(bounds[0], new))
+            if isinstance(new, float) and new.is_integer():
+                new = int(new)
+            if new != value or (isinstance(value, float) and isinstance(new, int)):
+                command[key] = new
+                capped.append({"target": device_id, "key": key, "asked": value, "capped": new})
 
     def _translate_dmx(self, device_id, device, kept, skipped):
         """Generic intensity/cct keys pass through; the adapter maps channels.

@@ -58,6 +58,13 @@ def test_kiosk_double_esc_exit():
 
 
 @pytest.mark.unit
+def test_kiosk_hides_cursor():
+    """Cursor stays hidden on the fullscreen backdrop (keyboard exit unaffected)."""
+    html = KIOSK_HTML.read_text(encoding="utf-8")
+    assert "cursor: none" in html
+
+
+@pytest.mark.unit
 def test_kiosk_wash_and_candle_flicker():
     """Wash layer tints behind the caption; candle theme breathes."""
     html = KIOSK_HTML.read_text(encoding="utf-8")

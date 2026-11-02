@@ -58,3 +58,40 @@ applies through the modes gate, narrates the applied result to the studio
 screens (caption + color wash derived from what actually applied), then holds.
 `scenes` steps need one run-time confirmation; stop jumps to the final step so
 a show always lands somewhere sane. Power/OBS stay out of shows for now.
+
+## Per-light baselines: usual + aiCap
+
+Each light device carries its normal everyday look in `usual`:
+
+```json
+{"id": "ninja-400", "usual": {"intensity": 2, "cct": 5600}, "aiCap": {"intensity": 10}}
+```
+
+`usual` is the baseline the orchestrators reason from: the AI manifest
+includes it verbatim, and the director prompt defines it as normal
+lighting (moody/cozy asks go below it, neutral asks stay near it).
+Keep it truthful to the live everyday level — the key light's entry
+matters most, since every relative look keys off it.
+
+`aiCap` is the ceiling the AI may not exceed (near-misses clamp and are
+reported; user modes/presets keep the strict gate instead). `usual` may
+itself sit above `aiCap` when the everyday level is brighter than AI
+should ever command — the clamp still applies.
+
+Turning lights off: `intensity` 0 means dark on every family (DMX uses
+0; GVM panels also accept `"power": "off"`). The AI may direct 0 when
+the request wants a light off; the critique pass flags it so a human
+can tell blackout from mistake.
+
+## Ninja BLE lights (driverAddress)
+
+Devices with `"driver": "ninja"` address Weeylite/Viltrox fixtures over the
+broadcast protocol in `docs/ninja-ble.md` (no pairing; the hub advertises):
+
+```json
+{"id": "ninja-10", "driver": "ninja", "driverAddress": {"channel": 3, "group": "A"}}
+```
+
+`channel` is 1-19, `group` is A-F. The bench also drives raw channel/group
+pairs with no config (direct mode). One driver instance is cached per
+address so the merged look and broadcast counter continue across calls.

@@ -5,7 +5,11 @@ from .base import Provider
 
 
 class MockProvider(Provider):
-    """First light in the manifest goes warm-dim; first screen gets the prompt."""
+    """First light drops to half its usual intensity; first screen gets the prompt.
+
+    Models the baseline contract for the demo: cozy means below normal, and
+    the normal level comes from the manifest, not a hardcoded guess.
+    """
 
     def name(self):
         return "mock"
@@ -16,10 +20,18 @@ class MockProvider(Provider):
             lights = (manifest or {}).get("lights") or {}
             if lights:
                 first = sorted(lights)[0]
-                caps = lights[first].get("capabilities") or {}
-                look = {"intensity": 30}
+                entry = lights[first] or {}
+                caps = entry.get("capabilities") or {}
+                usual = entry.get("usual") or {}
+                base = usual.get("intensity")
+                if isinstance(base, bool) or not isinstance(base, (int, float)):
+                    base = 30  # no baseline declared: previous demo level
+                look = {"intensity": max(0, round(base / 2))}
+                usual_cct = usual.get("cct")
                 if caps.get("cct", True):
-                    look["cct"] = 4200
+                    if isinstance(usual_cct, bool) or not isinstance(usual_cct, (int, float)):
+                        usual_cct = 4200  # no baseline cct: previous demo warmth
+                    look["cct"] = usual_cct
                 directives["lights"][first] = look
         if targets in ("screens", "both"):
             screens = (manifest or {}).get("screens") or []

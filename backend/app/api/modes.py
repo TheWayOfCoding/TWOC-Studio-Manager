@@ -7,6 +7,7 @@ panels through registry BLE addresses. Anything unwired degrades by name.
 """
 
 import json
+from datetime import datetime, timezone
 from pathlib import Path
 
 from fastapi import APIRouter, HTTPException, Request
@@ -16,7 +17,7 @@ from ..core.safety import SafetyViolation
 from ..drivers.dmx_light import DmxLightDriver
 from ..drivers.dmx_usb import get_shared_driver
 from ..drivers.gvm_ble import GvmBleDriver
-from ..drivers.kasa import KasaDriver
+from ..drivers.kasa import KasaDriver, resolve_host
 from ..drivers.obs_ws import DEFAULT_PORT as OBS_DEFAULT_PORT
 from ..drivers.obs_ws import ObsWsDriver
 from ..drivers.screen import ScreenDriver
@@ -32,6 +33,8 @@ from ..registry import (
 
 log = get_logger("api")
 router = APIRouter()
+
+ACTION_LOG_CAP = 20  # per-studio entries; undos pop two and push one, so depth drains, never loops
 
 
 def _registry_or_404(request, studio_id):
@@ -55,6 +58,8 @@ def _plug_map(config_root):
 def _plug_drivers(registry, config_root):
     """Claim plug-map entries whose zone exists in this studio. Hosts stay server-side.
 
+    Plugs are identified by alias ("Studio Plug N"), resolved to the live
+    host at build time; the stored host is only the offline fallback.
     Entries may carry optional "username"/"password" for account-locked plugs
     (hub-local file, never committed, never echoed in responses).
     """
@@ -64,7 +69,12 @@ def _plug_drivers(registry, config_root):
         if not isinstance(entry, dict):
             continue
         plug, host, zone = entry.get("plug"), entry.get("host"), entry.get("zone")
-        if not plug or not host or zone not in zone_ids:
+        if not plug or zone not in zone_ids:
+            continue
+        alias = entry.get("alias")
+        if alias:
+            host = resolve_host(alias, entry.get("username"), entry.get("password"), fallback=host)
+        if not host:
             continue
         drivers[plug] = KasaDriver(plug, host, entry.get("username"), entry.get("password"))
     return drivers
@@ -202,6 +212,52 @@ def _apply_power_delay(body):
     return body.get("power_delay_s")
 
 
+def _studio_log(request, studio_id):
+    """This studio's action history (oldest first). Modes modules are
+    per-request, so the history lives on the app, not the module."""
+    return request.app.state.action_log.setdefault(studio_id, [])
+
+
+def record_action(request, studio_id, kind, entry_id, content, result, restores=None):
+    """Append one apply to the studio's history. Modes/presets resolve live
+    at undo time (content None); custom (AI) entries carry their directives."""
+    entries = _studio_log(request, studio_id)
+    entry = {
+        "seq": (entries[-1]["seq"] + 1) if entries else 1,
+        "at": datetime.now(timezone.utc).isoformat(),
+        "kind": kind,
+        "id": entry_id,
+        "content": content,
+        "ok": result["ok"],
+        "statuses": {name: item["status"] for name, item in result["subsystems"].items()},
+    }
+    if restores is not None:
+        entry["restores"] = restores
+    entries.append(entry)
+    del entries[:-ACTION_LOG_CAP]
+    return entry
+
+
+def _replay(module, entry):
+    """Re-apply one history entry through the normal validated path."""
+    if entry["kind"] == "undo":
+        target = entry.get("restores") or {}
+        kind, entry_id = target.get("kind"), target.get("id")
+    else:
+        kind, entry_id = entry["kind"], entry["id"]
+    if kind == "mode":
+        return {"kind": kind, "id": entry_id}, module.apply_mode(entry_id)
+    if kind == "preset":
+        return {"kind": kind, "id": entry_id}, module.apply_preset(entry_id)
+    if kind == "custom":
+        if not isinstance(entry.get("content"), dict):
+            raise ModesError("cannot undo: original AI content unavailable")
+        return {"kind": kind, "id": entry_id}, module.apply_custom(entry_id, entry["content"])
+    if kind == "power":
+        raise ModesError("cannot undo a power action (re-apply a mode to restore it)")
+    raise ModesError(f"cannot undo: unknown history kind {kind!r}")
+
+
 @router.get("/api/studios/{studio_id}/modes")
 def modes_list(studio_id: str, request: Request):
     """List a studio's modes plus its default mode id."""
@@ -231,6 +287,7 @@ def modes_apply(studio_id: str, mode_id: str, request: Request, body: dict | Non
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     except (UnknownDeviceError, UnknownPowerGroupError, ModesError, SafetyViolation) as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
+    record_action(request, studio_id, "mode", mode_id, None, result)
     return _scrub(result, _address_labels(registry))
 
 
@@ -262,4 +319,44 @@ def presets_apply(studio_id: str, preset_id: str, request: Request, body: dict |
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     except (UnknownDeviceError, UnknownPowerGroupError, ModesError, SafetyViolation) as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
+    record_action(request, studio_id, "preset", preset_id, None, result)
     return _scrub(result, _address_labels(registry))
+
+
+@router.get("/api/studios/{studio_id}/actions")
+def actions_list(studio_id: str, request: Request):
+    """This studio's action history, oldest first, plus whether undo can run."""
+    _registry_or_404(request, studio_id)
+    entries = list(request.app.state.action_log.get(studio_id, []))
+    return {"actions": entries, "can_undo": len(entries) >= 2}
+
+
+@router.post("/api/studios/{studio_id}/actions/undo")
+def actions_undo(studio_id: str, request: Request):
+    """Re-apply the previous history entry (undo needs two entries to stand on).
+
+    Pops the latest two entries and replays the older one through the normal
+    validated apply path, then records the restore. A failed replay puts the
+    history back untouched and reports the honest error.
+    """
+    registry: Registry = _registry_or_404(request, studio_id)
+    entries = _studio_log(request, studio_id)
+    if len(entries) < 2:
+        raise HTTPException(status_code=409, detail="nothing to undo yet (need two applies)")
+    current = entries.pop()
+    target = entries.pop()
+    module = build_modes_module(registry, request.app.state.config_root)
+    log.info("undo", extra={"fields": {"studio": studio_id, "target": target.get("id")}})
+    try:
+        restored, result = _replay(module, target)
+    except (UnknownModeError, UnknownPresetError) as exc:
+        entries.extend([target, current])
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except (UnknownDeviceError, UnknownPowerGroupError, ModesError, SafetyViolation) as exc:
+        entries.extend([target, current])
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    record_action(request, studio_id, "undo", restored["id"], target.get("content"), result, restores=restored)
+    payload = _scrub(result, _address_labels(registry))
+    payload["restored"] = restored
+    payload["undid"] = {"kind": current["kind"], "id": current["id"]}
+    return payload

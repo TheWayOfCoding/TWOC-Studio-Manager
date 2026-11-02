@@ -271,7 +271,7 @@ def test_plan_custom_validates_like_modes(modes):
     assert plan["kind"] == "custom"
     assert plan["lights"]["devices"][0]["device"] == "demo-key"
     with pytest.raises(SafetyViolation, match="intensity"):
-        modes.plan_custom("ai-x", {"lights": {"demo-key": {"intensity": 999}}})
+        modes.plan_custom("ai-x", {"lights": {"demo-key": {"intensity": 999}}}, ai_caps=False)
     with pytest.raises(ModesError, match="object"):
         modes.plan_custom("ai-x", ["not", "a", "dict"])
 
@@ -425,6 +425,40 @@ def test_dmx_power_key_skipped_with_hint(dmx_modes):
     assert lights["status"] == "degraded"
     assert any("intensity 0" in item["reason"] for item in lights["skipped"])
     assert dmx_modes.lights["dmx-key"].state == {}
+
+
+@pytest.mark.unit
+def test_intensity_zero_plans_dark_ready(dmx_modes):
+    """intensity 0 is a legal look (dark), not a rejection, on every family."""
+    dmx_modes.registry._modes["look"] = {
+        "id": "look",
+        "label": "Look",
+        "lights": {"dmx-key": {"intensity": 0}},
+    }
+    result = dmx_modes.apply_mode("look", sleep=lambda s: None)
+    assert result["subsystems"]["lights"]["status"] == "ready"
+    assert dmx_modes.lights["dmx-key"].state == {"intensity": 0}
+
+
+@pytest.mark.unit
+def test_gvm_zero_and_power_off(modes):
+    modes.registry._devices["demo-key"]["driver"] = "gvm"
+    modes.registry._modes["dark"] = {
+        "id": "dark",
+        "label": "Dark",
+        "lights": {"demo-key": {"intensity": 0}},
+    }
+    result = modes.apply_mode("dark", sleep=lambda s: None)
+    assert result["subsystems"]["lights"]["status"] == "ready"
+    assert modes.lights["demo-key"].state == {"brightness": 0}
+    modes.registry._modes["off"] = {
+        "id": "off",
+        "label": "Off",
+        "lights": {"demo-key": {"power": "off"}},
+    }
+    result = modes.apply_mode("off", sleep=lambda s: None)
+    assert result["subsystems"]["lights"]["status"] == "ready"
+    assert modes.lights["demo-key"].state == {"brightness": 0, "power": "off"}
 
 
 @pytest.mark.unit

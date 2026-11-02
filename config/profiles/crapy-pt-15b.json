@@ -1,7 +1,7 @@
 {
   "id": "crapy-pt-15b",
   "kind": "light",
-  "spec": {"maxWatts": 15, "colorTempK": 5000, "fixedTemp": true},
+  "spec": {"maxWatts": 15, "colorTempK": 5000, "fixedTemp": true, "intensityRange": [0, 100]},
   "capabilities": {"intensity": true, "cct": false, "rgb": false},
   "effects": [{"name": "steady", "photoRisk": "none"}],
   "notes": "Small manual 5000K panel. Known-but-uncontrollable contributor."

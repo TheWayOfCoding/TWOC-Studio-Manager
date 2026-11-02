@@ -5,3 +5,4 @@ python-kasa>=0.12
 pyserial>=3.5
 bleak>=1.0
 websocket-client>=1.8
+winsdk>=1.0.0b10; sys_platform == "win32"

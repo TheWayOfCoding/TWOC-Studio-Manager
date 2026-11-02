@@ -561,7 +561,7 @@ def test_ai_look_mock_pipeline():
     assert response.status_code == 200
     body = response.json()
     assert body["provider"] == "mock"
-    assert body["directives"]["lights"] == {"demo-key": {"intensity": 30, "cct": 4200}}
+    assert body["directives"]["lights"] == {"demo-key": {"intensity": 25, "cct": 4600}}
     assert body["critique"] == ["clean: all directives within declared capabilities"]
     assert body["apply"]["subsystems"]["lights"]["status"] == "skipped"
     assert body["preset_candidate"]["label"] == "cozy interview"
@@ -1023,3 +1023,266 @@ def test_create_app_degraded_on_broken_config(monkeypatch, tmp_path):
     assert degraded.state.health["status"] == "degraded"
     assert degraded.state.registries == {}
     assert degraded.state.health["error"]
+
+
+@pytest.mark.unit
+def test_actions_log_records_mode_and_preset():
+    """Mode and preset applies land in the per-studio action log, oldest first."""
+    app.state.action_log.clear()
+    assert client.post("/api/studios/example-studio/modes/demo_work/apply").status_code == 200
+    assert client.post("/api/studios/example-studio/presets/default/apply").status_code == 200
+    response = client.get("/api/studios/example-studio/actions")
+    assert response.status_code == 200
+    body = response.json()
+    assert body["can_undo"] is True
+    assert [(entry["kind"], entry["id"]) for entry in body["actions"]] == [
+        ("mode", "demo_work"),
+        ("preset", "default"),
+    ]
+    assert all("ok" in entry and "statuses" in entry for entry in body["actions"])
+
+
+@pytest.mark.unit
+def test_actions_log_records_ai_look():
+    """AI looks record their directives so undo can replay them."""
+    app.state.action_log.clear()
+    look = client.post(
+        "/api/studios/example-studio/ai/look", json={"prompt": "dim", "targets": "screens"}
+    )
+    assert look.status_code == 200
+    client.post("/api/studios/example-studio/modes/demo_work/apply")
+    entries = client.get("/api/studios/example-studio/actions").json()["actions"]
+    assert entries[0]["kind"] == "custom"
+    assert entries[0]["content"] is not None
+
+
+@pytest.mark.unit
+def test_actions_undo_restores_previous():
+    """Undo re-applies the previous entry; a lone entry leaves nothing to undo."""
+    app.state.action_log.clear()
+    client.post("/api/studios/example-studio/modes/demo_work/apply")
+    client.post("/api/studios/example-studio/modes/demo_stream/apply")
+    undo = client.post("/api/studios/example-studio/actions/undo")
+    assert undo.status_code == 200
+    body = undo.json()
+    assert body["restored"] == {"kind": "mode", "id": "demo_work"}
+    assert "subsystems" in body
+    follow_up = client.get("/api/studios/example-studio/actions").json()
+    assert follow_up["can_undo"] is False
+    assert client.post("/api/studios/example-studio/actions/undo").status_code == 409
+
+
+@pytest.mark.unit
+def test_actions_undo_needs_two_entries():
+    """Empty or single-entry history refuses undo honestly."""
+    app.state.action_log.clear()
+    assert client.post("/api/studios/example-studio/actions/undo").status_code == 409
+    client.post("/api/studios/example-studio/modes/demo_work/apply")
+    assert client.post("/api/studios/example-studio/actions/undo").status_code == 409
+
+
+@pytest.mark.unit
+def test_actions_unknown_studio_404():
+    assert client.get("/api/studios/nope/actions").status_code == 404
+    assert client.post("/api/studios/nope/actions/undo").status_code == 404
+
+
+@pytest.mark.unit
+def test_ai_look_scope_lights_limits_directives():
+    """scope_mode lights: only listed fixtures are directed or applied."""
+    response = client.post(
+        "/api/studios/example-studio/ai/look",
+        json={
+            "prompt": "dim",
+            "targets": "lights",
+            "scope_mode": "lights",
+            "scope_lights": ["demo-rgb"],
+        },
+    )
+    assert response.status_code == 200
+    body = response.json()
+    assert body["directives"]["lights"] == {"demo-rgb": {"intensity": 12, "cct": 4200}}
+    assert body["scope"]["skipped"] == []
+
+
+@pytest.mark.unit
+def test_ai_look_scope_zones_limits_directives():
+    """scope_mode zones: only devices in those zones are directed; rest named."""
+    response = client.post(
+        "/api/studios/example-studio/ai/look",
+        json={"prompt": "dim", "targets": "both", "scope_mode": "zones", "scope_zones": ["bench"]},
+    )
+    assert response.status_code == 200
+    body = response.json()
+    assert sorted(body["directives"]["lights"]) == ["demo-key"]
+    assert body["directives"]["screens"] == {}
+    assert body["scope"]["skipped"] == []
+    assert body["scope"]["mode"] == "zones"
+    assert body["scope"]["allowed"] == ["demo-key", "demo-rgb"]
+
+
+@pytest.mark.unit
+def test_ai_look_scope_rejects_unknown():
+    """Unknown scope mode, zone, or light is a 422, never a silent empty look."""
+    base = "/api/studios/example-studio/ai/look"
+    assert client.post(base, json={"prompt": "x", "scope_mode": "rooms"}).status_code == 422
+    assert (
+        client.post(base, json={"prompt": "x", "scope_mode": "zones", "scope_zones": ["nope"]}).status_code
+        == 422
+    )
+    assert (
+        client.post(base, json={"prompt": "x", "scope_mode": "lights", "scope_lights": ["nope"]}).status_code
+        == 422
+    )
+
+
+@pytest.mark.unit
+def test_zones_list():
+    response = client.get("/api/studios/example-studio/zones")
+    assert response.status_code == 200
+    zones = {zone["id"]: zone for zone in response.json()["zones"]}
+    assert sorted(zones) == ["bench", "desk"]
+    assert zones["bench"]["groups"] == ["bench-power"]
+    assert sorted(zones["bench"]["plugs"]) == ["plug-1", "plug-2"]
+    assert client.get("/api/studios/nope/zones").status_code == 404
+
+
+@pytest.mark.unit
+def test_zone_power_switches(monkeypatch):
+    from app.api import power as power_api
+    from app.drivers.mock import MockDriver
+
+    drivers = {plug: MockDriver(plug) for plug in ("plug-1", "plug-2", "plug-3")}
+    monkeypatch.setattr(power_api, "_plug_drivers", lambda registry, root: drivers)
+    off = client.post("/api/studios/example-studio/zones/bench/power", json={"on": False})
+    assert off.status_code == 200
+    assert off.json()["ok"] is True
+    assert drivers["plug-1"].state["on"] is False
+    assert client.post("/api/studios/example-studio/zones/nope/power", json={"on": True}).status_code == 404
+
+
+@pytest.mark.unit
+def test_all_off_respects_policies(monkeypatch):
+    from app.api import power as power_api
+    from app.drivers.mock import MockDriver
+
+    drivers = {plug: MockDriver(plug) for plug in ("plug-1", "plug-2", "plug-3")}
+    monkeypatch.setattr(power_api, "_plug_drivers", lambda registry, root: drivers)
+    default = client.post("/api/studios/example-studio/power/all-off", json={})
+    assert default.status_code == 200
+    assert drivers["plug-1"].state["on"] is False
+    assert "on" not in drivers["plug-3"].state
+    assert default.json()["skipped"] == [
+        {"device": "demo-screen", "plug": "plug-3", "reason": "manual-only (tick the box to include)"}
+    ]
+    full = client.post("/api/studios/example-studio/power/all-off", json={"include_manual": True})
+    assert full.status_code == 200
+    assert drivers["plug-3"].state["on"] is False
+    assert full.json()["skipped"] == []
+    assert client.post("/api/studios/nope/power/all-off", json={}).status_code == 404
+
+
+@pytest.mark.unit
+def test_obs_status_reports(monkeypatch):
+    from app.api import obs as obs_api
+    from app.drivers.base import DriverResult
+
+    class StubObsModule:
+        def list_scenes(self):
+            return DriverResult(
+                ok=True,
+                state={"scenes": [{"sceneName": "Main"}, {"sceneName": "BRB"}], "currentProgramSceneName": "Main"},
+            )
+
+        def stream_status(self):
+            return DriverResult(ok=True, state={"outputActive": False})
+
+    monkeypatch.setattr(obs_api, "_studio_obs", lambda root, studio: (StubObsModule(), "BRB"))
+    body = client.get("/api/studios/example-studio/obs/status").json()
+    assert body["configured"] is True
+    assert body["connected"] is True
+    assert body["current"] == "Main"
+    assert body["streaming"] is False
+    monkeypatch.setattr(obs_api, "_studio_obs", lambda root, studio: None)
+    assert client.get("/api/studios/example-studio/obs/status").json()["configured"] is False
+    assert client.get("/api/studios/nope/obs/status").status_code == 404
+
+
+@pytest.mark.unit
+def test_obs_switch_uses_safe_fallback(monkeypatch):
+    from app.api import obs as obs_api
+    from app.drivers.base import DriverResult
+
+    class StubObsModule:
+        def __init__(self):
+            self.seen = None
+
+        def switch_scene(self, scene, safe_scene=None):
+            self.seen = (scene, safe_scene)
+            if scene == "Main":
+                return DriverResult(ok=True, state={"scene": "Main"})
+            return DriverResult(ok=True, state={"scene": "BRB", "fallback": True, "requested": scene})
+
+    stub = StubObsModule()
+    monkeypatch.setattr(obs_api, "_studio_obs", lambda root, studio: (stub, "BRB"))
+    fell_back = client.post("/api/studios/example-studio/obs/switch", json={"scene": "Nope"})
+    assert fell_back.status_code == 200
+    assert fell_back.json()["state"] == {"scene": "BRB", "fallback": True, "requested": "Nope"}
+    assert stub.seen == ("Nope", "BRB")
+    monkeypatch.setattr(obs_api, "_studio_obs", lambda root, studio: None)
+    assert client.post("/api/studios/example-studio/obs/switch", json={"scene": "Main"}).status_code == 422
+
+
+@pytest.mark.unit
+def test_obs_stream_guarded(monkeypatch):
+    from app.api import obs as obs_api
+    from app.core.safety import SafetyViolation
+    from app.drivers.base import DriverResult
+
+    class StubObsModule:
+        def __init__(self):
+            self.streaming = False
+
+        def set_streaming(self, action, confirmed=False):
+            if not confirmed:
+                raise SafetyViolation("refusing unconfirmed stream start")
+            self.streaming = action == "start"
+            return DriverResult(ok=True, state={"streaming": self.streaming})
+
+    monkeypatch.setattr(obs_api, "_studio_obs", lambda root, studio: (StubObsModule(), None))
+    base = "/api/studios/example-studio/obs/stream"
+    assert client.post(base, json={"action": "start", "confirmed": False}).status_code == 422
+    started = client.post(base, json={"action": "start", "confirmed": True})
+    assert started.status_code == 200
+    assert started.json()["state"] == {"streaming": True}
+
+
+@pytest.mark.unit
+def test_plug_drivers_resolve_alias_to_live_host(monkeypatch):
+    """Modes power dials the live host for a plug alias, not the stored one."""
+    from app.api import modes as modes_api
+
+    seen = {}
+
+    def fake_plug_map(root):
+        return [
+            {
+                "plug": "plug-9",
+                "alias": "Studio Plug 9",
+                "host": "192.0.2.99",
+                "zone": "bench",
+                "powerGroup": "bench-power",
+            }
+        ]
+
+    def fake_resolve(alias, username=None, password=None, fallback=None):
+        seen["alias"] = alias
+        seen["fallback"] = fallback
+        return "192.0.2.21"
+
+    monkeypatch.setattr(modes_api, "_plug_map", fake_plug_map)
+    monkeypatch.setattr(modes_api, "resolve_host", fake_resolve)
+    registry = app.state.registries["example-studio"]
+    drivers = modes_api._plug_drivers(registry, CONFIG_ROOT)
+    assert drivers["plug-9"].host == "192.0.2.21"
+    assert seen == {"alias": "Studio Plug 9", "fallback": "192.0.2.99"}

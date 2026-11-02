@@ -39,5 +39,59 @@ def test_dashboard_structure():
         "/shows/",
         "/ai/look",
         "/ai/save-preset",
+        'id="actions"',
+        'id="undo-btn"',
+        'id="ai-scope"',
+        'id="ai-scope-zones"',
+        'id="ai-scope-lights"',
+        "loadScope(",
+        "scopeRefresh(",
+        "scope_mode",
+        'id="zones"',
+        'id="power"',
+        'id="all-off"',
+        'id="all-off-manual"',
+        "loadZones(",
+        "zonePower(",
+        "powerAllOff(",
+        "/zones/",
+        "/power/all-off",
+        'id="ai-mic"',
+        "aiMic(",
+        "SpeechRecognition",
+        'id="status"',
+        'id="obs"',
+        'id="obs-confirm"',
+        "loadStatus(",
+        "obsSwitch(",
+        "obsStream(",
+        "/obs/status",
+        "/obs/switch",
+        "/obs/stream",
+        "loadActions(",
+        "undoLast(",
+        "/actions",
+        "/actions/undo",
+    ):
+        assert marker in html
+
+
+@pytest.mark.unit
+def test_equipment_structure():
+    """Equipment page: studio/device pickers, facts, key/value editor, save."""
+    response = client.get("/equipment")
+    assert response.status_code == 200
+    html = response.text
+    for marker in (
+        'id="eq-studio"',
+        'id="eq-device"',
+        'id="eq-facts"',
+        'id="eq-rows"',
+        'id="eq-out"',
+        "eqAdd(",
+        "eqSave(",
+        "loadDevices(",
+        "/devices/",
+        "/details",
     ):
         assert marker in html

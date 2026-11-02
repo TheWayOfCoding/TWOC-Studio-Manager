@@ -2,7 +2,7 @@
 
 use tauri::Manager;
 
-const DEFAULT_URL: &str = "http://localhost:8000/screen/kqc-screen";
+const DEFAULT_URL: &str = "http://localhost:8001/screen/kqc-screen";
 
 fn main() {
     let url = std::env::args()

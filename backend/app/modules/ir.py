@@ -36,6 +36,8 @@ class IrCodeStore:
         existing = data.get(label)
         if isinstance(existing, dict):
             entry = {"code": code, "works": existing.get("works"), "notes": existing.get("notes", "")}
+            for key, value in existing.items():
+                entry.setdefault(key, value)
         else:
             entry = {"code": code, "works": None, "notes": ""}
         data[label] = entry
@@ -83,6 +85,8 @@ class IrCodeStore:
         merged = {"code": self.get(label)}
         merged["works"] = bool(works) if works is not None else old.get("works")
         merged["notes"] = notes if notes is not None else old.get("notes", "")
+        for key, value in old.items():
+            merged.setdefault(key, value)
         data[label] = merged
         self._write(data)
         return merged

@@ -170,3 +170,35 @@ def test_slow_failure_skips_retry(monkeypatch):
     result = KasaDriver("k9", "192.0.2.20").get_state()
     assert not result.ok
     assert "challenge" in result.error
+
+
+@pytest.mark.unit
+def test_resolve_host_prefers_live_alias():
+    """Alias resolution returns the live host, ignoring the stored one."""
+    import app.drivers.kasa as kasa_mod
+
+    kasa_mod._alias_cache.clear()
+    FakeDiscover.devices = {"192.0.2.21": FakeDevice("192.0.2.21")}
+    assert kasa_mod.resolve_host("plug@192.0.2.21", fallback="192.0.2.99") == "192.0.2.21"
+
+
+@pytest.mark.unit
+def test_resolve_host_falls_back_to_stored():
+    """An unseen alias keeps the stored host (offline-safe)."""
+    import app.drivers.kasa as kasa_mod
+
+    kasa_mod._alias_cache.clear()
+    FakeDiscover.devices = {}
+    assert kasa_mod.resolve_host("Studio Plug 1", fallback="192.0.2.99") == "192.0.2.99"
+
+
+@pytest.mark.unit
+def test_resolve_host_caches_discovery():
+    """One broadcast refreshes every alias; repeats come from the cache."""
+    import app.drivers.kasa as kasa_mod
+
+    kasa_mod._alias_cache.clear()
+    FakeDiscover.devices = {"192.0.2.22": FakeDevice("192.0.2.22")}
+    assert kasa_mod.resolve_host("plug@192.0.2.22", fallback="192.0.2.99") == "192.0.2.22"
+    FakeDiscover.devices = {}  # gone from the LAN, still cached
+    assert kasa_mod.resolve_host("plug@192.0.2.22", fallback="192.0.2.99") == "192.0.2.22"

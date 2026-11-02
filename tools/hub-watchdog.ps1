@@ -4,9 +4,14 @@
 # (created once; see the task-creation command at the bottom of this file).
 # Never touches fixtures: it only restarts the web/API process.
 $ErrorActionPreference = "Stop"
+[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
 $HubRoot = Split-Path $PSScriptRoot -Parent
 $LogFile = Join-Path $HubRoot "logs\watchdog.log"
-$HealthUrl = "http://127.0.0.1:8000/api/health"
+$HealthUrls = @(
+    "https://127.0.0.1:8000/api/health",
+    "http://127.0.0.1:8001/api/health",
+    "http://127.0.0.1:8000/api/health"  # pre-TLS single-listener hubs
+)
 
 function Write-WatchdogLog([string]$Message) {
     $stamp = (Get-Date).ToString("yyyy-MM-dd HH:mm:ss")
@@ -17,12 +22,20 @@ function Write-WatchdogLog([string]$Message) {
 }
 
 function Test-HubHealth {
-    try {
-        $health = Invoke-RestMethod $HealthUrl -TimeoutSec 10
-        return ($health.status -eq "ok") -or ($health.status -eq "degraded")
-    } catch {
-        return $false
+    # curl, not Invoke-RestMethod: .NET Framework TLS cannot handshake with
+    # the hub's OpenSSL 3 stack. Any one listener answering counts: the
+    # process serves both or neither, so one dark + one lit means a probe
+    # issue, not a dead hub.
+    foreach ($url in $HealthUrls) {
+        try {
+            $raw = curl.exe -sk --max-time 10 $url 2>$null
+            if ($raw) {
+                $health = $raw | ConvertFrom-Json
+                return ($health.status -eq "ok") -or ($health.status -eq "degraded")
+            }
+        } catch { }
     }
+    return $false
 }
 
 # Right after boot the Hub is still starting; leave it alone.

@@ -14,6 +14,7 @@ param(
     [string]$InstallDir = "C:\studio\studio-hub"
 )
 $ErrorActionPreference = "Stop"
+[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
 $root = Split-Path $PSScriptRoot -Parent
 if ($InstallDir -match " ") { throw "install dir must not contain spaces: $InstallDir" }
 if (-not $TargetHost) { throw "no Hub host: pass -TargetHost <ip> or set STUDIO_HUB_HOST on this PC" }
@@ -60,8 +61,17 @@ try {
 } catch { }
 $health = $null
 for ($i = 0; $i -lt 12; $i++) {
-    try { $health = Invoke-RestMethod "http://${healthHost}:8000/api/health" -TimeoutSec 3; break }
-    catch { Start-Sleep 5 }
+    # curl, not Invoke-RestMethod: .NET Framework TLS cannot handshake with
+    # the hub's OpenSSL 3 stack. Probe order: https 8000, http 8001,
+    # http 8000 (last covers pre-TLS single-listener hubs).
+    foreach ($probe in @("https://${healthHost}:8000", "http://${healthHost}:8001", "http://${healthHost}:8000")) {
+        try {
+            $raw = curl.exe -sk --max-time 3 "$probe/api/health" 2>$null
+            if ($raw) { $health = $raw | ConvertFrom-Json; break }
+        } catch { }
+    }
+    if ($health) { break }
+    Start-Sleep 5
 }
 Remove-Item $stage -Recurse -Force -ErrorAction SilentlyContinue
 Remove-Item $zip -Force -ErrorAction SilentlyContinue

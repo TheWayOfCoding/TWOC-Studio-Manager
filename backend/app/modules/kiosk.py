@@ -18,7 +18,7 @@ from ..core.logging import get_logger
 
 log = get_logger("kiosk")
 
-HUB_PORT = 8000  # project convention: uvicorn --port 8000 on every host
+HUB_PORT = 8001  # plain-HTTP listener (hub-serve.py); HTTPS stays on 8000
 WIN_TASK = "StudioKiosk"
 WIN_EXE_NAME = "studio-kiosk.exe"
 WIN_EXE = r"C:\studio\kiosk\studio-kiosk.exe"  # written by the kiosk deploy

@@ -1,0 +1,123 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Studio Hub — Equipment</title>
+<style>
+body { font-family: system-ui, sans-serif; margin: 1.5em; max-width: 48em; }
+.card { border: 1px solid #ccc; border-radius: 8px; padding: 1em; margin-bottom: 1em; }
+.ok { color: #0a0; } .bad { color: #c00; }
+nav a { margin-right: 1em; }
+table { border-collapse: collapse; margin: 0.5em 0; }
+td, th { border: 1px solid #ddd; padding: 0.3em 0.6em; text-align: left; }
+th { background: #f4f4f4; }
+input[type=text] { width: 16em; max-width: 40vw; }
+button { margin: 0.2em 0.4em 0.2em 0; }
+pre { background: #f4f4f4; padding: 0.5em; overflow-x: auto; white-space: pre-wrap; }
+</style>
+</head>
+<body>
+<nav><strong>Studio Hub</strong> | <a href="/">Dashboard</a> | <a href="/bench">Test Bench</a> | <a href="/docs">API docs</a></nav>
+<h1>Equipment datapoints</h1>
+<p>Freeform facts per device (modifiers, distances, diffusion — whole-phrase labels welcome). Saved to the local studio file and fed to the AI. Built-in fields below are read-only.</p>
+<div class="card"><h2>Device</h2>
+<div><select id="eq-studio"></select> <select id="eq-device"></select></div>
+<div id="eq-facts"></div></div>
+<div class="card"><h2>Datapoints</h2>
+<table><thead><tr><th>Label</th><th>Value</th><th></th></tr></thead>
+<tbody id="eq-rows"></tbody></table>
+<div><button onclick="eqAdd('', '')">Add row</button> <button onclick="eqSave()">Save</button></div>
+<div id="eq-out"></div></div>
+<script>
+async function jget(path) {
+  const r = await fetch(path);
+  if (!r.ok) throw new Error(path + ": " + r.status);
+  return r.json();
+}
+async function jput(path, body) {
+  const r = await fetch(path, {method: "PUT", headers: {"Content-Type": "application/json"}, body: body});
+  const j = await r.json();
+  if (!r.ok) throw new Error(JSON.stringify(j));
+  return j;
+}
+function out(id, obj, ok) {
+  document.getElementById(id).innerHTML =
+    '<span class="' + (ok === false ? "bad" : "ok") + '">●</span><pre>' + JSON.stringify(obj, null, 2) + "</pre>";
+}
+let EQ_STUDIO = null;
+function studio() { return EQ_STUDIO || document.getElementById("eq-studio").value; }
+function device() { return document.getElementById("eq-device").value; }
+function esc(s) {
+  return String(s == null ? "" : s).replace(/&/g, "&amp;").replace(/</g, "&lt;");
+}
+function eqAdd(key, value) {
+  const tr = document.createElement("tr");
+  tr.innerHTML = '<td><input type="text" class="eq-key" value="' + esc(key).replace(/"/g, "&quot;") +
+    '" placeholder="e.g. Diffusion layers"></td>' +
+    '<td><input type="text" class="eq-val" value="' + esc(value).replace(/"/g, "&quot;") + '"></td>' +
+    '<td><button onclick="this.closest(\'tr\').remove()">Remove</button></td>';
+  document.getElementById("eq-rows").appendChild(tr);
+}
+function eqRows() {
+  const rows = [];
+  document.querySelectorAll("#eq-rows tr").forEach((tr) => {
+    rows.push([tr.querySelector(".eq-key").value, tr.querySelector(".eq-val").value]);
+  });
+  return rows;
+}
+async function loadDevices() {
+  try {
+    const list = await jget("/api/studios/" + studio() + "/devices");
+    const sel = document.getElementById("eq-device");
+    sel.innerHTML = list.map((d) => '<option value="' + d.id + '">' + esc(d.name || d.id) + "</option>").join("");
+    sel.onchange = loadDevice;
+    if (list.length) loadDevice();
+  } catch (e) { out("eq-out", {error: String(e)}, false); }
+}
+async function loadDevice() {
+  if (!device()) return;
+  try {
+    const r = await jget("/api/studios/" + studio() + "/devices/" + device());
+    const d = r.device || {};
+    const facts = [
+      ["Type", d.type], ["Zone", d.zone], ["Position", d.position],
+      ["Role", d.role], ["Distance to subject (m)", d.distanceToSubjectM],
+      ["Power", [d.powerGroup, d.powerPlug, d.powerOffPolicy].filter(Boolean).join(" / ")],
+      ["Est. watts", d.estWatts], ["Driver", d.driver],
+      ["Modifiers", d.modifiers ? JSON.stringify(d.modifiers) : ""],
+      ["Usual", d.usual ? JSON.stringify(d.usual) : ""],
+    ];
+    document.getElementById("eq-facts").innerHTML = "<table>" +
+      facts.map(([k, v]) => "<tr><th>" + k + "</th><td>" + esc(v) + "</td></tr>").join("") + "</table>";
+    document.getElementById("eq-rows").innerHTML = "";
+    Object.entries(r.details || {}).forEach(([k, v]) => eqAdd(k, v));
+    document.getElementById("eq-out").innerHTML = "";
+  } catch (e) { out("eq-out", {error: String(e)}, false); }
+}
+async function eqSave() {
+  const details = {};
+  for (const [k, v] of eqRows()) {
+    if (!k.trim()) { out("eq-out", {error: "labels must not be empty"}, false); return; }
+    const t = v.trim();
+    details[k.trim()] = (t !== "" && !isNaN(Number(t))) ? Number(t) : v;
+  }
+  try {
+    const r = await jput("/api/studios/" + studio() + "/devices/" + device() + "/details",
+      JSON.stringify({details}));
+    out("eq-out", {status: "saved " + Object.keys(r.details).length + " datapoint(s) on " + r.device}, true);
+  } catch (e) { out("eq-out", {error: String(e)}, false); }
+}
+(async () => {
+  try {
+    const s = await jget("/api/studios");
+    const sel = document.getElementById("eq-studio");
+    sel.innerHTML = s.map((x) => '<option value="' + x.id + '">' + esc(x.label) + "</option>").join("");
+    sel.onchange = () => { EQ_STUDIO = sel.value; loadDevices(); };
+    EQ_STUDIO = ((s.find((x) => x.id === "home-studio") || s[0]) || {}).id || null;
+    if (EQ_STUDIO) { sel.value = EQ_STUDIO; loadDevices(); }
+  } catch (e) { out("eq-out", {error: String(e)}, false); }
+})();
+</script>
+</body>
+</html>

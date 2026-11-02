@@ -24,6 +24,12 @@ PROMPT_TEMPLATE = (
     '"saturation": 0..100}}, "screens": {"<screen-id>": {"theme": str, "text": str}}}. '
     "Apply to these targets only: %(targets)s. "
     "Use only these device ids and ranges (stay inside aiCap): %(manifest)s. "
+    "Each light lists usual, its normal everyday look: treat it as the baseline "
+    "(moody or cozy asks go below it, neutral asks stay near it). "
+    "usual may carry both a white baseline (cct) and a color baseline "
+    "(hue/saturation): use the keys matching the requested look. "
+    "intensity 0 means dark and is allowed when the request wants a light off "
+    '(GVM panels also accept "power": "off"; DMX lights use 0). '
     "Request: %(prompt)s"
 )
 

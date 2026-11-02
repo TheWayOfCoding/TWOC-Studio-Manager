@@ -26,9 +26,28 @@
     },
     "aimedAt": {"type": "string"},
     "distanceToSubjectM": {"type": "number", "minimum": 0},
+    "modifiers": {
+      "type": "array",
+      "description": "Light shapers between the fixture and the subject (softbox, diffusion, grid...). Fed to the AI manifest.",
+      "items": {
+        "type": "object",
+        "required": ["type"],
+        "properties": {
+          "type": {"type": "string"},
+          "size": {"type": "string"},
+          "diffusionLayers": {"type": "integer", "minimum": 0},
+          "notes": {"type": "string"}
+        }
+      }
+    },
     "role": {"type": "string"},
     "usual": {"type": "object"},
-    "exposure": {"type": "object"}
+    "exposure": {"type": "object"},
+    "details": {
+      "type": "object",
+      "description": "Freeform datapoints (multi-word keys welcome), edited on the Equipment page. Fed to the AI manifest.",
+      "additionalProperties": {"type": ["string", "number"]}
+    }
   },
   "additionalProperties": true
 }

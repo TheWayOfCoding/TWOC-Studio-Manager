@@ -1,9 +1,22 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later
 """Unit tests for glass kiosk auto-launch (mocked processes, both platforms)."""
 
+import importlib.util
+from pathlib import Path
+
 import pytest
 
 from app.modules import kiosk
+
+TOOLS_DIR = Path(__file__).resolve().parents[2] / "tools"
+
+
+def load_hub_kiosk():
+    """Import tools/hub-kiosk.py (hyphenated name needs spec loading)."""
+    spec = importlib.util.spec_from_file_location("hub_kiosk", TOOLS_DIR / "hub-kiosk.py")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
 
 SHOW = {
     "steps": [
@@ -43,7 +56,7 @@ def test_screens_in_show_empty():
 
 
 def test_kiosk_url_is_hub_local():
-    assert kiosk.kiosk_url("kqc-screen") == "http://localhost:8000/screen/kqc-screen"
+    assert kiosk.kiosk_url("kqc-screen") == "http://localhost:8001/screen/kqc-screen"
 
 
 def test_ensure_for_show_no_screens_skips_quietly():
@@ -54,7 +67,7 @@ def test_ensure_for_show_uses_first_screen(monkeypatch):
     seen = []
     monkeypatch.setattr(kiosk, "ensure_kiosk", lambda url: seen.append(url) or "launched")
     assert kiosk.ensure_kiosk_for_show(SHOW) == "launched"
-    assert seen == ["http://localhost:8000/screen/b"]
+    assert seen == ["http://localhost:8001/screen/b"]
 
 
 def test_windows_already_running_skips_launch(monkeypatch, windows):
@@ -136,3 +149,39 @@ def test_posix_no_exe_skips(monkeypatch, posix):
     monkeypatch.setattr(kiosk.subprocess, "run", lambda *a, **k: Proc(returncode=1))
     monkeypatch.setattr(kiosk.shutil, "which", lambda name: None)
     assert kiosk.ensure_kiosk("http://x") == "skipped: shell not on PATH"
+
+
+def test_health_url_for_keeps_origin_scheme():
+    hub_kiosk = load_hub_kiosk()
+    assert (
+        hub_kiosk.health_url_for("http://localhost:8001/screen/kqc-screen")
+        == "http://localhost:8001/api/health"
+    )
+    assert (
+        hub_kiosk.health_url_for("https://localhost:8000/screen/kqc-screen")
+        == "https://localhost:8000/api/health"
+    )
+
+
+def test_browser_bat_waits_reaps_then_opens():
+    hub_kiosk = load_hub_kiosk()
+    url = "http://localhost:8001/screen/kqc-screen"
+    bat = hub_kiosk.browser_bat_content("C:\\edge\\msedge.exe", "--kiosk", url)
+    assert "http://localhost:8001/api/health" in bat  # wait targets hub health
+    assert "goto wait" in bat  # boot race: hold until the hub answers
+    assert hub_kiosk.BROWSER_MARKER in bat and "Stop-Process" in bat  # reap stale kiosk
+    assert bat.rstrip().endswith(f'start "" "C:\\edge\\msedge.exe" --kiosk {url}')
+
+
+def test_browser_marker_matches_kiosk_profile_dir():
+    hub_kiosk = load_hub_kiosk()
+    assert hub_kiosk.BROWSER_MARKER in hub_kiosk.KIOSK_FLAGS["edge"]
+
+
+def test_app_bat_waits_reaps_then_opens():
+    hub_kiosk = load_hub_kiosk()
+    url = "http://localhost:8001/screen/kqc-screen"
+    bat = hub_kiosk.app_bat_content(url)
+    assert "taskkill /F /IM studio-kiosk.exe" in bat
+    assert "http://localhost:8001/api/health" in bat and "goto wait" in bat
+    assert bat.rstrip().endswith(f'start "" "{hub_kiosk.APP_EXE}" {url}')

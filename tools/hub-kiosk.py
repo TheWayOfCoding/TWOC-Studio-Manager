@@ -32,10 +32,13 @@ CANDIDATES = [
 KIOSK_FLAGS = {
     # Dedicated profile dir: first-run/restore/update nags stay contained
     # in a throwaway profile instead of leaking into the user's browser.
+    # NOTE: --ignore-certificate-errors covers the hub's self-signed LAN cert.
+    # The kiosk visits only the local hub, so there is nothing to intercept.
     "edge": "--kiosk --edge-kiosk-type=fullscreen --no-first-run "
-    "--disable-session-crashed-bubble --user-data-dir=%LOCALAPPDATA%\\StudioKioskEdge",
+    "--disable-session-crashed-bubble --ignore-certificate-errors "
+    "--user-data-dir=%LOCALAPPDATA%\\StudioKioskEdge",
     "chrome": "--kiosk --no-first-run --disable-session-crashed-bubble "
-    "--user-data-dir=%LOCALAPPDATA%\\StudioKioskChrome",
+    "--ignore-certificate-errors --user-data-dir=%LOCALAPPDATA%\\StudioKioskChrome",
     "firefox": "--kiosk",
     "brave": "--kiosk --no-first-run --disable-session-crashed-bubble",
 }
@@ -72,6 +75,52 @@ def console_user():
 
 APP_EXE = r"C:\studio\kiosk\studio-kiosk.exe"
 TASK_NAME = "StudioKiosk"
+
+# Fragment of our Edge profile dir; identifies OUR Edge processes (and only
+# ours) by command line, so a stale kiosk can be reaped without touching a
+# human's browser. Must match the --user-data-dir in KIOSK_FLAGS.
+BROWSER_MARKER = "StudioKioskEdge"
+
+
+def health_url_for(kiosk_url):
+    """Health endpoint on the kiosk URL's own origin (either scheme)."""
+    origin = "/".join(kiosk_url.split("/", 3)[:3])
+    return f"{origin}/api/health"
+
+
+def wait_block(health_url):
+    """Bat lines: hold until the hub answers (fixes the boot race where the
+    kiosk opens first and sticks on the browser error page, which never
+    retries on its own). curl.exe ships with Windows 10+."""
+    return (
+        ":wait\n"
+        f"curl.exe -sk --max-time 2 {health_url} >nul 2>nul\n"
+        "if errorlevel 1 (timeout /t 2 /nobreak >nul & goto wait)\n"
+    )
+
+
+def browser_bat_content(exe_path, flags, url):
+    """Logon .bat for browser kiosk mode: reap a stale kiosk (ALT-F4 does
+    not reliably exit Edge kiosk mode), wait for the hub, then open once."""
+    return (
+        "@echo off\n"
+        "powershell -NoProfile -ExecutionPolicy Bypass -Command "
+        f"\"Get-CimInstance Win32_Process|?{{$_.CommandLine -match '{BROWSER_MARKER}'}}"
+        "|%{Stop-Process -Id $_.ProcessId -Force}\" >nul 2>nul\n"
+        f"{wait_block(health_url_for(url))}"
+        f'start "" "{exe_path}" {flags} {url}\n'
+    )
+
+
+def app_bat_content(url):
+    """Logon .bat for the Tauri shell: same wait + reap treatment."""
+    exe_name = os.path.basename(APP_EXE)
+    return (
+        "@echo off\n"
+        f"taskkill /F /IM {exe_name} >nul 2>nul\n"
+        f"{wait_block(health_url_for(url))}"
+        f'start "" "{APP_EXE}" {url}\n'
+    )
 
 
 def _upsert_task(url):
@@ -135,7 +184,7 @@ def install_app(url, user):
     os.makedirs(folder, exist_ok=True)
     bat = os.path.join(folder, "studio-kiosk.bat")
     with open(bat, "w", encoding="ascii") as handle:
-        handle.write(f'start "" "{APP_EXE}" {url}\n')
+        handle.write(app_bat_content(url))
     print(f"installed {bat}")
     _upsert_task(url)
     print(f"task {TASK_NAME} ready for remote launch")
@@ -171,7 +220,7 @@ def main(argv):
     os.makedirs(folder, exist_ok=True)
     bat = os.path.join(folder, "studio-kiosk.bat")
     with open(bat, "w", encoding="ascii") as handle:
-        handle.write(f'start "" "{path}" {KIOSK_FLAGS[family]} {argv[2]}\n')
+        handle.write(browser_bat_content(path, KIOSK_FLAGS[family], argv[2]))
     print(f"installed {bat}")
     return 0
 

@@ -2,7 +2,7 @@
 
 How remote codes get from a physical remote into JSON. Hardware setup lives in
 `docs/ir-wiring.md`. Capture happens in the Test Bench IR card
-(`http://studio.local:8000/bench`); codes land in
+(`http://studio.local:8001/bench`, or the `https://` dashboard on 8000); codes land in
 `config/studios.local/<studio>/ir-codes/<device>.json` (local-only, git-ignored).
 
 ## Procedure

@@ -16,11 +16,14 @@ input[type=text] { width: 24em; max-width: 100%; }
 </style>
 </head>
 <body>
-<nav><strong>Studio Hub</strong> | <a href="/bench">Test Bench</a> | <a href="/docs">API docs</a></nav>
+<nav><strong>Studio Hub</strong> | <a href="/bench">Test Bench</a> | <a href="/equipment">Equipment</a> | <a href="/docs">API docs</a></nav>
 <h1>Studio Hub</h1>
 <div class="card"><h2>Health</h2><div id="health">loading…</div></div>
 <div class="card"><h2>Studio</h2><select id="studio"></select></div>
-<div class="card"><h2>Modes</h2><div><label><input type="checkbox" id="pwr-delay-on"> stagger power</label> <input type="number" id="pwr-delay-s" value="1" min="0" max="5" step="0.1" style="width:4em"> s</div><div id="modes">loading…</div><div id="mode-out"></div></div>
+<div class="card"><h2>Modes</h2><div><label><input type="checkbox" id="pwr-delay-on"> stagger power</label> <input type="number" id="pwr-delay-s" value="1" min="0" max="5" step="0.1" style="width:4em"> s</div><div id="modes">loading…</div><div id="mode-out"></div><div id="actions"></div><div><button id="undo-btn" onclick="undoLast()">Undo</button></div></div>
+<div class="card"><h2>Zones</h2><div id="zones">loading…</div><div id="zone-out"></div></div>
+<div class="card" id="power"><h2>Power</h2><div><button id="all-off" onclick="powerAllOff()">All Off</button>
+<label><input type="checkbox" id="all-off-manual"> also switch devices normally left on</label></div><div id="power-out"></div></div>
 <div class="card"><h2>Presets</h2><div id="presets">loading…</div><div id="preset-out"></div></div>
 <div class="card"><h2>Presentations</h2>
 <div><label><input type="checkbox" id="show-confirm"> confirm scene steps</label>
@@ -31,7 +34,12 @@ input[type=text] { width: 24em; max-width: 100%; }
 <select id="ai-targets"><option value="both">lights+screen</option>
 <option value="lights">lights</option><option value="screens">screen</option></select>
 <select id="ai-provider"><option value="mock">mock</option><option value="meta">meta</option></select>
-<button onclick="aiLook()">Direct</button></div>
+<button onclick="aiLook()">Direct</button> <button id="ai-mic" onclick="aiMic()">Mic</button></div>
+<div id="ai-scope"><label><input type="radio" name="ai-scope-mode" value="all" checked onchange="scopeRefresh()"> all</label>
+<label><input type="radio" name="ai-scope-mode" value="zones" onchange="scopeRefresh()"> zones</label>
+<label><input type="radio" name="ai-scope-mode" value="lights" onchange="scopeRefresh()"> lights</label></div>
+<div id="ai-scope-zones"></div>
+<div id="ai-scope-lights"></div>
 <div id="ai-save" style="display:none"><input type="text" id="ai-preset-id" placeholder="preset id">
 <button onclick="aiSave()">Save as preset</button></div>
 <div id="ai-out"></div></div>
@@ -83,13 +91,53 @@ async function applyMode(id) {
   if (document.getElementById("pwr-delay-on").checked) {
     body = JSON.stringify({power_delay_s: parseFloat(document.getElementById("pwr-delay-s").value) || 0});
   }
-  try { renderApply("mode-out", await jpost("/api/studios/" + studio() + "/modes/" + id + "/apply", body)); }
+  try { renderApply("mode-out", await jpost("/api/studios/" + studio() + "/modes/" + id + "/apply", body)); loadActions(); }
   catch (e) { out("mode-out", {error: String(e)}, false); }
 }
 async function applyPreset(id) {
   out("preset-out", {status: "applying " + id + "…"}, true);
-  try { renderApply("preset-out", await jpost("/api/studios/" + studio() + "/presets/" + id + "/apply", "{}")); }
+  try { renderApply("preset-out", await jpost("/api/studios/" + studio() + "/presets/" + id + "/apply", "{}")); loadActions(); }
   catch (e) { out("preset-out", {error: String(e)}, false); }
+}
+async function loadActions() {
+  try {
+    const a = await jget("/api/studios/" + studio() + "/actions");
+    const last = a.actions[a.actions.length - 1];
+    document.getElementById("actions").textContent = last
+      ? "last: " + last.kind + " " + last.id + (last.ok ? "" : " (degraded)") + " · " + a.actions.length + " in log"
+      : "no actions yet";
+    document.getElementById("undo-btn").disabled = !a.can_undo;
+  } catch (e) { document.getElementById("actions").textContent = "actions unavailable"; }
+}
+async function undoLast() {
+  out("mode-out", {status: "undoing…"}, true);
+  try { renderApply("mode-out", await jpost("/api/studios/" + studio() + "/actions/undo", "{}")); loadActions(); }
+  catch (e) { out("mode-out", {error: String(e)}, false); }
+}
+async function loadZones() {
+  try {
+    const z = await jget("/api/studios/" + studio() + "/zones");
+    document.getElementById("zones").innerHTML = z.zones.map((x) =>
+      "<div><strong>" + x.label + "</strong> " +
+      '<button onclick="zonePower(\'' + x.id + "',true)\">On</button>" +
+      '<button onclick="zonePower(\'' + x.id + "',false)\">Off</button>" +
+      " <small>" + x.plugs.join(", ") + "</small></div>").join("");
+  } catch (e) { document.getElementById("zones").textContent = "zones unavailable"; }
+}
+async function zonePower(id, on) {
+  out("zone-out", {status: (on ? "powering on " : "powering off ") + id + "…"}, true);
+  try {
+    const r = await jpost("/api/studios/" + studio() + "/zones/" + id + "/power", JSON.stringify({on}));
+    out("zone-out", r, r.ok); loadActions();
+  } catch (e) { out("zone-out", {error: String(e)}, false); }
+}
+async function powerAllOff() {
+  const manual = document.getElementById("all-off-manual").checked;
+  out("power-out", {status: "switching everything off…"}, true);
+  try {
+    const r = await jpost("/api/studios/" + studio() + "/power/all-off", JSON.stringify({include_manual: manual}));
+    out("power-out", r, r.ok); loadActions();
+  } catch (e) { out("power-out", {error: String(e)}, false); }
 }
 async function loadShows() {
   try {
@@ -122,10 +170,57 @@ async function showPoll(id) {
   }
 }
 let AI_CANDIDATE = null;
+function scopeMode() {
+  const r = document.querySelector('input[name="ai-scope-mode"]:checked');
+  return r ? r.value : "all";
+}
+function scopeChecked(cls) {
+  return [...document.querySelectorAll("." + cls)].filter((c) => c.checked && !c.disabled).map((c) => c.value);
+}
+function scopeRefresh() {
+  const m = scopeMode();
+  document.querySelectorAll(".scope-zone").forEach((c) => { c.disabled = (m === "lights"); });
+  document.querySelectorAll(".scope-light").forEach((c) => { c.disabled = (m === "zones"); });
+  document.getElementById("ai-scope-zones").style.opacity = m === "lights" ? 0.4 : 1;
+  document.getElementById("ai-scope-lights").style.opacity = m === "zones" ? 0.4 : 1;
+}
+async function loadScope() {
+  try {
+    const devs = await jget("/api/studios/" + studio() + "/devices");
+    const zones = [...new Set(devs.map((d) => d.zone).filter(Boolean))];
+    document.getElementById("ai-scope-zones").innerHTML = zones.map((z) =>
+      '<label><input type="checkbox" class="scope-zone" value="' + z + '" checked> ' + z + "</label> ").join("");
+    document.getElementById("ai-scope-lights").innerHTML = devs
+      .filter((d) => d.type === "light" && d.controllable !== false).map((d) =>
+      '<label><input type="checkbox" class="scope-light" value="' + d.id + '" checked> ' +
+      (d.name || d.id) + "</label> ").join("");
+    scopeRefresh();
+  } catch (e) { /* scope stays empty = all */ }
+}
+function aiMic() {
+  const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+  if (!window.isSecureContext) {
+    out("ai-out", {error: "mic needs a secure page: open the hub over https, or set Chrome flag unsafely-treat-insecure-origin-as-secure for this address"}, false);
+    return;
+  }
+  if (!SR) { out("ai-out", {error: "voice input needs Chrome or Edge"}, false); return; }
+  const rec = new SR();
+  rec.lang = "en-US";
+  rec.interimResults = false;
+  rec.maxAlternatives = 1;
+  out("ai-out", {status: "listening…"}, true);
+  rec.onresult = (e) => {
+    document.getElementById("ai-prompt").value = e.results[0][0].transcript;
+    out("ai-out", {status: "heard — hit Direct to run it"}, true);
+  };
+  rec.onerror = (e) => { out("ai-out", {error: "mic: " + e.error}, false); };
+  rec.start();
+}
 async function aiLook() {
   const body = JSON.stringify({prompt: document.getElementById("ai-prompt").value,
     targets: document.getElementById("ai-targets").value,
-    provider: document.getElementById("ai-provider").value});
+    provider: document.getElementById("ai-provider").value,
+    scope_mode: scopeMode(), scope_zones: scopeChecked("scope-zone"), scope_lights: scopeChecked("scope-light")});
   out("ai-out", {status: "directing…"}, true);
   try {
     const r = await jpost("/api/studios/" + studio() + "/ai/look", body);
@@ -133,7 +228,8 @@ async function aiLook() {
     document.getElementById("ai-save").style.display = AI_CANDIDATE ? "" : "none";
     document.getElementById("ai-out").innerHTML =
       "<pre>" + JSON.stringify({directives: r.directives, critique: r.critique,
-        apply: r.apply.subsystems}, null, 2) + "</pre>";
+        scope: r.scope, apply: r.apply.subsystems}, null, 2) + "</pre>";
+    loadActions();
   } catch (e) { out("ai-out", {error: String(e)}, false); }
 }
 async function aiSave() {
@@ -157,9 +253,13 @@ async function aiSave() {
     const s = await jget("/api/studios");
     const sel = document.getElementById("studio");
     sel.innerHTML = s.map(x => "<option value=\"" + x.id + "\">" + x.label + "</option>").join("");
-    sel.onchange = () => { STUDIO = sel.value; loadModes(); loadPresets(); loadShows(); };
+    sel.onchange = () => { STUDIO = sel.value; loadModes(); loadPresets(); loadShows(); loadActions(); loadScope(); loadZones(); };
     STUDIO = (s.find(x => x.id === "home-studio") || s[0] || {}).id || null;
-    if (STUDIO) { sel.value = STUDIO; loadModes(); loadPresets(); loadShows(); }
+    if (STUDIO) { sel.value = STUDIO; loadModes(); loadPresets(); loadShows(); loadActions(); loadScope(); loadZones(); }
+    if (!(window.SpeechRecognition || window.webkitSpeechRecognition)) {
+      const mic = document.getElementById("ai-mic");
+      if (mic) { mic.disabled = true; mic.title = "voice input needs Chrome or Edge"; }
+    }
   } catch (e) {
     document.getElementById("health").innerHTML = '<span class="bad">unreachable: ' + e + "</span>";
   }

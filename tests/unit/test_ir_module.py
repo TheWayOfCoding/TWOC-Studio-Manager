@@ -88,6 +88,18 @@ def test_mark_records_effectiveness(module):
 
 
 @pytest.mark.unit
+def test_mark_preserves_extra_fields(module):
+    """mark/save keep fields they don't own (e.g. photoRisk)."""
+    mod, _ = module
+    mod.store.save_label("strobe", [0, 239, 11])
+    data = mod.codes()
+    data["strobe"]["photoRisk"] = "intense"
+    mod.store._write(data)
+    assert mod.mark("strobe", True, "fast cycle")["photoRisk"] == "intense"
+    assert mod.store.save_label("strobe", [0, 239, 11])["strobe"]["photoRisk"] == "intense"
+
+
+@pytest.mark.unit
 def test_legacy_list_values_still_read(tmp_path):
     store = IrCodeStore(tmp_path / "codes.json")
     (tmp_path / "codes.json").write_text('{"power": [0, 255, 69]}', encoding="utf-8")

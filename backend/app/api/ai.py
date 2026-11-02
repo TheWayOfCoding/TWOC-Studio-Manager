@@ -24,7 +24,7 @@ from ..core.logging import get_logger
 from ..core.safety import SafetyViolation
 from ..modules.modes import ModesError, ModesModule
 from ..registry import Registry, RegistryError
-from .modes import _address_labels, _scrub, build_modes_module
+from .modes import _address_labels, _scrub, build_modes_module, record_action
 
 log = get_logger("api")
 router = APIRouter()
@@ -36,6 +36,9 @@ class LookBody(BaseModel):
     prompt: str = ""
     targets: str = "both"
     provider: str = "mock"
+    scope_mode: str = "all"
+    scope_zones: list = []
+    scope_lights: list = []
 
 
 class SavePresetBody(BaseModel):
@@ -75,7 +78,8 @@ def save_preset(config_root, registry, preset_id, preset, overwrite=False):
     if preset.get("fade_s") is not None:
         gate_content["fade_s"] = preset["fade_s"]
     try:
-        ModesModule("modes", registry).plan_custom(preset_id, gate_content)
+        # Strict gate (no AI clamp): user-authored presets must be exactly valid.
+        ModesModule("modes", registry).plan_custom(preset_id, gate_content, ai_caps=False)
     except (ModesError, SafetyViolation, RegistryError) as exc:
         raise PresetSaveError(f"preset content rejected: {exc}") from exc
     try:
@@ -116,12 +120,45 @@ def _meta_provider(config_root):
     return MetaProvider(cfg["api_key"], cfg.get("model") or META_DEFAULT_MODEL)
 
 
+def _resolve_scope(registry, body):
+    """Turn the scope picker into an allowed id list (None = everything).
+
+    Zones and lights are exclusive: scope_mode picks which list counts.
+    Unknown zones, lights, or modes are 422, never a silent empty look.
+    """
+    mode = body.scope_mode or "all"
+    if mode == "all":
+        return None, {"mode": "all", "zones": [], "lights": []}
+    if mode == "zones":
+        unknown = [zone for zone in body.scope_zones if zone not in registry.zone_ids]
+        if unknown:
+            raise HTTPException(status_code=422, detail=f"unknown scope zones: {unknown}")
+        wanted = set(body.scope_zones)
+        allowed = []
+        for device_id in registry.device_ids:
+            device = registry.get_device(device_id)
+            if device.get("zone") not in wanted:
+                continue
+            if device.get("controllable", True) is False:
+                continue
+            if device.get("type") == "light" or device.get("driver") == "screen":
+                allowed.append(device_id)
+        return allowed, {"mode": "zones", "zones": list(body.scope_zones), "lights": []}
+    if mode == "lights":
+        unknown = [item for item in body.scope_lights if item not in registry.device_ids]
+        if unknown:
+            raise HTTPException(status_code=422, detail=f"unknown scope lights: {unknown}")
+        return list(body.scope_lights), {"mode": "lights", "zones": [], "lights": list(body.scope_lights)}
+    raise HTTPException(status_code=422, detail=f'scope_mode must be "all"|"zones"|"lights": {mode!r}')
+
+
 @router.post("/api/studios/{studio_id}/ai/look")
 def ai_look(studio_id: str, body: LookBody, request: Request):
     """Prompted look on lights/screen/both: direct -> validate -> critique -> apply.
 
     Provider "mock" is the offline demo; "meta" uses the dev.meta.ai key in
     hub-local studios.local/meta.json (absent file = honest 503).
+    Scope (all/zones/lights) limits which devices the look may touch.
     """
     try:
         registry = request.app.state.registries[studio_id]
@@ -144,12 +181,23 @@ def ai_look(studio_id: str, body: LookBody, request: Request):
         "ai look",
         extra={"fields": {"studio": studio_id, "targets": body.targets, "provider": provider.name()}},
     )
+    allowed, scope = _resolve_scope(registry, body)
     try:
-        outcome = apply_look(provider, module, body.prompt, body.targets)
+        outcome = apply_look(provider, module, body.prompt, body.targets, allowed=allowed)
     except MetaProviderError as exc:
         raise HTTPException(status_code=502, detail=str(exc)) from exc
     except (ModesError, SafetyViolation) as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
+    outcome["scope"].update(scope)
+    directives = outcome.get("directives") or {}
+    record_action(
+        request,
+        studio_id,
+        "custom",
+        f"ai-{outcome['provider']}",
+        {"lights": directives.get("lights") or {}, "screen": directives.get("screens") or {}},
+        outcome["apply"],
+    )
     return _scrub(outcome, _address_labels(registry))
 
 

@@ -31,6 +31,13 @@ def build_manifest(registry):
             "spec": merged.get("spec") or {},
             "usual": device.get("usual") or {},
             "aiCap": device.get("aiCap") or {},
+            "zone": device.get("zone"),
+            "position": device.get("position"),
+            "role": device.get("role"),
+            "distanceToSubjectM": device.get("distanceToSubjectM"),
+            "modifiers": device.get("modifiers") or [],
+            "estWatts": device.get("estWatts"),
+            "details": device.get("details") or {},
         }
     return {"lights": lights, "screens": sorted(screens)}
 
@@ -49,26 +56,48 @@ def critique(directives, plan):
     return notes
 
 
-def apply_look(provider, modes_module, prompt, targets):
-    """Run the full pipeline. Raises ModesError/SafetyViolation on bad output."""
+def _scoped(mapping, allowed):
+    """Filter a directives/manifest mapping to the allowed ids. Returns (kept, dropped)."""
+    if allowed is None:
+        return dict(mapping or {}), []
+    keep = set(allowed)
+    kept = {key: value for key, value in (mapping or {}).items() if key in keep}
+    return kept, sorted(key for key in (mapping or {}) if key not in keep)
+
+
+def apply_look(provider, modes_module, prompt, targets, allowed=None):
+    """Run the full pipeline. Raises ModesError/SafetyViolation on bad output.
+
+    allowed (an id list, or None for everything) scopes both the manifest
+    the provider sees and the directives that reach the planner; anything
+    the provider aims outside the scope is reported, never applied.
+    """
     if targets not in ("lights", "screens", "both"):
         raise ModesError(f'targets must be "lights"|"screens"|"both": {targets!r}')
-    manifest = build_manifest(modes_module.registry)
+    raw_manifest = build_manifest(modes_module.registry)
+    manifest = {
+        "lights": _scoped(raw_manifest["lights"], allowed)[0],
+        "screens": [s for s in raw_manifest["screens"] if allowed is None or s in set(allowed)],
+    }
     directives = provider.direct(prompt, targets, manifest)
     if not isinstance(directives, dict):
         raise ModesError("provider must return a directives object")
-    content = {"lights": directives.get("lights") or {}, "screen": directives.get("screens") or {}}
+    lights, dropped_lights = _scoped(directives.get("lights"), allowed)
+    screens, dropped_screens = _scoped(directives.get("screens"), allowed)
+    scoped = {"lights": lights, "screens": screens}
+    content = {"lights": lights, "screen": screens}
     try:
         plan = modes_module.plan_custom(f"ai-{provider.name()}", content)
     except (ModesError, SafetyViolation, RegistryError) as exc:
         raise ModesError(f"AI directives rejected: {exc}") from exc
-    notes = critique(directives, plan)
+    notes = critique(scoped, plan)
     result = modes_module.apply_custom(f"ai-{provider.name()}", content, sleep=lambda s: None)
     return {
         "provider": provider.name(),
         "targets": targets,
-        "directives": directives,
+        "directives": scoped,
         "critique": notes,
         "apply": result,
+        "scope": {"allowed": sorted(allowed) if allowed is not None else None, "skipped": dropped_lights + dropped_screens},
         "preset_candidate": {"label": (prompt or "AI look")[:60], **content},
     }

@@ -120,6 +120,40 @@ def discover_plugs(username=None, password=None, discovery_timeout=8):
     return asyncio.run(adiscover_plugs(username, password, discovery_timeout))
 
 
+ALIAS_CACHE_TTL_S = 300
+_alias_cache = {}  # alias -> (host, expires_at monotonic)
+
+
+async def aresolve_host(alias, username=None, password=None, discovery_timeout=4, fallback=None):
+    """Resolve a plug alias to its live LAN host via discovery.
+
+    Plugs are named by alias ("Studio Plug N"); stored hosts go stale on
+    DHCP drift, so control resolves fresh and only falls back to the
+    stored host when the alias is not seen. One broadcast refreshes every
+    alias; results cache for ALIAS_CACHE_TTL_S.
+    """
+    now = time.monotonic()
+    hit = _alias_cache.get(alias)
+    if hit is not None and hit[1] > now:
+        return hit[0]
+    try:
+        plugs = await adiscover_plugs(username, password, discovery_timeout)
+    except Exception:  # noqa: BLE001 - discovery failure keeps the fallback
+        plugs = []
+    for plug in plugs:
+        if plug.get("alias") and plug.get("host") and not plug.get("error"):
+            _alias_cache[plug["alias"]] = (plug["host"], now + ALIAS_CACHE_TTL_S)
+    hit = _alias_cache.get(alias)
+    if hit is not None and hit[1] > now:
+        return hit[0]
+    return fallback
+
+
+def resolve_host(alias, username=None, password=None, discovery_timeout=4, fallback=None):
+    """Sync wrapper for aresolve_host."""
+    return asyncio.run(aresolve_host(alias, username, password, discovery_timeout, fallback))
+
+
 class KasaDriver(Driver):
     """One smart plug at a fixed host. Commands: {"power": "on"|"off"}."""
 

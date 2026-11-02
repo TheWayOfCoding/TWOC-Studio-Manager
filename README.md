@@ -38,7 +38,10 @@ the task, and health-checks (or set `STUDIO_HUB_HOST` once and run it bare).
 The Hub auto-starts at boot (the `StudioHub` task's boot trigger), and a
 `StudioHubWatchdog` task (every 2 min, created by the bootstrap) restarts it
 when `/api/health` stays dark — see `tools/hub-watchdog.ps1`.
-Web UI: `http://<hub-ip>:8000` (dashboard), `http://<hub-ip>:8000/bench`.
+Web UI: `https://<hub-ip>:8000` (dashboard, accept the self-signed warning once),
+`https://<hub-ip>:8000/bench`, or plain `http://<hub-ip>:8001` for either page.
+The hub serves both from one process (`tools/hub-serve.py`); the local kiosk
+uses plain HTTP on 8001.
 
 ## Deploy (Pi)
 

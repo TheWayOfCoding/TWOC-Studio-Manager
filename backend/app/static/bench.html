@@ -19,10 +19,10 @@ details p { margin: .4em 0; max-width: 46em; }
 </style>
 </head>
 <body>
-<nav><a href="/">Studio Hub</a> | <strong>Test Bench</strong> | <a href="/docs">API docs</a></nav>
+<nav><a href="/">Studio Hub</a> | <strong>Test Bench</strong> | <a href="/equipment">Equipment</a> | <a href="/docs">API docs</a></nav>
 <h1>Test Bench</h1>
 <p>Interactive bring-up surface: real hardware drivers (DMX lights, Kasa plugs,
-IR capture, GVM panels, OBS, backdrop screens) next to mock-driver trials.</p>
+IR capture, GVM panels, Ninja BLE, OBS, backdrop screens) next to mock-driver trials.</p>
 <div class="card"><h2>Kasa plugs (real hardware)</h2>
 <div>user <input type="text" id="k-user" autocomplete="username" placeholder="(only if plugs need auth)">
 pass <input type="password" id="k-pass" autocomplete="current-password">
@@ -68,6 +68,45 @@ page <select id="gvm-page"><option value="cct">cct</option><option value="hsi">h
 <p>Panels come from the hub config — pick one, no scan needed. Scenes are
 photo-risk <b>intense</b> until verified gentle by eye.</p>
 <div id="gvm"></div></div>
+<div class="card"><h2>Ninja lights (BLE broadcast)</h2>
+<p>Pick a target, then drive it. Start with <b>Probe</b> (radio check, sends
+nothing), then power 5%. Every send is one complete look, and the readout
+shows the exact bytes that went out. ok:true with a silent light means the
+fixture ignored the broadcast — say so.</p>
+<h3>1. Target</h3>
+<div>light <select id="ninja-light"></select>
+<span>or direct:</span>
+ch <input type="number" id="ninja-ch" value="3" min="1" max="19" style="width:3.5em">
+grp <input type="text" id="ninja-grp" value="A" style="width:2.5em"></div>
+<div><label><input type="checkbox" id="ninja-mock"> dry-run (no radio)</label>
+<button onclick="ninjaProbe()">Probe</button>
+<button onclick="ninjaState()">Hub state</button>
+<span>hub memory only — lights can't report back.</span></div>
+<h3>2. Power</h3>
+<div><button onclick="ninjaPower('on')">Power on</button>
+<button onclick="ninjaPower('off')">Power off</button>
+<span>off sends brightness 0; on restores your last level.</span></div>
+<div>power <input type="range" id="ninja-br-slider" min="0" max="100" value="5" oninput="ninjaBrSync(this.value)">
+<input type="number" id="ninja-br" value="5" min="0" max="100" style="width:4em"> %
+<label><input type="checkbox" class="allow-bright" id="ninja-bright"> allow bright</label>
+<button onclick="ninjaBright()">Set</button></div>
+<h3>3. Color</h3>
+<div>CCT <input type="number" id="ninja-cct" value="5500" min="2500" max="8500" step="100" style="width:5em"> K
+<button onclick="ninjaCct()">Set</button>
+GM <input type="number" id="ninja-gm" value="0" min="-10" max="10" style="width:4em">
+<button onclick="ninjaGm()">Set</button>
+<span>bi-color 400 only — fixed-daylight 10/20 ignore CCT.</span></div>
+<h3>4. Scene (photo-risk <b>intense</b>, always asks first)</h3>
+<div>scene <select id="ninja-scene"></select>
+<button onclick="ninjaScene()">Set scene</button>
+<span>pick CCT above to exit back to a steady look.</span></div>
+<details><summary>Raw 27-byte send (bring-up only)</summary>
+<p>Sends verbatim payload bytes to the target above — no validation beyond
+length. Prefer the sections above; use this only to replay captures.</p>
+<div>payload <input type="text" id="ninja-raw" placeholder="27-byte hex" style="width:26em">
+<button onclick="ninjaRaw()">Send</button></div>
+</details>
+<div id="ninja"></div></div>
 <div class="card"><h2>OBS (WebSocket)</h2>
 <div>host <input type="text" id="obs-host" value="127.0.0.1" style="width:10em">
 port <input type="number" id="obs-port" value="4455" style="width:5em">
@@ -329,6 +368,48 @@ async function gvmScene() {
   gvmSet({scene: v, allow_intense: true});
 }
 async function gvmPage() { gvmSet({page: document.getElementById("gvm-page").value}); }
+function ninjaTarget() {
+  const light = document.getElementById("ninja-light").value || null;
+  const base = {mock: document.getElementById("ninja-mock").checked};
+  if (light) return {...base, light};
+  return {...base, channel: parseInt(document.getElementById("ninja-ch").value, 10),
+    group: document.getElementById("ninja-grp").value.toUpperCase()};
+}
+function fillNinjaLights(r) {
+  document.getElementById("ninja-light").innerHTML = "<option value=''>direct ch/grp</option>" +
+    r.lights.map(p => '<option value="' + p.id + '">' + p.name + " (ch" + p.channel + p.group + ")</option>").join("");
+}
+function fillNinjaScenes(r) {
+  document.getElementById("ninja-scene").innerHTML =
+    r.scenes.map(s => '<option value="' + s.index + '">' + s.index + " " + s.name + "</option>").join("");
+}
+async function ninjaProbe() {
+  try { const r = await jpost("/api/testbench/ninja/probe", JSON.stringify(ninjaTarget())); out("ninja", r, r.ok); }
+  catch (e) { out("ninja", {error: String(e)}, false); }
+}
+async function ninjaState() {
+  try { const r = await jpost("/api/testbench/ninja/state", JSON.stringify(ninjaTarget())); out("ninja", r, r.ok); }
+  catch (e) { out("ninja", {error: String(e)}, false); }
+}
+async function ninjaSet(body) {
+  body.allow_bright = document.getElementById("ninja-bright").checked;
+  try { const r = await jpost("/api/testbench/ninja/set", JSON.stringify({...ninjaTarget(), ...body})); out("ninja", r, r.ok); }
+  catch (e) { out("ninja", {error: String(e)}, false); }
+}
+function ninjaBrSync(v) { document.getElementById("ninja-br").value = v; }
+async function ninjaPower(on) { ninjaSet({power: on}); }
+async function ninjaBright() { ninjaSet({brightness: parseInt(document.getElementById("ninja-br").value, 10)}); }
+async function ninjaCct() { ninjaSet({cct: parseInt(document.getElementById("ninja-cct").value, 10)}); }
+async function ninjaGm() { ninjaSet({gm: parseInt(document.getElementById("ninja-gm").value, 10)}); }
+async function ninjaScene() {
+  const v = parseInt(document.getElementById("ninja-scene").value, 10);
+  if (!confirm("Scene " + v + " is UNTESTED (photo-risk intense). Look away. Continue?")) return;
+  ninjaSet({scene: v, allow_intense: true});
+}
+async function ninjaRaw() {
+  try { const r = await jpost("/api/testbench/ninja/raw", JSON.stringify({...ninjaTarget(), payload: document.getElementById("ninja-raw").value})); out("ninja", r, r.ok); }
+  catch (e) { out("ninja", {error: String(e)}, false); }
+}
 function obsBody(extra) {
   return {host: document.getElementById("obs-host").value || "127.0.0.1",
     port: parseInt(document.getElementById("obs-port").value, 10) || 4455,
@@ -521,6 +602,8 @@ async function scrAudio(action) {
     ).join("");
     jget("/api/testbench/ir/codes").then(fillSendSel).catch(() => {});
     jget("/api/testbench/gvm/panels").then(fillGvmPanels).catch(() => {});
+    jget("/api/testbench/ninja/lights").then(fillNinjaLights).catch(() => {});
+    jget("/api/testbench/ninja/scenes").then(fillNinjaScenes).catch(() => {});
     dmxLightsLoad();
   } catch (e) {
     document.getElementById("drivers").innerHTML = '<span class="bad">unreachable: ' + e + "</span>";

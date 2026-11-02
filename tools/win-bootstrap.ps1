@@ -47,14 +47,17 @@ Pop-Location
 if ($detected) { setx IR_PORT $detected /M | Out-Null; Write-Host "IR_PORT=$detected" }
 else { Write-Warning "no USB serial port detected; plug in the IR module and run: setx IR_PORT COMx /M" }
 
-# 4. Firewall (idempotent).
-if (-not (Get-NetFirewallRule -DisplayName "Studio Hub" -ErrorAction SilentlyContinue)) {
-    New-NetFirewallRule -DisplayName "Studio Hub" -Direction Inbound -Protocol TCP -LocalPort 8000 -Action Allow | Out-Null
+# 4. Firewall (idempotent): 8000 = HTTPS dashboard, 8001 = plain HTTP
+# (kiosk + simple clients). hub-serve.py listens on both from one process.
+foreach ($rule in @(@("Studio Hub", 8000), @("Studio Hub HTTP", 8001))) {
+    if (-not (Get-NetFirewallRule -DisplayName $rule[0] -ErrorAction SilentlyContinue)) {
+        New-NetFirewallRule -DisplayName $rule[0] -Direction Inbound -Protocol TCP -LocalPort $rule[1] -Action Allow | Out-Null
+    }
 }
 
 # 5. Scheduled task: SYSTEM, at startup, logs to logs\hub-task.log. The log
 # dir must exist before the first start (the task redirect cannot create it).
-$action = "cmd /c cd /d $root && .venv\Scripts\python.exe -m uvicorn app.main:app --app-dir backend --host 0.0.0.0 --port 8000 >> logs\hub-task.log 2>&1"
+$action = "cmd /c cd /d $root && .venv\Scripts\python.exe tools\hub-serve.py >> logs\hub-task.log 2>&1"
 schtasks /Create /TN StudioHub /TR $action /SC ONSTART /RU SYSTEM /RL HIGHEST /F | Out-Null
 if ($LASTEXITCODE -ne 0) { throw "schtasks /Create failed" }
 New-Item -ItemType Directory -Force "$root\logs" | Out-Null
@@ -68,12 +71,21 @@ $watchdog = "powershell -NoProfile -ExecutionPolicy Bypass -File $root\tools\hub
 schtasks /Create /TN StudioHubWatchdog /SC MINUTE /MO 2 /RU SYSTEM /RL HIGHEST /TR "$watchdog" /F | Out-Null
 if ($LASTEXITCODE -ne 0) { throw "schtasks /Create StudioHubWatchdog failed" }
 
-# 6. Health-check loop.
+# 6. Health-check loop (curl: .NET Framework TLS cannot handshake with the
+# hub's OpenSSL 3 stack). Probe order: https 8000, http 8001, http 8000
+# (last covers pre-TLS single-listener hubs).
 $health = $null
 for ($i = 0; $i -lt 12; $i++) {
-    try { $health = Invoke-RestMethod http://127.0.0.1:8000/api/health -TimeoutSec 3; break }
-    catch { Start-Sleep 5 }
+    foreach ($probe in @("https://127.0.0.1:8000", "http://127.0.0.1:8001", "http://127.0.0.1:8000")) {
+        try {
+            $raw = curl.exe -sk --max-time 3 "$probe/api/health" 2>$null
+            if ($raw) { $health = $raw | ConvertFrom-Json; break }
+        } catch { }
+    }
+    if ($health) { break }
+    Start-Sleep 5
 }
 if (-not $health) { throw "Hub did not answer; see $root\logs\hub-task.log" }
 $health | ConvertTo-Json
 Write-Host "BOOTSTRAP_OK"
+Write-Host "for browser mic support, run tools\hub-tls.ps1 once as the kiosk user (puts the hub on https)"
