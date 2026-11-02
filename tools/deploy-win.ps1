@@ -26,7 +26,7 @@ if ($LASTEXITCODE -ne 0) { throw "passwordless SSH to $TargetUser@$TargetHost fa
 Set-Location $root
 $files = @()
 $files += git ls-files
-$files += git ls-files --others --exclude-standard 2>$null | Where-Object { $_ -notmatch "^pytest-of-Scott/" }
+$files += git ls-files --others --exclude-standard 2>$null | Where-Object { $_ -notmatch "^pytest-of-" }
 $files += Get-ChildItem config/studios.local -Recurse -File | ForEach-Object {
     $_.FullName.Substring($root.Length + 1).Replace("\", "/")
 }

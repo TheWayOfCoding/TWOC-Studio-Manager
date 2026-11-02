@@ -22,7 +22,7 @@ logs/
 captures/
 
 # Local pytest run debris (machine-specific directory).
-pytest-of-Scott/
+pytest-of-*/
 
 # Local portable OBS copy (hundreds of MB, machine-specific).
 Portable-OBS/
