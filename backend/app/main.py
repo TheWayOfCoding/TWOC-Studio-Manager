@@ -41,6 +41,7 @@ def create_app():
     """Build the app. Broken config yields degraded health, never a crash."""
     log = get_logger("core")
     app = FastAPI(title="TWOC Studio Hub", version=__version__)
+    app.state.boot_id = uuid.uuid4().hex[:12]  # kiosks reload when this changes (every restart)
 
     @app.middleware("http")
     async def add_request_id(request, call_next):

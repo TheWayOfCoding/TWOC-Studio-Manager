@@ -44,11 +44,42 @@ def test_audio_transport(module):
 
 
 @pytest.mark.unit
+def test_audio_volume_defaults_gentle(module):
+    played = module.audio("back", "play", track="lofi")
+    assert played.ok is True
+    assert played.state["volume"] == 10
+
+
+@pytest.mark.unit
+def test_audio_explicit_volume_full_range_at_driver(module):
+    """The driver takes any 0..100 level; the gentle cap lives in the API."""
+    assert module.audio("back", "play", volume=20).state["volume"] == 20
+    assert module.audio("back", "play", volume=100).state["volume"] == 100
+    replay = module.audio("back", "play")
+    assert replay.state["volume"] == 100  # omitted volume replays the last level
+
+
+@pytest.mark.unit
+def test_audio_rejects_bad_volume(module):
+    for bad in ("loud", 101, -1, True, 12.5):
+        assert module.audio("back", "play", volume=bad).ok is False
+
+
+@pytest.mark.unit
+def test_audio_stop_keeps_volume(module):
+    module.audio("back", "play", volume=15)
+    stopped = module.audio("back", "stop")
+    assert stopped.state["audio"] == "stop"
+    assert stopped.state["volume"] == 15
+    assert "track" not in stopped.state
+
+
+@pytest.mark.unit
 def test_safe_stop_keeps_theme(module):
     module.push("back", theme="work")
     module.audio("back", "play")
     stopped = module.drivers["back"].safe_stop()
-    assert stopped.state == {"screen": "back", "theme": "work", "audio": "stop"}
+    assert stopped.state == {"screen": "back", "theme": "work", "audio": "stop", "volume": 10}
 
 
 @pytest.mark.unit

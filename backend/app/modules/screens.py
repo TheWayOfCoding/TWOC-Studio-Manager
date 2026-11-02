@@ -24,11 +24,13 @@ class ScreensModule(Module):
             command["text"] = text
         return self._driver(screen_id).apply(command)
 
-    def audio(self, screen_id, action, track=None):
-        """Play/stop the audio bed on one screen's speakers."""
+    def audio(self, screen_id, action, track=None, volume=None):
+        """Play/stop the audio bed on one screen's speakers (volume 0..100)."""
         command = {"audio": action}
         if track is not None:
             command["track"] = track
+        if volume is not None:
+            command["volume"] = volume
         return self._driver(screen_id).apply(command)
 
     def apply_mapping(self, mapping):

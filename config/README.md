@@ -36,6 +36,20 @@ mode scene switches (absent file or entry = honest "not wired" skip):
 Enable OBS WebSocket in OBS (Tools → WebSocket Server Settings) and confirm
 the scene names in `modes.json` match the OBS collection exactly.
 
+## meta.json (studios.local/)
+
+`studios.local/meta.json` holds the dev.meta.ai key for the AI director's
+`meta` provider (absent file = honest "not configured" 503):
+
+```json
+{"api_key": "...", "model": "muse-spark-1.3-contributor"}
+```
+
+`model` defaults to the contributor build when omitted. The key is sent to
+api.meta.ai only, never logged or echoed in responses. Create one key per
+use (name the hub key for the hub); it ships to the hub with the normal
+`studios.local` deploy files and never commits.
+
 ## shows.json (per studio in studios.local/)
 
 `<studio>/shows.json` holds presentation sequences: `{"<id>": {"label", "steps":

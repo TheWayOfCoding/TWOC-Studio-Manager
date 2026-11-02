@@ -105,15 +105,16 @@ value <input type="range" id="dmx-val" min="0" max="255" value="13" oninput="dmx
 </details>
 <div id="dmx"></div></div>
 <div class="card"><h2>Backdrop screens</h2>
-<div>screen <input type="text" id="scr-id" value="back" style="width:8em">
+<div>screen <input type="text" id="scr-id" value="kqc-screen" style="width:8em">
 theme <input type="text" id="scr-theme" value="live" style="width:8em">
 text <input type="text" id="scr-text" placeholder="topic">
 <button onclick="scrPush()">Push</button>
 <button onclick="scrState()">State</button></div>
 <div>track <input type="text" id="scr-track" value="bed" style="width:8em">
+vol <input type="number" id="scr-vol" value="10" min="0" max="100" style="width:4em">
 <button onclick="scrAudio('play')">Play bed</button>
 <button onclick="scrAudio('stop')">Stop bed</button>
-<a id="scr-link" href="/screen/back" target="_blank">open kiosk</a></div>
+<a id="scr-link" href="/screen/kqc-screen" target="_blank">open kiosk</a></div>
 <div id="scr"></div></div>
 <div class="card"><h2>Presentations</h2>
 <div>studio <input type="text" id="show-studio" value="home-studio" style="width:10em">
@@ -482,7 +483,7 @@ async function dmxSweep() {
   try { const r = await jpost("/api/testbench/dmx/sweep", JSON.stringify(body)); out("dmx", r, r.ok); }
   catch (e) { out("dmx", {error: String(e)}, false); }
 }
-function scrId() { return document.getElementById("scr-id").value || "back"; }
+function scrId() { return document.getElementById("scr-id").value || "kqc-screen"; }
 async function scrPush() {
   document.getElementById("scr-link").href = "/screen/" + encodeURIComponent(scrId());
   const body = {screen: scrId(), theme: document.getElementById("scr-theme").value || null,
@@ -495,7 +496,14 @@ async function scrState() {
   catch (e) { out("scr", {error: String(e)}, false); }
 }
 async function scrAudio(action) {
-  const body = {screen: scrId(), action: action, track: document.getElementById("scr-track").value || null};
+  const raw = document.getElementById("scr-vol").value;
+  const vol = raw === "" ? null : parseInt(raw, 10);
+  if (action === "play" && vol !== null && (isNaN(vol) || vol < 0 || vol > 100)) {
+    out("scr", {error: "volume must be a whole number 0..100"}, false);
+    return;
+  }
+  const body = {screen: scrId(), action: action, track: document.getElementById("scr-track").value || null,
+    volume: action === "play" ? vol : null};
   try { const r = await jpost("/api/testbench/screen/audio", JSON.stringify(body)); out("scr", r, r.ok); }
   catch (e) { out("scr", {error: String(e)}, false); }
 }

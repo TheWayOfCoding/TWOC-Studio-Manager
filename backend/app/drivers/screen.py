@@ -10,6 +10,8 @@ from .base import Driver, DriverResult
 
 SCREEN_STATE = {}
 
+DEFAULT_VOLUME = 10  # bed level when play omits volume
+
 
 def screen_state(screen_id):
     """Current scaffold state for one screen (empty dict when untouched)."""
@@ -17,10 +19,12 @@ def screen_state(screen_id):
 
 
 class ScreenDriver(Driver):
-    """One backdrop screen. Commands: {theme?, text?, wash?} or {audio, track?}.
+    """One backdrop screen. Commands: {theme?, text?, wash?} or {audio, track?, volume?}.
 
     Wash is {"color": css, "opacity": 0..1} (tints the kiosk behind the
-    caption) or null to clear it back off.
+    caption) or null to clear it back off. Volume is 0..100 (play defaults
+    to 10, replays the last level when omitted). No loudness cap: the bed
+    synth runs quiet even at 100%.
     """
 
     def __init__(self, driver_id, screen=None):
@@ -49,6 +53,17 @@ class ScreenDriver(Driver):
             state["audio"] = action
             if action == "play":
                 state["track"] = command.get("track", state.get("track", "bed"))
+                volume = command.get("volume", state.get("volume", DEFAULT_VOLUME))
+                if (
+                    isinstance(volume, bool)
+                    or not isinstance(volume, (int, float))
+                    or not float(volume).is_integer()
+                ):
+                    return DriverResult(ok=False, error=f"volume must be a whole number 0..100: {volume!r}")
+                volume = int(volume)
+                if not 0 <= volume <= 100:
+                    return DriverResult(ok=False, error=f"volume out of range 0..100: {volume}")
+                state["volume"] = volume
             else:
                 state.pop("track", None)
         else:
@@ -77,7 +92,7 @@ class ScreenDriver(Driver):
         return DriverResult(ok=True, state={"screen": self.screen, **state})
 
     def safe_stop(self):
-        """Stop the audio bed. Theme stays (a dark screen helps nobody)."""
+        """Stop the audio bed. Theme and volume stay (replay resumes the level)."""
         state = screen_state(self.screen)
         state["audio"] = "stop"
         state.pop("track", None)

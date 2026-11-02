@@ -42,6 +42,7 @@ def test_obs_screen_cards_present():
         "scrPush()",
         "/api/testbench/obs/switch",
         "/api/testbench/screen/push",
+        'value="kqc-screen"',
     ):
         assert marker in html
 
@@ -99,3 +100,16 @@ def test_dmx_fixture_ui_present():
         "/api/testbench/dmx/set",
     ):
         assert marker in html
+
+
+@pytest.mark.unit
+def test_screen_audio_volume_controls_present():
+    """Screen card drives bed volume (uncapped: the synth runs quiet)."""
+    html = _bench_html()
+    for marker in (
+        'id="scr-vol"',
+        "scrAudio(",
+        "/api/testbench/screen/audio",
+    ):
+        assert marker in html
+    assert "scr-loud" not in html

@@ -30,6 +30,7 @@ input[type=text] { width: 24em; max-width: 100%; }
 <div><input type="text" id="ai-prompt" placeholder="cozy interview">
 <select id="ai-targets"><option value="both">lights+screen</option>
 <option value="lights">lights</option><option value="screens">screen</option></select>
+<select id="ai-provider"><option value="mock">mock</option><option value="meta">meta</option></select>
 <button onclick="aiLook()">Direct</button></div>
 <div id="ai-save" style="display:none"><input type="text" id="ai-preset-id" placeholder="preset id">
 <button onclick="aiSave()">Save as preset</button></div>
@@ -123,7 +124,8 @@ async function showPoll(id) {
 let AI_CANDIDATE = null;
 async function aiLook() {
   const body = JSON.stringify({prompt: document.getElementById("ai-prompt").value,
-    targets: document.getElementById("ai-targets").value});
+    targets: document.getElementById("ai-targets").value,
+    provider: document.getElementById("ai-provider").value});
   out("ai-out", {status: "directing…"}, true);
   try {
     const r = await jpost("/api/studios/" + studio() + "/ai/look", body);

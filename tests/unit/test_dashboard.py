@@ -20,6 +20,7 @@ def test_dashboard_structure():
         'id="modes"',
         'id="presets"',
         'id="ai-prompt"',
+        'id="ai-provider"',
         'id="pwr-delay-on"',
         'id="pwr-delay-s"',
         "power_delay_s",

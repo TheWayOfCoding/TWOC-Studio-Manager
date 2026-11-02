@@ -14,8 +14,12 @@ from ..registry import RegistryError
 def build_manifest(registry):
     """Per-target capability manifest generated from profiles + instances."""
     lights = {}
+    screens = []
     for device_id in registry.device_ids:
         device = registry.get_device(device_id)
+        if device.get("driver") == "screen":
+            screens.append(device_id)
+            continue
         if device.get("type") != "light" or not device.get("controllable", True):
             continue
         try:
@@ -28,7 +32,7 @@ def build_manifest(registry):
             "usual": device.get("usual") or {},
             "aiCap": device.get("aiCap") or {},
         }
-    return {"lights": lights, "screens": []}
+    return {"lights": lights, "screens": sorted(screens)}
 
 
 def critique(directives, plan):

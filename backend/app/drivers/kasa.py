@@ -83,7 +83,13 @@ async def _apply_and_verify(host, want, username, password, timeout):
 
 
 async def adiscover_plugs(username=None, password=None, discovery_timeout=8):
-    """Discover plugs on the LAN. Returns [{host, alias, model}] (no secrets)."""
+    """Discover plugs on the LAN. Returns [{host, alias, model}] (no secrets).
+
+    Broadcast-discovered handles sometimes stay sour through the retry
+    while a fresh single-connect heals (bench: Discover red, Refresh-all
+    green). Each broadcast failure therefore falls back to one fresh
+    single-connect before the plug is reported as errored.
+    """
     import kasa
 
     found = await kasa.Discover.discover(
@@ -95,6 +101,14 @@ async def adiscover_plugs(username=None, password=None, discovery_timeout=8):
             await _retry_handshake(device.update)
             plugs.append(
                 {"host": host, "alias": device.alias, "model": device.model, "on": device.is_on}
+            )
+            continue
+        except Exception:  # noqa: BLE001 - fall back to a fresh single-connect
+            pass
+        try:
+            fresh = await _connected_device(host, username, password, timeout=10)
+            plugs.append(
+                {"host": host, "alias": fresh.alias, "model": fresh.model, "on": fresh.is_on}
             )
         except Exception as exc:  # noqa: BLE001 - one bad plug must not hide the rest
             plugs.append({"host": host, "alias": None, "model": None, "on": None, "error": str(exc)})

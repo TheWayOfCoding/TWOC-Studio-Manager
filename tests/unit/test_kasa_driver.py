@@ -139,6 +139,21 @@ def test_discover_retries_flaky_update():
 
 
 @pytest.mark.unit
+def test_discover_heals_first_contact_via_single_fallback():
+    """Broadcast update fumbles twice, but a fresh single-connect heals it.
+
+    Regression for the bench: Discover showed challenge-mismatch on all
+    plugs while Refresh-all (discover_single per host) went green.
+    """
+    FakeDevice.update_failures = 2
+    FakeDiscover.devices = {"192.0.2.21": FakeDevice("192.0.2.21")}
+    plugs = discover_plugs()
+    assert plugs[0].get("error") is None
+    assert plugs[0]["model"] == "HS103"
+    assert plugs[0]["on"] is False
+
+
+@pytest.mark.unit
 def test_retry_exhaustion_reports_error():
     FakeDevice.update_failures = 99
     result = KasaDriver("k8", "192.0.2.19").get_state()

@@ -574,6 +574,41 @@ def test_ai_look_bad_targets_422():
 
 
 @pytest.mark.unit
+def test_ai_look_unknown_provider_422():
+    response = client.post(
+        "/api/studios/example-studio/ai/look", json={"prompt": "x", "provider": "baseten"}
+    )
+    assert response.status_code == 422
+
+
+@pytest.mark.unit
+def test_ai_look_meta_unconfigured_503(monkeypatch):
+    from app.api import ai as ai_api
+
+    monkeypatch.setattr(ai_api, "_meta_provider", lambda root: None)
+    response = client.post("/api/studios/example-studio/ai/look", json={"prompt": "x", "provider": "meta"})
+    assert response.status_code == 503
+
+
+@pytest.mark.unit
+def test_ai_look_meta_uses_configured_provider(monkeypatch):
+    from app.ai.mock import MockProvider
+    from app.api import ai as ai_api
+
+    class MetaStub(MockProvider):
+        def name(self):
+            return "meta"
+
+    monkeypatch.setattr(ai_api, "_meta_provider", lambda root: MetaStub())
+    response = client.post(
+        "/api/studios/example-studio/ai/look",
+        json={"prompt": "cozy", "targets": "lights", "provider": "meta"},
+    )
+    assert response.status_code == 200
+    assert response.json()["provider"] == "meta"
+
+
+@pytest.mark.unit
 def test_dmx_gentle_range_refusals():
     over = client.post("/api/testbench/dmx/set", json={"channel": 1, "value": 27})
     assert over.status_code == 422
@@ -732,3 +767,259 @@ def test_screen_push_and_kiosk_state():
     assert kiosk.json()["text"] == "hi"
     audio = client.post("/api/testbench/screen/audio", json={"screen": "bench-test", "action": "play"})
     assert audio.json()["state"]["audio"] == "play"
+
+
+@pytest.mark.unit
+def test_kasa_bench_passthrough(monkeypatch):
+    """Bench Kasa routes pass hosts + creds to the driver (fake here, no LAN)."""
+    seen = {}
+
+    def fake_discover(username=None, password=None, discovery_timeout=8):
+        seen["discover"] = (username, password, discovery_timeout)
+        return [{"host": "192.0.2.61", "alias": "bench", "model": "HS103", "on": True}]
+
+    class FakeKasa:
+        def __init__(self, driver_id, host, username=None, password=None, timeout=10):
+            seen["driver"] = (host, username, password)
+
+        def get_state(self):
+            return DriverResult(ok=True, state={"power": "on"}, error=None)
+
+        def apply(self, command):
+            seen["apply"] = command
+            return DriverResult(ok=True, state={"power": "on" if command["on"] else "off"}, error=None)
+
+    monkeypatch.setattr("app.api.kasa.discover_plugs", fake_discover)
+    monkeypatch.setattr("app.api.kasa.KasaDriver", FakeKasa)
+    found = client.post("/api/testbench/kasa/discover", json={"username": "u", "password": "p"})
+    assert found.status_code == 200
+    assert found.json()["plugs"][0]["host"] == "192.0.2.61"
+    assert seen["discover"] == ("u", "p", 8)
+    state = client.post("/api/testbench/kasa/state", json={"host": "192.0.2.61"})
+    assert state.json() == {"ok": True, "state": {"power": "on"}, "error": None}
+    assert seen["driver"] == ("192.0.2.61", None, None)
+    switched = client.post("/api/testbench/kasa/set", json={"host": "192.0.2.61", "on": False})
+    assert switched.json()["state"] == {"power": "off"}
+    assert seen["apply"] == {"on": False}
+
+
+@pytest.mark.unit
+def test_kasa_bench_unavailable_503(monkeypatch):
+    """Without python-kasa the bench says so instead of 500ing."""
+    monkeypatch.setattr("app.api.kasa.KASA_AVAILABLE", False)
+    response = client.post("/api/testbench/kasa/discover", json={})
+    assert response.status_code == 503
+
+
+@pytest.mark.unit
+def test_ir_bench_endpoints(monkeypatch):
+    """Bench IR routes pass through to the module (fake here, no serial)."""
+    from app.modules.ir import IrModuleError
+
+    class FakeIrDriver:
+        def __init__(self, driver_id, port=None):
+            pass
+
+        def listen(self, seconds):
+            return {"codes": [[1, 2, 3]], "seconds": seconds}
+
+    class FakeIrModule:
+        def __init__(self, name, drivers, store):
+            pass
+
+        def capture(self, label, seconds):
+            if label == "bad":
+                raise IrModuleError("heard nothing")
+            return {"label": label, "code": [1, 2, 3]}
+
+        def codes(self):
+            return {"power": [1, 2, 3]}
+
+        def send_label(self, label, times=1, gap_s=0.3):
+            if label == "ghost":
+                raise IrModuleError("unknown label: ghost")
+            return DriverResult(ok=True, state={"sent": label, "times": times}, error=None)
+
+        def send_code(self, code, times=1, gap_s=0.3):
+            return DriverResult(ok=True, state={"sent": code}, error=None)
+
+        def mark(self, label, works=None, notes=None):
+            if label == "ghost":
+                raise IrModuleError("unknown label: ghost")
+            return {"works": works, "notes": notes}
+
+    monkeypatch.setattr("app.api.ir.IrUsbSerialDriver", FakeIrDriver)
+    monkeypatch.setattr("app.api.ir.IrModule", FakeIrModule)
+    heard = client.post("/api/testbench/ir/listen", json={"seconds": 2})
+    assert heard.json() == {"codes": [[1, 2, 3]], "seconds": 2}
+    saved = client.post("/api/testbench/ir/capture", json={"label": "power"})
+    assert saved.json()["code"] == [1, 2, 3]
+    assert client.post("/api/testbench/ir/capture", json={"label": "bad"}).status_code == 422
+    assert client.get("/api/testbench/ir/codes").json() == {"power": [1, 2, 3]}
+    sent = client.post("/api/testbench/ir/send", json={"label": "power", "times": 2})
+    assert sent.json()["state"] == {"sent": "power", "times": 2}
+    raw = client.post("/api/testbench/ir/send", json={"code": [1, 2, 3]})
+    assert raw.json()["ok"] is True
+    assert client.post("/api/testbench/ir/send", json={}).status_code == 422
+    assert client.post("/api/testbench/ir/send", json={"label": "ghost"}).status_code == 404
+    marked = client.post("/api/testbench/ir/mark", json={"label": "power", "works": True})
+    assert marked.json() == {"label": "power", "works": True, "notes": None}
+    assert client.post("/api/testbench/ir/mark", json={"label": "ghost"}).status_code == 404
+
+
+@pytest.mark.unit
+def test_gvm_scan_passthrough(monkeypatch):
+    """Bench BLE scan echoes discovered devices; radio failures report 502."""
+    monkeypatch.setattr(
+        "app.api.gvm.scan_devices",
+        lambda timeout: [{"address": "AA:BB:CC:DD:EE:01", "name": "BT_LED 01", "rssi": -60}],
+    )
+    found = client.post("/api/testbench/gvm/scan", json={"timeout": 3})
+    assert found.status_code == 200
+    assert found.json()["devices"][0]["name"] == "BT_LED 01"
+
+    def boom(timeout):
+        raise RuntimeError("radio off")
+
+    monkeypatch.setattr("app.api.gvm.scan_devices", boom)
+    assert client.post("/api/testbench/gvm/scan", json={}).status_code == 502
+
+
+@pytest.mark.unit
+def test_dmx_blackout_and_fixtures(monkeypatch):
+    """Blackout toggles through the shared driver; fixtures list home DMX lights."""
+    seen = {}
+
+    class FakeDmx:
+        def __init__(self, driver_id, port=None, **kwargs):
+            pass
+
+        def apply(self, command):
+            seen["apply"] = command
+            return DriverResult(ok=True, state={"blackout": command["blackout"]}, error=None)
+
+        def get_state(self):
+            return DriverResult(ok=True, state={"channels": {}}, error=None)
+
+    monkeypatch.setattr("app.api.dmx.DmxUsbDriver", FakeDmx)
+    off = client.post("/api/testbench/dmx/blackout", json={"on": True})
+    assert off.json()["state"] == {"blackout": True}
+    assert seen["apply"] == {"blackout": True}
+    on = client.post("/api/testbench/dmx/blackout", json={"on": False})
+    assert on.json()["state"] == {"blackout": False}
+
+    home = client.get("/api/testbench/dmx/fixtures?studio=home-studio")
+    assert home.status_code == 200
+    fixtures = {item["id"]: item for item in home.json()["fixtures"]}
+    assert fixtures["ninja-400"]["dimmer"] == 1
+    assert fixtures["ninja-400"]["cct"] == 2
+    assert fixtures["ninja-400"]["cct_range"] == [2500, 8500]
+    assert fixtures["ninja-20"]["dimmer"] == 20
+    assert fixtures["ninja-20"]["cct"] is None
+    assert fixtures["ninja-20"]["fixed_cct"] == 5600
+    assert home.json()["skipped"] == []
+    empty = client.get("/api/testbench/dmx/fixtures?studio=example-studio")
+    assert empty.json() == {"fixtures": [], "skipped": []}
+    assert client.get("/api/testbench/dmx/fixtures?studio=nope").status_code == 404
+    fixed = client.post("/api/testbench/dmx/light", json={"fixture": "ninja-20", "cct": 5600})
+    assert fixed.status_code == 422
+    ghost = client.post("/api/testbench/dmx/light", json={"fixture": "nope", "power": 5})
+    assert ghost.status_code == 422
+
+
+@pytest.mark.unit
+def test_obs_scenes_passthrough(monkeypatch):
+    """Bench scene list drives the same per-request driver as state/switch."""
+
+    class FakeObsDriver:
+        def __init__(self, driver_id, host="127.0.0.1", port=4455, password=None, client=None):
+            pass
+
+        def apply(self, command):
+            return DriverResult(ok=True, state={"scenes": ["Main", "Bench"]}, error=None)
+
+    monkeypatch.setattr("app.api.obs.ObsWsDriver", FakeObsDriver)
+    scenes = client.post("/api/testbench/obs/scenes", json={"host": "obs-pc"})
+    assert scenes.status_code == 200
+    assert scenes.json()["state"] == {"scenes": ["Main", "Bench"]}
+
+
+@pytest.mark.unit
+def test_bench_safe_stop():
+    stopped = client.post("/api/testbench/mock-kasa/safe-stop")
+    assert stopped.status_code == 200
+    assert stopped.json()["ok"] is True
+    assert client.post("/api/testbench/nope/safe-stop").status_code == 404
+
+
+@pytest.mark.unit
+def test_screen_bench_state():
+    client.post("/api/testbench/screen/push", json={"screen": "bench-state", "theme": "rehearse"})
+    state = client.post("/api/testbench/screen/state", json={"screen": "bench-state"})
+    assert state.status_code == 200
+    assert state.json()["state"]["theme"] == "rehearse"
+
+
+@pytest.mark.unit
+def test_screen_audio_volume_defaults_gentle():
+    audio = client.post("/api/testbench/screen/audio", json={"screen": "bench-vol", "action": "play"})
+    assert audio.status_code == 200
+    assert audio.json()["state"]["volume"] == 10
+
+
+@pytest.mark.unit
+def test_screen_audio_loud_passes_uncapped():
+    """No loudness cap: the bed synth runs quiet (user-verified at 100%)."""
+    loud = client.post(
+        "/api/testbench/screen/audio", json={"screen": "bench-vol", "action": "play", "volume": 100}
+    )
+    assert loud.status_code == 200
+    assert loud.json()["state"]["volume"] == 100
+
+
+@pytest.mark.unit
+def test_screen_audio_rejects_bad_volume():
+    bad = client.post(
+        "/api/testbench/screen/audio", json={"screen": "bench-vol", "action": "play", "volume": 101}
+    )
+    assert bad.status_code == 422
+
+
+@pytest.mark.unit
+def test_bench_and_screen_pages_serve():
+    bench = client.get("/bench")
+    assert bench.status_code == 200
+    assert "Kasa plugs" in bench.text
+    screen = client.get("/screen/kqc-screen")
+    assert screen.status_code == 200
+
+
+@pytest.mark.unit
+def test_kiosk_state_carries_hub_boot_id():
+    first = client.get("/api/screens/boot-check/state").json()
+    assert first["hub"]
+    second = client.get("/api/screens/boot-check/state").json()
+    assert second["hub"] == first["hub"]
+
+
+@pytest.mark.unit
+def test_kiosk_page_reloads_on_hub_reboot():
+    page = client.get("/screen/boot-check")
+    assert page.status_code == 200
+    assert "seenBoot" in page.text
+    assert "location.reload()" in page.text
+
+
+@pytest.mark.unit
+def test_create_app_degraded_on_broken_config(monkeypatch, tmp_path):
+    """Broken config yields degraded health, never a crash."""
+    from app.main import create_app
+
+    broken = tmp_path / "studios" / "broken"
+    broken.mkdir(parents=True)
+    (broken / "studio.json").write_text("{not json", encoding="utf-8")
+    monkeypatch.setenv("STUDIO_CONFIG", str(tmp_path))
+    degraded = create_app()
+    assert degraded.state.health["status"] == "degraded"
+    assert degraded.state.registries == {}
+    assert degraded.state.health["error"]

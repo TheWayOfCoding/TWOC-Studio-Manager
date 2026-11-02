@@ -95,3 +95,19 @@ def test_set_group_power_executes(power):
     results = power.set_group_power("desk-power", True, sleep=lambda s: None)
     assert [(item["device"], item["ok"]) for item in results] == [("demo-screen", True)]
     assert power.drivers["plug-3"].state["on"] is True
+
+
+@pytest.mark.unit
+def test_status_isolates_failing_driver(power):
+    """Module.status reports one bad driver without hiding the rest."""
+
+    class Boom:
+        def get_state(self):
+            raise RuntimeError("relay jammed")
+
+    power.drivers["plug-9"] = Boom()
+    status = power.status()
+    assert status["module"] == "power"
+    assert status["drivers"]["plug-1"]["ok"] is True
+    assert status["drivers"]["plug-9"]["ok"] is False
+    assert "jammed" in status["drivers"]["plug-9"]["error"]

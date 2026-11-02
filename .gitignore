@@ -23,3 +23,6 @@ captures/
 
 # Local pytest run debris (machine-specific directory).
 pytest-of-Scott/
+
+# Local portable OBS copy (hundreds of MB, machine-specific).
+Portable-OBS/

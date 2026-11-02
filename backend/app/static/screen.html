@@ -19,7 +19,7 @@ body { font-family: system-ui, sans-serif; margin: 0; min-height: 100vh; display
 <body>
 <div id="wash"></div>
 <div id="theme"></div>
-<div id="text">waiting for push…</div>
+<div id="text"></div>
 <div id="audio"></div>
 <div id="exit"></div>
 <script>
@@ -27,7 +27,9 @@ const id = decodeURIComponent(location.pathname.split("/").pop());
 // Audio bed: tiny WebAudio synth (no assets). Browsers require a user gesture
 // before sound, so the first click anywhere arms the context; the ♪ indicator
 // shows regardless. Track names shift the base pitch deterministically.
-let actx = null, bed = null;
+// Volume is 0..100 from the hub state (default 10); 20% == the original bed
+// loudness, and anything above 20 needs the bench's allow-loud consent.
+let actx = null, bed = null, seenBoot = null;
 addEventListener("click", () => {
   try {
     if (!actx) actx = new (window.AudioContext || window.webkitAudioContext)();
@@ -39,8 +41,11 @@ function trackShift(track) {
   for (const ch of (track || "bed")) h = (h * 31 + ch.charCodeAt(0)) >>> 0;
   return 1 + (h % 7) * 0.06;
 }
+function bedLevel(volume) {
+  return 0.035 * ((volume == null ? 10 : volume) / 20);
+}
 function bedPlaying() { return bed !== null; }
-function startBed(track) {
+function startBed(track, volume) {
   if (!actx || bedPlaying()) return;
   try {
     const base = 110 * trackShift(track);
@@ -56,9 +61,14 @@ function startBed(track) {
     lfo.frequency.value = 0.1; lfoGain.gain.value = 0.012;
     lfo.connect(lfoGain); lfoGain.connect(gain.gain); lfo.start();
     filter.connect(gain); gain.connect(actx.destination);
-    gain.gain.linearRampToValueAtTime(0.035, actx.currentTime + 2);
+    gain.gain.linearRampToValueAtTime(bedLevel(volume), actx.currentTime + 2);
     bed = { oscs, lfo, gain };
   } catch (e) { bed = null; }
+}
+function setBedLevel(volume) {
+  if (!bedPlaying()) return;
+  try { bed.gain.gain.linearRampToValueAtTime(bedLevel(volume), actx.currentTime + 0.5); }
+  catch (e) { /* already quiet */ }
 }
 function stopBed() {
   if (!bedPlaying()) return;
@@ -73,11 +83,15 @@ async function tick() {
   try {
     const r = await fetch("/api/screens/" + encodeURIComponent(id) + "/state");
     const s = await r.json();
+    if (seenBoot === null) seenBoot = s.hub;
+    else if (s.hub && s.hub !== seenBoot) { location.reload(); return; }
     document.title = "Backdrop — " + id;
     document.getElementById("theme").textContent = s.theme ? "theme: " + s.theme : "";
-    document.getElementById("text").textContent = s.text || "(no text pushed)";
+    document.getElementById("text").textContent = s.text || "";
+    const vol = s.volume == null ? 10 : s.volume;
+    const armed = actx && actx.state === "running";
     document.getElementById("audio").textContent =
-      s.audio === "play" ? "♪ " + (s.track || "bed") : "";
+      s.audio === "play" ? "♪ " + (s.track || "bed") + " " + vol + "%" + (armed ? "" : " (click for sound)") : "";
     document.body.style.background = s.theme === "work" ? "#1a2a1a" : s.theme === "live" ? "#2a1a1a" : "#111";
     const wash = document.getElementById("wash");
     if (s.wash && s.wash.color) {
@@ -87,7 +101,9 @@ async function tick() {
       wash.style.opacity = 0;
     }
     wash.className = s.theme === "candle" ? "candle" : "";
-    if (s.audio === "play") startBed(s.track); else stopBed();
+    if (s.audio === "play") {
+      if (bedPlaying()) setBedLevel(vol); else startBed(s.track, vol);
+    } else stopBed();
   } catch (e) { document.getElementById("text").textContent = "hub unreachable"; }
 }
 tick();

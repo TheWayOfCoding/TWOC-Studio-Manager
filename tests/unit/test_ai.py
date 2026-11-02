@@ -186,3 +186,23 @@ def test_save_preset_refuses_tracked_and_unknown_studios():
     )
     assert tracked.status_code == 422
     assert client.post("/api/studios/ghost/ai/save-preset", json={"preset_id": "x"}).status_code == 404
+
+
+@pytest.mark.unit
+def test_manifest_lists_screen_devices():
+    """Screen-driver devices land in the manifest so AI can target screens."""
+
+    class StubRegistry:
+        device_ids = ["lamp", "wall"]
+
+        def get_device(self, device_id):
+            return {"lamp": {"type": "light", "controllable": True}, "wall": {"driver": "screen"}}[
+                device_id
+            ]
+
+        def effective_device(self, device_id):
+            return {}
+
+    manifest = build_manifest(StubRegistry())
+    assert manifest["screens"] == ["wall"]
+    assert sorted(manifest["lights"]) == ["lamp"]
