@@ -16,6 +16,7 @@ a silent light with ok:true means placement failed, not the frame.
 Synchronous. Call only outside a running event loop.
 """
 
+import threading
 import time
 
 from .base import Driver, DriverResult
@@ -186,6 +187,71 @@ def winrt_available():
     return None
 
 
+def _default_adapter():
+    """The default Bluetooth adapter, or None when unavailable. Never raises."""
+    try:
+        import asyncio
+
+        from winsdk.windows.devices.bluetooth import BluetoothAdapter
+
+        async def _query():
+            return await BluetoothAdapter.get_default_async()
+
+        return asyncio.run(_query())
+    except Exception:  # noqa: BLE001 - unavailable is reported, never raised
+        return None
+
+
+def adapter_extended_supported():
+    """Default adapter's extended-advertising support: True/False, or None
+    when the query is unavailable. Never raises (bench honesty aid).
+
+    Capability note only: fixtures accept the legacy fallback as well
+    (field-verified Nov 3 on two dongles), but a radio stuck in legacy
+    after the app-native mode failed is worth seeing on the bench.
+    """
+    adapter = _default_adapter()
+    if adapter is None:
+        return None
+    try:
+        return bool(adapter.is_extended_advertising_supported)
+    except Exception:  # noqa: BLE001
+        return None
+
+
+def _default_adapter_address():
+    """Default adapter's Bluetooth address as an int, or None. Never raises."""
+    adapter = _default_adapter()
+    if adapter is None:
+        return None
+    try:
+        return int(adapter.bluetooth_address)
+    except Exception:  # noqa: BLE001
+        return None
+
+
+def _restart_bluetooth_service():
+    """Restart the Windows Bluetooth service once. True on clean exit.
+
+    Field remedy (Nov 3): the stack can wedge TX-silent — publishers
+    report Started while nothing reaches the air. A service restart is
+    the only observed cure. Best-effort: False on any failure (including
+    non-Windows), never raises, so a failed heal never blocks a send.
+    """
+    try:
+        import subprocess
+
+        done = subprocess.run(
+            ["powershell", "-NoProfile", "-Command", "Restart-Service bthserv -Force"],
+            capture_output=True,
+            timeout=30,
+            check=False,
+        )
+        return done.returncode == 0
+    except Exception:  # noqa: BLE001
+        return False
+
+
 class WinRtAdvertiser(Advertiser):
     """Real publisher via WinRT advertisement (Windows + BLE radio).
 
@@ -224,6 +290,10 @@ class WinRtAdvertiser(Advertiser):
                 raise NinjaError(f"advertiser aborted ({status_start}); radio missing or blocked?")
             time.sleep(max(hold_s, 0))
             status_end = str(pub.status)
+            if "abort" in status_end.lower():
+                raise NinjaError(
+                    f"advertiser aborted ({status_end}); radio missing or blocked?"
+                )
         finally:
             try:
                 pub.stop()
@@ -254,14 +324,92 @@ class WinRtAdvertiser(Advertiser):
         adv.manufacturer_data.append(section)
         return adv
 
+    # Adapter self-heal state (class-level: every driver instance shares
+    # one radio, so the baseline must be shared too).
+    _heal_lock = threading.Lock()
+    _last_adapter_address = None
+    _adapter_absent = False
+    _heal_pending = False
+    _monitor_started = False
+    _MONITOR_INTERVAL_S = 10.0
+
+    @classmethod
+    def _observe_adapter(cls, address):
+        """Fold one adapter observation into the heal state.
+
+        Re-enumeration (dongle swap, or unplug/replug of the same dongle)
+        can leave the stack TX-silent, so both a changed address and a
+        disappear/reappear cycle mark a heal pending. First sighting only
+        records the baseline (hub startup heals the boot case separately).
+        """
+        with cls._heal_lock:
+            if address is None:
+                if cls._last_adapter_address is not None:
+                    cls._adapter_absent = True
+                return
+            if cls._last_adapter_address is None:
+                cls._last_adapter_address = address
+                cls._adapter_absent = False
+                return
+            if cls._adapter_absent or address != cls._last_adapter_address:
+                cls._heal_pending = True
+            cls._adapter_absent = False
+            cls._last_adapter_address = address
+
+    @classmethod
+    def _consume_adapter_heal(cls):
+        """Run a pending service restart once. True when it actually ran.
+
+        A failed restart stays pending, so the next publish retries.
+        """
+        with cls._heal_lock:
+            pending = cls._heal_pending
+        if not pending:
+            return False
+        if not _restart_bluetooth_service():
+            return False
+        with cls._heal_lock:
+            cls._heal_pending = False
+        return True
+
+    @classmethod
+    def start_adapter_monitor(cls):
+        """Start the daemon thread watching for adapter re-enumeration.
+
+        Publishes also observe the adapter directly; the monitor exists
+        so a reseat is noticed even while the lights sit idle (the heal
+        itself still runs just-in-time on the next publish).
+        """
+        with cls._heal_lock:
+            if cls._monitor_started:
+                return
+            cls._monitor_started = True
+        thread = threading.Thread(
+            target=cls._adapter_monitor_loop, name="ninja-adapter-monitor", daemon=True
+        )
+        thread.start()
+
+    @classmethod
+    def _adapter_monitor_loop(cls):
+        while True:
+            try:
+                cls._observe_adapter(_default_adapter_address())
+            except Exception:  # noqa: BLE001 - monitor must never die loudly
+                pass
+            time.sleep(cls._MONITOR_INTERVAL_S)
+
     def publish(self, payload, hold_s):
         err = winrt_available()
         if err:
             raise NinjaError(err)
         payload = bytes(payload)
+        address = _default_adapter_address()
+        if address is not None:
+            WinRtAdvertiser._observe_adapter(address)
+        restarted = WinRtAdvertiser._consume_adapter_heal()
         adv = self._build_adv(payload)
         try:
-            return self._attempt(adv, payload, hold_s, self.extended, self.anonymous)
+            result = self._attempt(adv, payload, hold_s, self.extended, self.anonymous)
         except NinjaError as first:
             if not self.extended and not self.anonymous:
                 raise
@@ -270,7 +418,9 @@ class WinRtAdvertiser(Advertiser):
             except NinjaError as second:
                 raise NinjaError(f"{first} (legacy retry also failed: {second})") from second
             result["fallback"] = str(first)
-            return result
+        if restarted:
+            result["bt_service_restarted"] = True
+        return result
 
 
 class NinjaBleDriver(Driver):
@@ -350,7 +500,14 @@ class NinjaBleDriver(Driver):
         err = winrt_available()
         if err:
             return DriverResult(ok=False, error=err)
-        return DriverResult(ok=True, state={"backend": "winrt", "imports": True})
+        return DriverResult(
+            ok=True,
+            state={
+                "backend": "winrt",
+                "imports": True,
+                "extended_supported": adapter_extended_supported(),
+            },
+        )
 
     def _send(self, payload):
         """Publish repeats times (app parity: state changes go out twice)."""

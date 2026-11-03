@@ -41,3 +41,42 @@ def test_plan_respects_port_args(tmp_path):
         ("https", 8443),
         ("http", 8080),
     ]
+
+
+class _Done:
+    def __init__(self, returncode):
+        self.returncode = returncode
+
+
+def test_bt_heal_runs_powershell_on_windows():
+    serve = load_serve()
+    calls = []
+
+    def runner(cmd, **kwargs):
+        calls.append(cmd)
+        return _Done(0)
+
+    assert serve.restart_bluetooth_service(runner=runner, platform_name="nt") is True
+    assert "Restart-Service bthserv" in " ".join(calls[0])
+
+
+def test_bt_heal_reports_failure_and_skips_non_windows():
+    serve = load_serve()
+    calls = []
+
+    def runner(cmd, **kwargs):
+        calls.append(cmd)
+        return _Done(1)
+
+    assert serve.restart_bluetooth_service(runner=runner, platform_name="nt") is False
+    assert serve.restart_bluetooth_service(runner=runner, platform_name="posix") is False
+    assert len(calls) == 1  # posix never reaches the runner
+
+
+def test_bt_heal_never_raises():
+    serve = load_serve()
+
+    def runner(cmd, **kwargs):
+        raise OSError("no shell")
+
+    assert serve.restart_bluetooth_service(runner=runner, platform_name="nt") is False

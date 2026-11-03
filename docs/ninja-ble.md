@@ -112,8 +112,36 @@ real fixture. No separate power byte observed.
 - Dongles that reject extended/anonymous advertising fall back to legacy
   (extended+anonymous off); the mode is reported per send. The hub
   mimics the app with rotating sender addresses + incrementing `CT` and
-  double-sends state changes. Whether lights enforce the counter or
-  require rotation is still unknown.
+  double-sends state changes. Counter enforcement is ruled out (Nov 3):
+  the app restarts `CT` near 2 on every launch and fixtures follow at
+  once, so hub counter resets after a restart are harmless.
+- SILENT-STACK FAILURE (Nov 3, cost hours): the hub's Bluetooth stack
+  wedged in a state where every WinRT publisher reported Started while
+  nothing reached the air (cross-PC watcher heard zero hub frames;
+  fixtures ignored everything; app fine). Triggers: hub boot, adapter
+  hot-swap (dongle change with no service restart wedged it again,
+  verified with both dongles), and heavy churn of throwaway probe
+  publishers. Remedy: restart the Bluetooth
+  Support Service (`Restart-Service bthserv`) on the hub, then verify
+  with a production send — never trust `ok:true` alone. The WinRT probe
+  now reports `extended_supported` (legacy-only radios still control
+  the fixtures; extended is NOT required, controlled from-zero tests
+  on two different dongles moved all three groups).
+- Self-heal AUTOMATED (Nov 3): hub-serve restarts `bthserv` once before
+  serving (covers boot/deploy/watchdog restarts, before any BLE
+  connection exists), and the advertiser watches the default adapter
+  (10 s monitor + per-publish check): a swap or unplug/replug marks a
+  heal pending and the next publish restarts the service first,
+  reporting `bt_service_restarted: true` in the send details. Verified
+  live: dongle reseat -> next bench send healed itself and the light
+  followed, no manual step. Cross-adapter self-verification is not
+  possible: WinRT publishers/watchers bind to the default radio only,
+  so a second dongle cannot independently confirm the first — the
+  trigger-based heal above is the substitute.
+- Eyeball contamination warning: the phone app leaves its last
+  advertising set ENABLED after the last tap (the final frame repeats
+  indefinitely), so a "hub sent it and the light moved" observation is
+  only trustworthy with the phone in airplane mode or force-stopped.
 - Open-loop honesty: fixtures never report, so hub state carries a
   transmitted flag (memory, not telemetry), and a pristine cache rejects
   a partial first-send (brightness/power required, else a dark-flash

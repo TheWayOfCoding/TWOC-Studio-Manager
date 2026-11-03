@@ -179,6 +179,118 @@ def test_winrt_attempt_abort_raises(monkeypatch):
         adv._attempt(None, b"x" * 27, 0, False, False)
 
 
+class _FlipPublisher:
+    """Publisher that starts fine, then aborts during the hold."""
+
+    def __init__(self):
+        self.reads = 0
+        self.stopped = False
+
+    @property
+    def status(self):
+        self.reads += 1
+        return "started" if self.reads == 1 else "aborted"
+
+    def start(self):
+        pass
+
+    def stop(self):
+        self.stopped = True
+
+
+def test_winrt_attempt_end_abort_raises(monkeypatch):
+    """An abort that lands during the hold must not report ok (regression:
+    status_end was returned unchecked, so wedged radios looked healthy)."""
+    adv = WinRtAdvertiser()
+    pub = _FlipPublisher()
+    monkeypatch.setattr(adv, "_new_publisher", lambda a, e, n: pub)
+    with pytest.raises(NinjaError, match="aborted"):
+        adv._attempt(None, b"x" * 27, 0, False, False)
+    assert pub.stopped is True
+
+
+def test_probe_reports_extended_support(monkeypatch):
+    import app.drivers.ninja_ble as ninja_ble
+
+    monkeypatch.setattr(ninja_ble, "winrt_available", lambda: None)
+    monkeypatch.setattr(ninja_ble, "adapter_extended_supported", lambda: False)
+    driver = NinjaBleDriver("n", 3, "A", backend="auto")
+    result = driver.probe()
+    assert result.ok
+    assert result.state["extended_supported"] is False
+
+
+def _heal_rig(monkeypatch, addresses, restart_ok=True):
+    """Wire a WinRtAdvertiser to scripted adapter addresses + restart log."""
+    import app.drivers.ninja_ble as ninja_ble
+
+    monkeypatch.setattr(ninja_ble, "winrt_available", lambda: None)
+    monkeypatch.setattr(WinRtAdvertiser, "_last_adapter_address", None)
+    monkeypatch.setattr(WinRtAdvertiser, "_adapter_absent", False)
+    monkeypatch.setattr(WinRtAdvertiser, "_heal_pending", False)
+    adv = WinRtAdvertiser()
+    monkeypatch.setattr(adv, "_build_adv", lambda payload: None)
+    monkeypatch.setattr(adv, "_attempt", lambda a, p, h, e, n: {"mode": "legacy"})
+    queue = iter(addresses)
+    monkeypatch.setattr(ninja_ble, "_default_adapter_address", lambda: next(queue))
+    restarts = []
+    monkeypatch.setattr(
+        ninja_ble, "_restart_bluetooth_service", lambda: restarts.append(1) or restart_ok
+    )
+    return adv, restarts
+
+
+def test_publish_heals_once_on_adapter_change(monkeypatch):
+    """Dongle swap (address change) restarts the BT service once, flagged."""
+    adv, restarts = _heal_rig(monkeypatch, [111, 111, 222, 222])
+    first = adv.publish(b"x" * 27, 0)  # first sighting: baseline only
+    same = adv.publish(b"x" * 27, 0)
+    swapped = adv.publish(b"x" * 27, 0)  # changed: heal before sending
+    settled = adv.publish(b"x" * 27, 0)
+    assert restarts == [1]
+    assert "bt_service_restarted" not in first
+    assert "bt_service_restarted" not in same
+    assert swapped["bt_service_restarted"] is True
+    assert "bt_service_restarted" not in settled
+
+
+def test_publish_retries_heal_after_failed_restart(monkeypatch):
+    """A failed restart keeps the old baseline: next publish retries."""
+    adv, restarts = _heal_rig(monkeypatch, [111, 222, 222], restart_ok=False)
+    adv.publish(b"x" * 27, 0)
+    result = adv.publish(b"x" * 27, 0)
+    adv.publish(b"x" * 27, 0)
+    assert restarts == [1, 1]
+    assert "bt_service_restarted" not in result
+
+
+def test_observe_marks_reseat_pending(monkeypatch):
+    """Unplug/replug of the SAME dongle (address unchanged) still heals."""
+    import app.drivers.ninja_ble as ninja_ble
+
+    monkeypatch.setattr(WinRtAdvertiser, "_last_adapter_address", None)
+    monkeypatch.setattr(WinRtAdvertiser, "_adapter_absent", False)
+    monkeypatch.setattr(WinRtAdvertiser, "_heal_pending", False)
+    restarts = []
+    monkeypatch.setattr(
+        ninja_ble, "_restart_bluetooth_service", lambda: restarts.append(1) or True
+    )
+    WinRtAdvertiser._observe_adapter(111)
+    WinRtAdvertiser._observe_adapter(None)  # dongle pulled
+    WinRtAdvertiser._observe_adapter(111)  # same dongle back: re-enumerated
+    assert WinRtAdvertiser._consume_adapter_heal() is True
+    assert restarts == [1]
+    assert WinRtAdvertiser._consume_adapter_heal() is False  # pending cleared
+
+
+def test_publish_skips_heal_when_adapter_unknown(monkeypatch):
+    """No adapter answer (or non-Windows): send proceeds, never restarts."""
+    adv, restarts = _heal_rig(monkeypatch, [None, None])
+    assert adv.publish(b"x" * 27, 0)["mode"] == "legacy"
+    assert adv.publish(b"x" * 27, 0)["mode"] == "legacy"
+    assert restarts == []
+
+
 def test_publish_falls_back_to_legacy(monkeypatch):
     import app.drivers.ninja_ble as ninja_ble
 

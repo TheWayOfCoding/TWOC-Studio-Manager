@@ -19,6 +19,7 @@ Ports/dir overridable: STUDIO_HTTPS_PORT, STUDIO_HTTP_PORT, STUDIO_TLS_DIR.
 
 import asyncio
 import os
+import subprocess
 import sys
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "backend"))
@@ -55,8 +56,39 @@ def _server(app, scheme, port, tls_dir):
     return uvicorn.Server(uvicorn.Config(**kwargs))
 
 
+def restart_bluetooth_service(runner=subprocess.run, platform_name=None):
+    """Restart the Windows Bluetooth service once. Clean exit True, else False.
+
+    Boot heal for the TX-silent stack wedge (field finding, Nov 3): after
+    a hub reboot the stack can accept BLE publishers that never air. This
+    runs pre-serve on every hub start (boot, deploy, watchdog restart),
+    when no BLE connection exists yet to drop. Best-effort: non-Windows,
+    failure, and timeout all return False and never block serving.
+    """
+    if (platform_name or os.name) != "nt":
+        return False
+    try:
+        done = runner(
+            ["powershell", "-NoProfile", "-Command", "Restart-Service bthserv -Force"],
+            capture_output=True,
+            timeout=30,
+            check=False,
+        )
+        return done.returncode == 0
+    except Exception:  # noqa: BLE001 - heal must never break startup
+        return False
+
+
 async def amain():
     """Run every planned listener; return process exit code."""
+    healed = restart_bluetooth_service()
+    print(f"bluetooth service restart: {'ok' if healed else 'skipped-or-failed'}", flush=True)
+    try:  # dongle swap/reseat watcher for the Ninja advertiser self-heal
+        from app.drivers.ninja_ble import WinRtAdvertiser
+
+        WinRtAdvertiser.start_adapter_monitor()
+    except Exception as exc:  # noqa: BLE001 - monitor is best-effort
+        print(f"adapter monitor not started: {exc}", flush=True)
     tls_dir = os.environ.get("STUDIO_TLS_DIR", TLS_DIR_DEFAULT)
     https_port = int(os.environ.get("STUDIO_HTTPS_PORT", HTTPS_PORT_DEFAULT))
     http_port = int(os.environ.get("STUDIO_HTTP_PORT", HTTP_PORT_DEFAULT))
