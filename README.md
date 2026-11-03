@@ -12,6 +12,9 @@ live-verified, Ninja BLE runs all three fixtures with DMX retained on the
 bench, the IR strip maps hues to measured colors, and the AI director is
 live-proven on real hardware.
 
+See `HACKATHON.md` for the demo story: the 60-second tour, every
+controlled family, the touch-tone audio wire, and the war stories.
+
 ## What it does
 
 - **Modes:** one click powers zones, sets lights, switches OBS, updates
