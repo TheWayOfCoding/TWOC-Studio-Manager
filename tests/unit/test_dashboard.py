@@ -112,6 +112,19 @@ def test_ai_mic_block_static():
 
 
 @pytest.mark.unit
+def test_hub_css_served_and_linked():
+    """Shared stylesheet serves as CSS and every human page links it."""
+    css = client.get("/hub.css")
+    assert css.status_code == 200
+    assert "text/css" in css.headers["content-type"]
+    assert ".topbar" in css.text
+    for path in ("/", "/bench", "/control", "/equipment"):
+        page = client.get(path)
+        assert page.status_code == 200
+        assert 'href="/hub.css"' in page.text
+
+
+@pytest.mark.unit
 def test_equipment_structure():
     """Equipment page: studio/device pickers, facts, key/value editor, save."""
     response = client.get("/equipment")

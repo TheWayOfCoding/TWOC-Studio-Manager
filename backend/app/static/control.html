@@ -4,34 +4,21 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Studio Hub — Control</title>
-<style>
-body { font-family: system-ui, sans-serif; margin: 1em; max-width: 36em; font-size: 17px; }
-nav a { margin-right: 1em; }
-select, input[type=text], input[type=number] { font-size: 1em; max-width: 100%; }
-select, button { min-height: 2.6em; }
-button { font-size: 1em; margin: 0.25em 0.4em 0.25em 0; padding: 0.3em 0.9em; }
-input[type=range] { width: 100%; height: 2.2em; }
-input[type=checkbox] { width: 1.3em; height: 1.3em; vertical-align: middle; }
-.card { border: 1px solid #ccc; border-radius: 8px; padding: 1em; margin: 1em 0; }
-.card h2 { margin: 0 0 0.2em; font-size: 1.2em; }
-.meta { color: #444; margin: 0 0 0.8em; }
-.row { margin: 0.7em 0; }
-.row label { display: block; margin-bottom: 0.2em; }
-.swatches { display: grid; grid-template-columns: repeat(4, 1fr); gap: 0.4em; }
-.swatches button { margin: 0; padding: 0.5em 0.2em; font-size: 0.85em; }
-pre { background: #f4f4f4; padding: 0.5em; overflow-x: auto; white-space: pre-wrap; }
-.ok { color: #0a0; } .bad { color: #c00; }
-.hint { color: #444; font-size: 0.9em; }
-</style>
+<link rel="stylesheet" href="/hub.css">
 </head>
 <body>
-<nav><a href="/">Studio Hub</a> | <a href="/bench">Test Bench</a> | <strong>Control</strong> | <a href="/equipment">Equipment</a></nav>
+<header class="topbar">
+<span class="brand">Studio Hub</span>
+<nav><a href="/">Dashboard</a><a href="/bench">Test Bench</a><a href="/control" aria-current="page">Control</a><a href="/equipment">Equipment</a></nav>
+</header>
+<div class="wrap narrow">
 <h1>Control</h1>
-<p>Adjust one asset at a time. Pick it below — scenes and raw bring-up stay on the Test Bench.</p>
-<div class="row"><label for="studio">Studio</label><select id="studio" onchange="loadDevices()"></select></div>
-<div class="row"><label for="device">Asset (A–Z)</label><select id="device" onchange="renderCard()"></select></div>
+<p class="lede">Adjust one asset at a time. Pick it below — scenes and raw bring-up stay on the Test Bench.</p>
+<div class="row"><label class="field" for="studio">Studio</label><select id="studio" onchange="loadDevices()"></select></div>
+<div class="row"><label class="field" for="device">Asset (A–Z)</label><select id="device" onchange="renderCard()"></select></div>
 <div id="card"></div>
 <div id="out"></div>
+</div>
 <script>
 async function jget(url) { const r = await fetch(url); if (!r.ok) throw new Error(await r.text()); return r.json(); }
 async function jpost(url, body) {
@@ -40,9 +27,18 @@ async function jpost(url, body) {
   if (!r.ok) throw new Error(data.detail || JSON.stringify(data));
   return data;
 }
-function out(data, ok) {
+function esc(s) {
+  return String(s === null || s === undefined ? "" : s)
+    .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+}
+function out(data, ok, summary) {
+  const line = summary === undefined
+    ? (data && typeof data === "object" ? (data.status || data.error || (ok === false ? "Failed" : "Done")) : String(data))
+    : summary;
   document.getElementById("out").innerHTML =
-    '<pre class="' + (ok === false ? "bad" : "ok") + '">' + JSON.stringify(data, null, 1) + "</pre>";
+    '<div class="result ' + (ok === false ? "bad" : "ok") + '"><div class="result-line"><span class="dot">●</span><span>' +
+    esc(line) + '</span></div><details class="result-json"><summary>Details</summary><pre>' +
+    esc(JSON.stringify(data, null, 1)) + "</pre></details></div>";
 }
 function studio() { return document.getElementById("studio").value; }
 function deviceId() { return document.getElementById("device").value; }
@@ -77,15 +73,15 @@ async function loadDevices() {
     .sort((a, b) => (a.name || a.id).localeCompare(b.name || b.id));
   document.getElementById("device").innerHTML = shown.map((d) =>
     "<option value='" + d.id + "'" + (drivable(d) ? "" : " disabled") + ">" +
-    (d.name || d.id) + (drivable(d) ? "" : " (manual)") + "</option>").join("");
+    esc(d.name || d.id) + (drivable(d) ? "" : " (manual)") + "</option>").join("");
   renderCard();
 }
 
 function sliderRow(id, label, min, max, step, val, unit) {
-  return '<div class="row"><label for="' + id + '">' + label + '</label>' +
+  return '<div class="row"><label class="field" for="' + id + '">' + label + '</label>' +
     '<input type="range" id="' + id + '" min="' + min + '" max="' + max + '" step="' + step + '" value="' + val + '" ' +
     'oninput="document.getElementById(\'' + id + '-n\').value = this.value">' +
-    '<input type="number" id="' + id + '-n" min="' + min + '" max="' + max + '" step="' + step + '" value="' + val + '" style="width:5em"> ' + (unit || "") + "</div>";
+    '<label class="field"><input type="number" id="' + id + '-n" min="' + min + '" max="' + max + '" step="' + step + '" value="' + val + '" style="width:5em"> ' + (unit || "") + "</label></div>";
 }
 
 function renderCard() {
@@ -93,40 +89,40 @@ function renderCard() {
   const el = document.getElementById("card");
   if (!d) { el.innerHTML = ""; return; }
   if (!drivable(d)) {
-    el.innerHTML = '<div class="card"><h2>' + (d.name || d.id) + '</h2><p class="meta">' +
-      [d.type, d.zone, d.role].filter(Boolean).join(" · ") + '</p><p class="hint">Hand-operated — no remote control. Details live on the Equipment page.</p></div>';
+    el.innerHTML = '<div class="card"><h2>' + esc(d.name || d.id) + '</h2><p class="hint">' +
+      [d.type, d.zone, d.role].filter(Boolean).map(esc).join(" · ") + '</p><p class="hint">Hand-operated — no remote control. Details live on the Equipment page.</p></div>';
     return;
   }
   const caps = d.capabilities || {};
-  let h = '<div class="card"><h2>' + (d.name || d.id) + '</h2><p class="meta">' +
-    [d.type, d.zone, d.role, d.driver].filter(Boolean).join(" · ") + "</p>";
+  let h = '<div class="card"><h2>' + esc(d.name || d.id) + '</h2><p class="hint">' +
+    [d.type, d.zone, d.role, d.driver].filter(Boolean).map(esc).join(" · ") + "</p>";
   if (d.type === "screen") {
-    h += '<div class="row"><label for="c-theme">Theme</label><input type="text" id="c-theme" placeholder="stream_starting"></div>' +
-      '<div class="row"><label for="c-text">Text</label><input type="text" id="c-text" placeholder="Tonight: co-op night"></div>' +
-      '<button onclick="screenPush()">Push to screen</button>' +
+    h += '<div class="row"><label class="field" for="c-theme">Theme</label><input type="text" id="c-theme" placeholder="stream_starting"></div>' +
+      '<div class="row"><label class="field" for="c-text">Text</label><input type="text" id="c-text" placeholder="Tonight: co-op night"></div>' +
+      '<div class="row"><button onclick="screenPush()">Push to screen</button></div>' +
       sliderRow("c-vol", "Audio bed volume", 0, 100, 1, 20, "%") +
-      '<button onclick="screenAudio(\'play\')">Play bed</button><button onclick="screenAudio(\'stop\')">Stop bed</button>';
+      '<div class="row"><button onclick="screenAudio(\'play\')">Play bed</button><button onclick="screenAudio(\'stop\')">Stop bed</button></div>';
   } else if (d.driver === "ir") {
-    h += '<button onclick="irSend(\'on\')">On</button><button onclick="irSend(\'off\')">Off</button>' +
-      '<div class="row"><label>Fixed color</label><div class="swatches" id="c-swatches"><span class="hint">loading…</span></div></div>' +
+    h += '<div class="row"><button onclick="irSend(\'on\')">On</button><button onclick="irSend(\'off\')">Off</button></div>' +
+      '<div class="row"><label class="field">Fixed color</label></div><div class="swatches" id="c-swatches"><span class="hint">loading…</span></div>' +
       '<p class="hint">No brightness levels on the strip — brightness stepping stays on the Test Bench.</p>';
   } else {
     if (d.driver === "gvm" || d.driver === "ninja" || d.driver === "mock")
-      h += '<button onclick="lightPower(\'on\')">On</button><button onclick="lightPower(\'off\')">Off</button>';
+      h += '<div class="row"><button onclick="lightPower(\'on\')">On</button><button onclick="lightPower(\'off\')">Off</button></div>';
     else
       h += '<p class="hint">DMX has no power switch — 0% is dark.</p>';
     h += sliderRow("c-br", "Brightness", 0, 100, 1, 5, "%") +
-      '<button onclick="lightBright()">Set brightness</button>';
+      '<div class="row"><button onclick="lightBright()">Set brightness</button></div>';
     if (caps.cct !== false)
       h += sliderRow("c-cct", "Color temperature", 2500, 8500, 100, 5600, "K") +
-        '<button onclick="lightCct()">Set CCT</button>';
+        '<div class="row"><button onclick="lightCct()">Set CCT</button></div>';
     if (caps.rgb) {
       h += sliderRow("c-hue", "Hue", 0, 360, 5, 220, "°") +
         sliderRow("c-sat", "Saturation", 0, 100, 1, 60, "%") +
-        '<button onclick="lightHsi()">Set color</button>';
+        '<div class="row"><button onclick="lightHsi()">Set color</button></div>';
     }
     if (d.driver === "dmx" || d.driver === "ninja")
-      h += '<div class="row"><label><input type="checkbox" id="c-bright"> allow bright (past the gentle 10%)</label></div>';
+      h += '<div class="row"><label class="field"><input type="checkbox" id="c-bright"> allow bright (past the gentle 10%)</label></div>';
   }
   el.innerHTML = h + "</div>";
   if (d.driver === "ir") loadSwatches();
@@ -138,9 +134,9 @@ async function lightPower(on) {
   const d = current();
   try {
     if (d.driver === "gvm")
-      out(await jpost("/api/testbench/gvm/set", JSON.stringify({panel: studio() + "/" + d.id, power: on})), true);
+      out(await jpost("/api/testbench/gvm/set", JSON.stringify({panel: studio() + "/" + d.id, power: on})), true, "Power " + on);
     else if (d.driver === "ninja")
-      out(await jpost("/api/testbench/ninja/set", JSON.stringify({light: studio() + "/" + d.id, power: on})), true);
+      out(await jpost("/api/testbench/ninja/set", JSON.stringify({light: studio() + "/" + d.id, power: on})), true, "Power " + on);
     else
       out({error: d.driver + " has no power switch here"}, false);
   } catch (e) { out({error: String(e)}, false); }
@@ -150,11 +146,11 @@ async function lightBright() {
   const d = current(), v = parseInt(document.getElementById("c-br-n").value, 10);
   try {
     if (d.driver === "gvm")
-      out(await jpost("/api/testbench/gvm/set", JSON.stringify({panel: studio() + "/" + d.id, page: "cct", brightness: v})), true);
+      out(await jpost("/api/testbench/gvm/set", JSON.stringify({panel: studio() + "/" + d.id, page: "cct", brightness: v})), true, "Brightness → " + v + "%");
     else if (d.driver === "ninja")
-      out(await jpost("/api/testbench/ninja/set", JSON.stringify({light: studio() + "/" + d.id, brightness: v, allow_bright: allowBright()})), true);
+      out(await jpost("/api/testbench/ninja/set", JSON.stringify({light: studio() + "/" + d.id, brightness: v, allow_bright: allowBright()})), true, "Brightness → " + v + "%");
     else if (d.driver === "dmx")
-      out(await jpost("/api/testbench/dmx/light", JSON.stringify({studio: studio(), fixture: d.id, power: v, allow_bright: allowBright()})), true);
+      out(await jpost("/api/testbench/dmx/light", JSON.stringify({studio: studio(), fixture: d.id, power: v, allow_bright: allowBright()})), true, "Brightness → " + v + "%");
     else
       out({error: d.driver + " brightness is bench-only"}, false);
   } catch (e) { out({error: String(e)}, false); }
@@ -164,11 +160,11 @@ async function lightCct() {
   const d = current(), v = parseInt(document.getElementById("c-cct-n").value, 10);
   try {
     if (d.driver === "gvm")
-      out(await jpost("/api/testbench/gvm/set", JSON.stringify({panel: studio() + "/" + d.id, page: "cct", cct: v})), true);
+      out(await jpost("/api/testbench/gvm/set", JSON.stringify({panel: studio() + "/" + d.id, page: "cct", cct: v})), true, "CCT → " + v + "K");
     else if (d.driver === "ninja")
-      out(await jpost("/api/testbench/ninja/set", JSON.stringify({light: studio() + "/" + d.id, cct: v})), true);
+      out(await jpost("/api/testbench/ninja/set", JSON.stringify({light: studio() + "/" + d.id, cct: v})), true, "CCT → " + v + "K");
     else if (d.driver === "dmx")
-      out(await jpost("/api/testbench/dmx/light", JSON.stringify({studio: studio(), fixture: d.id, cct: v})), true);
+      out(await jpost("/api/testbench/dmx/light", JSON.stringify({studio: studio(), fixture: d.id, cct: v})), true, "CCT → " + v + "K");
     else
       out({error: d.driver + " CCT is bench-only"}, false);
   } catch (e) { out({error: String(e)}, false); }
@@ -180,7 +176,7 @@ async function lightHsi() {
   const sat = parseInt(document.getElementById("c-sat-n").value, 10);
   try {
     if (d.driver === "gvm")
-      out(await jpost("/api/testbench/gvm/set", JSON.stringify({panel: studio() + "/" + d.id, page: "hsi", hue: hue, saturation: sat})), true);
+      out(await jpost("/api/testbench/gvm/set", JSON.stringify({panel: studio() + "/" + d.id, page: "hsi", hue: hue, saturation: sat})), true, "Color → " + hue + "° / " + sat + "%");
     else
       out({error: d.driver + " has no color picker here"}, false);
   } catch (e) { out({error: String(e)}, false); }
@@ -193,13 +189,13 @@ async function loadSwatches() {
       label !== "on" && label !== "off" && label !== "brightness-up" && label !== "brightness-down" &&
       !(codes[label] && codes[label].photoRisk)).sort();
     document.getElementById("c-swatches").innerHTML = fixed.map((label) =>
-      "<button onclick=\"irSend('" + label.replace(/'/g, "\\'") + "')\">" + label + "</button>").join("");
+      "<button onclick=\"irSend('" + label.replace(/'/g, "\\'") + "')\">" + esc(label) + "</button>").join("");
   } catch (e) { document.getElementById("c-swatches").innerHTML = '<span class="hint">no saved codes</span>'; }
 }
 
 async function irSend(label) {
   try {
-    out(await jpost("/api/testbench/ir/send", JSON.stringify({studio: studio(), device: deviceId(), label: label})), true);
+    out(await jpost("/api/testbench/ir/send", JSON.stringify({studio: studio(), device: deviceId(), label: label})), true, "Sent " + label);
   } catch (e) { out({error: String(e)}, false); }
 }
 
@@ -208,7 +204,7 @@ async function screenPush() {
     out(await jpost("/api/testbench/screen/push", JSON.stringify({
       screen: deviceId(),
       theme: document.getElementById("c-theme").value || null,
-      text: document.getElementById("c-text").value || null})), true);
+      text: document.getElementById("c-text").value || null})), true, "Pushed to " + (current().name || deviceId()));
   } catch (e) { out({error: String(e)}, false); }
 }
 
@@ -216,7 +212,7 @@ async function screenAudio(action) {
   try {
     const body = {screen: deviceId(), action: action};
     if (action === "play") body.volume = parseInt(document.getElementById("c-vol-n").value, 10);
-    out(await jpost("/api/testbench/screen/audio", JSON.stringify(body)), true);
+    out(await jpost("/api/testbench/screen/audio", JSON.stringify(body)), true, "Bed " + action);
   } catch (e) { out({error: String(e)}, false); }
 }
 

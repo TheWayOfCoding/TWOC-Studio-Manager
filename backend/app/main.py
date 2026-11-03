@@ -113,6 +113,10 @@ def create_app():
     def screen_page(screen_id: str):
         return FileResponse(STATIC_DIR / "screen.html")
 
+    @app.get("/hub.css", include_in_schema=False)
+    def hub_css():
+        return FileResponse(STATIC_DIR / "hub.css", media_type="text/css")
+
     return app
 
 

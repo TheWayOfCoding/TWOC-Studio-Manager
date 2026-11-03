@@ -4,52 +4,62 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Studio Hub</title>
-<style>
-body { font-family: system-ui, sans-serif; margin: 1.5em; max-width: 48em; }
-.card { border: 1px solid #ccc; border-radius: 8px; padding: 1em; margin-bottom: 1em; }
-.ok { color: #0a0; } .bad { color: #c00; } .warn { color: #a60; }
-nav a { margin-right: 1em; }
-pre { background: #f4f4f4; padding: 0.5em; overflow-x: auto; white-space: pre-wrap; }
-button { margin: 0.2em 0.4em 0.2em 0; }
-input[type=text] { width: 24em; max-width: 100%; }
-textarea#ai-prompt { width: 100%; box-sizing: border-box; font: inherit; }
-.hint { color: #444; font-size: 0.9em; }
-.subs span { margin-right: 1em; white-space: nowrap; }
-</style>
+<link rel="stylesheet" href="/hub.css">
 </head>
 <body>
-<nav><strong>Studio Hub</strong> | <a href="/bench">Test Bench</a> | <a href="/control">Control</a> | <a href="/equipment">Equipment</a> | <a href="/docs">API docs</a></nav>
-<h1>Studio Hub</h1>
-<div class="card"><h2>Health</h2><div id="health">loading…</div></div>
-<div class="card"><h2>Studio</h2><select id="studio"></select></div>
-<div class="card"><h2>Modes</h2><div><label><input type="checkbox" id="pwr-delay-on"> stagger power</label> <input type="number" id="pwr-delay-s" value="1" min="0" max="5" step="0.1" style="width:4em"> s</div><div><label><input type="checkbox" id="mode-include-protected"> also cut protected zones</label></div><div id="modes">loading…</div><div id="mode-out"></div><div id="actions"></div><div><button id="undo-btn" onclick="undoLast()">Undo</button></div></div>
-<div class="card"><h2>OBS</h2><div id="status">loading…</div><div>collection <select id="obs-collection"></select> <button onclick="obsCollection()">Switch collection</button></div><div id="obs"></div><div><label><input type="checkbox" id="obs-confirm"> confirm stream start/stop</label> <button onclick="obsStream('start')">Start stream</button><button onclick="obsStream('stop')">Stop stream</button></div><div id="obs-out"></div></div>
+<header class="topbar">
+<span class="brand">Studio Hub</span>
+<nav><a href="/" aria-current="page">Dashboard</a><a href="/bench">Test Bench</a><a href="/control">Control</a><a href="/equipment">Equipment</a><a href="/docs">API docs</a></nav>
+<span class="spacer"></span>
+<span class="context"><span class="pill" id="health">loading…</span><label>Studio <select id="studio"></select></label></span>
+</header>
+<div class="wrap">
+<h1>Dashboard</h1>
+<p class="lede">Run the room: modes, OBS, zones, power, looks. Every action answers in plain words; the raw reply hides under Details.</p>
+<div class="grid">
+<div class="card span"><h2>Modes</h2>
+<div class="row"><label class="field"><input type="checkbox" id="pwr-delay-on"> stagger power</label><span class="field"><input type="number" id="pwr-delay-s" value="1" min="0" max="5" step="0.1"> s</span><label class="field"><input type="checkbox" id="mode-include-protected"> also cut protected zones</label></div>
+<div class="row" id="modes">loading…</div>
+<div class="row"><span class="hint" id="actions">no actions yet</span><button id="undo-btn" onclick="undoLast()">Undo</button></div>
+<div id="mode-out"></div></div>
+<div class="card"><h2>OBS</h2>
+<div class="row" id="status">loading…</div>
+<div class="row" id="obs"></div>
+<div class="row"><label class="field">collection <select id="obs-collection"></select></label><button onclick="obsCollection()">Switch collection</button></div>
+<div class="row"><label class="field"><input type="checkbox" id="obs-confirm"> confirm stream start/stop</label><button onclick="obsStream('start')">Start stream</button><button onclick="obsStream('stop')">Stop stream</button></div>
+<div id="obs-out"></div></div>
 <div class="card"><h2>Zones</h2><div id="zones">loading…</div><div id="zone-out"></div></div>
-<div class="card" id="power"><h2>Power</h2><div><button id="all-off" onclick="powerAllOff()">All Off</button>
-<label><input type="checkbox" id="all-off-manual"> also switch devices normally left on</label></div><div id="power-out"></div></div>
-<div class="card"><h2>Presets</h2><div id="presets">loading…</div><div><input type="text" id="snap-id" placeholder="preset id"><button onclick="snapHardware()">Snapshot hardware</button></div><div id="preset-out"></div></div>
+<div class="card" id="power"><h2>Power</h2>
+<div class="row"><button id="all-off" class="danger" onclick="powerAllOff()">All Off</button>
+<label class="field"><input type="checkbox" id="all-off-manual"> also switch devices normally left on</label></div>
+<div id="power-out"></div></div>
+<div class="card"><h2>Presets</h2><div class="row" id="presets">loading…</div>
+<div class="row"><input type="text" id="snap-id" placeholder="preset id"><button onclick="snapHardware()">Snapshot hardware</button></div>
+<div id="preset-out"></div></div>
 <div class="card"><h2>Presentations</h2>
-<div><label><input type="checkbox" id="show-confirm"> confirm scene steps</label>
+<div class="row"><label class="field"><input type="checkbox" id="show-confirm"> confirm scene steps</label>
 <button onclick="showStop()">Stop</button></div>
-<div id="shows">loading…</div><div id="show-out"></div></div>
-<div class="card"><h2>AI look</h2>
+<div class="row" id="shows">loading…</div><div id="show-out"></div></div>
+<div class="card span"><h2>AI look</h2>
 <div><textarea id="ai-prompt" rows="6" placeholder="cozy interview"></textarea></div>
-<div><select id="ai-targets"><option value="both">lights+screen</option>
+<div class="row"><select id="ai-targets"><option value="both">lights+screen</option>
 <option value="lights">lights</option><option value="screens">screen</option></select>
 <select id="ai-provider"><option value="mock">mock</option><option value="meta">meta</option></select>
-<button onclick="aiLook()">Direct</button> <button id="ai-mic" onclick="aiMic()">Mic</button>
-<label><input type="checkbox" id="ai-mic-auto"> auto-direct on hear</label></div>
+<button class="primary" onclick="aiLook()">Direct</button> <button id="ai-mic" onclick="aiMic()">Mic</button>
+<label class="field"><input type="checkbox" id="ai-mic-auto"> auto-direct on hear</label></div>
 <p class="hint" id="ai-mic-hint">Voice needs Chrome or Edge over https. Chrome uses its own selected
 microphone (chrome://settings/content/microphone) — not necessarily the Windows default. Brave and
 hardened browsers provide no speech service: type the prompt instead.</p>
-<div id="ai-scope"><label><input type="radio" name="ai-scope-mode" value="all" checked onchange="scopeRefresh()"> all</label>
+<div class="row" id="ai-scope"><label><input type="radio" name="ai-scope-mode" value="all" checked onchange="scopeRefresh()"> all</label>
 <label><input type="radio" name="ai-scope-mode" value="zones" onchange="scopeRefresh()"> zones</label>
 <label><input type="radio" name="ai-scope-mode" value="lights" onchange="scopeRefresh()"> lights</label></div>
-<div id="ai-scope-zones"></div>
-<div id="ai-scope-lights"></div>
-<div id="ai-save" style="display:none"><input type="text" id="ai-preset-id" placeholder="preset id">
+<div class="row" id="ai-scope-zones"></div>
+<div class="row" id="ai-scope-lights"></div>
+<div class="row" id="ai-save" style="display:none"><input type="text" id="ai-preset-id" placeholder="preset id">
 <button onclick="aiSave()">Save as preset</button></div>
 <div id="ai-out"></div></div>
+</div>
+</div>
 <script>
 async function jget(path) {
   const r = await fetch(path);
@@ -64,18 +74,41 @@ async function jpost(path, body) {
   if (!r.ok) throw new Error(JSON.stringify(j));
   return j;
 }
-function out(id, obj, ok) {
+function esc(s) {
+  return String(s === null || s === undefined ? "" : s)
+    .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+}
+function summarize(obj, ok) {
+  if (obj && typeof obj === "object") {
+    if (obj.status) return String(obj.status);
+    if (obj.error) return String(obj.error);
+    return ok === false ? "Failed" : "Done";
+  }
+  return String(obj);
+}
+function out(id, obj, ok, summary) {
+  const line = summary === undefined ? summarize(obj, ok) : summary;
   document.getElementById(id).innerHTML =
-    '<span class="' + (ok === false ? "bad" : "ok") + '">●</span><pre>' + JSON.stringify(obj, null, 2) + "</pre>";
+    '<div class="result ' + (ok === false ? "bad" : "ok") + '"><div class="result-line"><span class="dot">●</span><span>' +
+    esc(line) + '</span></div><details class="result-json"><summary>Details</summary><pre>' +
+    esc(JSON.stringify(obj, null, 2)) + "</pre></details></div>";
 }
 function dot(status) {
   return status === "ready" ? "ok" : status === "skipped" ? "warn" : "bad";
 }
+function subsLead(subs) {
+  return Object.entries(subs).map(([name, s]) => name + " " + s.status).join(" · ");
+}
 function renderApply(id, r) {
-  const subs = Object.entries(r.subsystems).map(([name, s]) =>
-    '<span class="' + dot(s.status) + '">● ' + name + ": " + s.status + "</span>").join("");
+  const subs = r.subsystems || {};
+  const dots = Object.entries(subs).map(([name, s]) =>
+    '<span class="' + dot(s.status) + '">● ' + esc(name) + ": " + esc(s.status) + "</span>").join("");
+  const allReady = Object.values(subs).every((s) => s.status === "ready");
   document.getElementById(id).innerHTML =
-    '<div class="subs">' + subs + "</div><pre>" + JSON.stringify(r.subsystems, null, 2) + "</pre>";
+    '<div class="result ' + (allReady ? "ok" : "warn") + '"><div class="subs">' + dots + "</div>" +
+    '<div class="result-line"><span>' + esc(subsLead(subs) || "nothing applied") + "</span></div>" +
+    '<details class="result-json"><summary>Details</summary><pre>' +
+    esc(JSON.stringify(subs, null, 2)) + "</pre></details></div>";
 }
 let STUDIO = null;
 function studio() { return STUDIO || document.getElementById("studio").value; }
@@ -83,7 +116,7 @@ async function loadModes() {
   try {
     const m = await jget("/api/studios/" + studio() + "/modes");
     document.getElementById("modes").innerHTML = m.modes.map(x =>
-      "<button onclick=\"applyMode('" + x.id + "')\">" + x.label +
+      "<button onclick=\"applyMode('" + x.id + "')\">" + esc(x.label) +
       (x.id === m.default ? " ★" : "") + "</button>").join("") || "no modes";
   } catch (e) { out("mode-out", {error: String(e)}, false); }
 }
@@ -91,7 +124,7 @@ async function loadPresets() {
   try {
     const p = await jget("/api/studios/" + studio() + "/presets");
     document.getElementById("presets").innerHTML = p.presets.map(x =>
-      "<button onclick=\"applyPreset('" + x.id + "')\">" + x.label + "</button>").join("") || "no presets";
+      "<button onclick=\"applyPreset('" + x.id + "')\">" + esc(x.label) + "</button>").join("") || "no presets";
   } catch (e) { out("preset-out", {error: String(e)}, false); }
 }
 async function applyMode(id) {
@@ -110,26 +143,29 @@ async function loadStatus() {
     document.getElementById("status").innerHTML = !s.configured
       ? '<span class="bad">●</span> not configured (studios.local/obs.json)'
       : '<span class="' + (s.connected ? "ok" : "warn") + '">●</span> ' +
-        (s.connected ? ("program: " + (s.current || "?") + (s.streaming ? " — STREAMING" : " — not streaming")) : "configured, OBS unreachable");
+        (s.connected ? ("program: " + esc(s.current || "?") + (s.streaming ? " — STREAMING" : " — not streaming")) : "configured, OBS unreachable");
     document.getElementById("obs").innerHTML = (s.scenes || []).map(n =>
-      "<button onclick=\"obsSwitch('" + n.replace(/'/g, "\\'") + "')\"" + (n === s.current ? " disabled" : "") + ">" + n + "</button>").join("");
+      "<button onclick=\"obsSwitch('" + n.replace(/'/g, "\\'") + "')\"" + (n === s.current ? " disabled" : "") + ">" + esc(n) + "</button>").join("");
     const sel = document.getElementById("obs-collection");
-    sel.innerHTML = (s.collections || []).map(n => "<option>" + n + "</option>").join("");
+    sel.innerHTML = (s.collections || []).map(n => "<option>" + esc(n) + "</option>").join("");
     if (s.collection) sel.value = s.collection;
-  } catch (e) { document.getElementById("status").innerHTML = '<span class="bad">●</span> ' + String(e); }
+  } catch (e) { document.getElementById("status").innerHTML = '<span class="bad">●</span> ' + esc(String(e)); }
 }
 async function obsCollection() {
   const collection = document.getElementById("obs-collection").value;
-  try { out("obs-out", await jpost("/api/studios/" + studio() + "/obs/collection", JSON.stringify({collection})), true); loadStatus(); }
+  try { const r = await jpost("/api/studios/" + studio() + "/obs/collection", JSON.stringify({collection}));
+    out("obs-out", r, r.ok, r.ok ? "Collection → " + collection : ("Collection switch failed: " + (r.error || "?"))); loadStatus(); }
   catch (e) { out("obs-out", {error: String(e)}, false); }
 }
 async function obsSwitch(scene) {
-  try { out("obs-out", await jpost("/api/studios/" + studio() + "/obs/switch", JSON.stringify({scene})), true); loadStatus(); }
+  try { const r = await jpost("/api/studios/" + studio() + "/obs/switch", JSON.stringify({scene}));
+    out("obs-out", r, r.ok, r.ok ? "Cut to " + scene : ("Switch failed: " + (r.error || "?"))); loadStatus(); }
   catch (e) { out("obs-out", {error: String(e)}, false); }
 }
 async function obsStream(action) {
   if (!document.getElementById("obs-confirm").checked) { out("obs-out", {error: "tick confirm first"}, false); return; }
-  try { out("obs-out", await jpost("/api/studios/" + studio() + "/obs/stream", JSON.stringify({action, confirmed: true})), true); loadStatus(); }
+  try { const r = await jpost("/api/studios/" + studio() + "/obs/stream", JSON.stringify({action, confirmed: true}));
+    out("obs-out", r, r.ok, r.ok ? ("Stream " + (action === "start" ? "started" : "stopped")) : ("Stream " + action + " failed: " + (r.error || "?"))); loadStatus(); }
   catch (e) { out("obs-out", {error: String(e)}, false); }
 }
 async function applyPreset(id) {
@@ -140,7 +176,8 @@ async function applyPreset(id) {
 async function snapHardware() {
   const id = document.getElementById("snap-id").value.trim();
   if (!id) { out("preset-out", {error: "preset id required"}, false); return; }
-  try { out("preset-out", await jpost("/api/studios/" + studio() + "/presets/from-hardware", JSON.stringify({preset_id: id})), true); loadPresets(); }
+  try { const r = await jpost("/api/studios/" + studio() + "/presets/from-hardware", JSON.stringify({preset_id: id}));
+    out("preset-out", r, r.ok, "Saved the live rig as preset " + id); loadPresets(); }
   catch (e) { out("preset-out", {error: String(e)}, false); }
 }
 async function loadActions() {
@@ -162,19 +199,27 @@ async function loadZones() {
   try {
     const z = await jget("/api/studios/" + studio() + "/zones");
     document.getElementById("zones").innerHTML = z.zones.map((x) =>
-      "<div><strong>" + x.label + "</strong> " +
+      '<div class="namerow"><span class="name">' + esc(x.label) + "</span>" +
       '<button onclick="zonePower(\'' + x.id + "',true)\">On</button>" +
       '<button onclick="zonePower(\'' + x.id + "',false)\">Off</button>" +
-      ' <label><input type="checkbox" ' + (x.autoStartObs ? "checked" : "") +
+      ' <label class="field"><input type="checkbox" ' + (x.autoStartObs ? "checked" : "") +
       ' onchange="zoneObsAuto(\'' + x.id + '\',this.checked)"> Start OBS automatically after boot?</label>' +
-      " <small>" + x.plugs.join(", ") + "</small></div>").join("");
+      ' <span class="meta">' + esc(x.plugs.join(", ")) + "</span></div>").join("");
   } catch (e) { document.getElementById("zones").textContent = "zones unavailable"; }
+}
+function zoneSummary(id, on, r) {
+  const applied = r.applied || [];
+  const good = applied.filter((a) => a.ok).length;
+  let s = "Zone " + id + " " + (on ? "on" : "off") + ": " + good + " of " + applied.length + " plugs switched";
+  if (r.obs_boot && r.obs_boot.job) s += " · OBS boot job " + r.obs_boot.job;
+  else if (r.obs_boot && r.obs_boot.skipped) s += " · OBS boot skipped";
+  return s;
 }
 async function zonePower(id, on) {
   out("zone-out", {status: (on ? "powering on " : "powering off ") + id + "…"}, true);
   try {
     const r = await jpost("/api/studios/" + studio() + "/zones/" + id + "/power", JSON.stringify({on}));
-    out("zone-out", r, r.ok); loadActions();
+    out("zone-out", r, r.ok, zoneSummary(id, on, r)); loadActions();
   } catch (e) { out("zone-out", {error: String(e)}, false); }
 }
 async function zoneObsAuto(id, on) {
@@ -183,23 +228,30 @@ async function zoneObsAuto(id, on) {
       {method: "PUT", headers: {"Content-Type": "application/json"}, body: JSON.stringify({autoStartObs: on})});
     const j = await r.json();
     if (!r.ok) throw new Error(JSON.stringify(j));
-    out("zone-out", j, true);
+    out("zone-out", j, true, "Zone " + id + ": auto-start OBS " + (on ? "on" : "off"));
   } catch (e) { out("zone-out", {error: String(e)}, false); }
   loadZones();
+}
+function allOffSummary(r) {
+  const applied = r.applied || [];
+  const skipped = r.skipped || [];
+  const good = applied.filter((a) => a.ok).length;
+  return "All Off: " + good + " of " + applied.length + " switched off" +
+    (skipped.length ? " · " + skipped.length + " protected held" : "");
 }
 async function powerAllOff() {
   const manual = document.getElementById("all-off-manual").checked;
   out("power-out", {status: "switching everything off…"}, true);
   try {
     const r = await jpost("/api/studios/" + studio() + "/power/all-off", JSON.stringify({include_manual: manual}));
-    out("power-out", r, r.ok); loadActions();
+    out("power-out", r, r.ok, allOffSummary(r)); loadActions();
   } catch (e) { out("power-out", {error: String(e)}, false); }
 }
 async function loadShows() {
   try {
     const s = await jget("/api/studios/" + studio() + "/shows");
     document.getElementById("shows").innerHTML = s.shows.map(x =>
-      "<button onclick=\"showRun('" + x.id + "')\">" + x.label + " (" + x.steps + ")</button>").join("") || "no shows";
+      "<button onclick=\"showRun('" + x.id + "')\">" + esc(x.label) + " (" + x.steps + ")</button>").join("") || "no shows";
   } catch (e) { out("show-out", {error: String(e)}, false); }
 }
 let LAST_SHOW = null;
@@ -208,19 +260,26 @@ async function showRun(id) {
   const body = JSON.stringify({confirm_scenes: document.getElementById("show-confirm").checked});
   out("show-out", {status: "starting " + id + "…"}, true);
   try { const r = await jpost("/api/studios/" + studio() + "/shows/" + id + "/run", body);
-    out("show-out", r, r.state === "running"); showPoll(id);
+    out("show-out", r, r.state === "running", "Show " + id + ": " + (r.state || "started")); showPoll(id);
   } catch (e) { out("show-out", {error: String(e)}, false); }
 }
 async function showStop() {
   if (!LAST_SHOW) { out("show-out", {error: "run a show first"}, false); return; }
-  try { out("show-out", await jpost("/api/studios/" + studio() + "/shows/" + LAST_SHOW + "/stop", "{}"), true); }
+  try { const r = await jpost("/api/studios/" + studio() + "/shows/" + LAST_SHOW + "/stop", "{}");
+    out("show-out", r, true, "Show stopped on its final step"); }
   catch (e) { out("show-out", {error: String(e)}, false); }
+}
+function showSummary(id, s) {
+  let line = "Show " + id + ": " + (s.state || "?");
+  if (s.step !== undefined && s.step !== null) line += " · step " + s.step;
+  if (s.state !== "running" && s.failed && s.failed.length) line += " · " + s.failed.length + " failed";
+  return line;
 }
 async function showPoll(id) {
   for (let i = 0; i < 120; i++) {
     await new Promise(r => setTimeout(r, 1000));
     try { const s = await jget("/api/studios/" + studio() + "/shows/" + id + "/status");
-      out("show-out", s, true);
+      out("show-out", s, true, showSummary(id, s));
       if (s.state !== "running") return;
     } catch (e) { out("show-out", {error: String(e)}, false); return; }
   }
@@ -245,11 +304,11 @@ async function loadScope() {
     const devs = await jget("/api/studios/" + studio() + "/devices");
     const zones = [...new Set(devs.map((d) => d.zone).filter(Boolean))];
     document.getElementById("ai-scope-zones").innerHTML = zones.map((z) =>
-      '<label><input type="checkbox" class="scope-zone" value="' + z + '" checked> ' + z + "</label> ").join("");
+      '<label class="field"><input type="checkbox" class="scope-zone" value="' + esc(z) + '" checked> ' + esc(z) + "</label> ").join("");
     document.getElementById("ai-scope-lights").innerHTML = devs
       .filter((d) => (d.type === "light" || d.type === "lightstrip") && d.controllable !== false).map((d) =>
-      '<label><input type="checkbox" class="scope-light" value="' + d.id + '" checked> ' +
-      (d.name || d.id) + "</label> ").join("");
+      '<label class="field"><input type="checkbox" class="scope-light" value="' + d.id + '" checked> ' +
+      esc(d.name || d.id) + "</label> ").join("");
     scopeRefresh();
   } catch (e) { /* scope stays empty = all */ }
 }
@@ -308,9 +367,11 @@ async function aiLook() {
     const r = await jpost("/api/studios/" + studio() + "/ai/look", body);
     AI_CANDIDATE = r.preset_candidate || null;
     document.getElementById("ai-save").style.display = AI_CANDIDATE ? "" : "none";
-    document.getElementById("ai-out").innerHTML =
-      "<pre>" + JSON.stringify({directives: r.directives, critique: r.critique,
-        scope: r.scope, apply: r.apply.subsystems}, null, 2) + "</pre>";
+    const subs = (r.apply && r.apply.subsystems) || {};
+    const detail = {directives: r.directives, critique: r.critique, scope: r.scope, apply: subs};
+    let line = "Look directed: " + (subsLead(subs) || "nothing applied");
+    if (r.critique && r.critique.notes) line += " · critique: " + r.critique.notes;
+    out("ai-out", detail, true, line);
     loadActions();
   } catch (e) { out("ai-out", {error: String(e)}, false); }
 }
@@ -331,10 +392,11 @@ async function aiSave() {
     const h = await jget("/api/health");
     document.getElementById("health").innerHTML =
       (h.status === "ok" ? '<span class="ok">●</span>' : '<span class="bad">●</span>') +
-      " " + h.status + " — v" + h.version + (h.error ? "<pre>" + h.error + "</pre>" : "");
+      " hub " + esc(h.status) + " · v" + esc(h.version);
+    if (h.error) document.getElementById("health").title = h.error;
     const s = await jget("/api/studios");
     const sel = document.getElementById("studio");
-    sel.innerHTML = s.map(x => "<option value=\"" + x.id + "\">" + x.label + "</option>").join("");
+    sel.innerHTML = s.map(x => "<option value=\"" + x.id + "\">" + esc(x.label) + "</option>").join("");
     sel.onchange = () => { STUDIO = sel.value; loadModes(); loadPresets(); loadShows(); loadActions(); loadScope(); loadZones(); loadStatus(); };
     STUDIO = (s.find(x => x.id === "home-studio") || s[0] || {}).id || null;
     if (STUDIO) { sel.value = STUDIO; loadModes(); loadPresets(); loadShows(); loadActions(); loadScope(); loadZones(); loadStatus(); }
@@ -343,7 +405,7 @@ async function aiSave() {
       if (mic) { mic.disabled = true; mic.title = "voice input needs Chrome or Edge"; }
     }
   } catch (e) {
-    document.getElementById("health").innerHTML = '<span class="bad">unreachable: ' + e + "</span>";
+    document.getElementById("health").innerHTML = '<span class="bad">● hub unreachable</span>';
   }
 })();
 </script>

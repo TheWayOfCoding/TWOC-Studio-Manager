@@ -4,31 +4,25 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Studio Hub — Equipment</title>
-<style>
-body { font-family: system-ui, sans-serif; margin: 1.5em; max-width: 48em; }
-.card { border: 1px solid #ccc; border-radius: 8px; padding: 1em; margin-bottom: 1em; }
-.ok { color: #0a0; } .bad { color: #c00; }
-nav a { margin-right: 1em; }
-table { border-collapse: collapse; margin: 0.5em 0; }
-td, th { border: 1px solid #ddd; padding: 0.3em 0.6em; text-align: left; }
-th { background: #f4f4f4; }
-input[type=text] { width: 16em; max-width: 40vw; }
-button { margin: 0.2em 0.4em 0.2em 0; }
-pre { background: #f4f4f4; padding: 0.5em; overflow-x: auto; white-space: pre-wrap; }
-</style>
+<link rel="stylesheet" href="/hub.css">
 </head>
 <body>
-<nav><strong>Studio Hub</strong> | <a href="/">Dashboard</a> | <a href="/bench">Test Bench</a> | <a href="/control">Control</a> | <a href="/docs">API docs</a></nav>
+<header class="topbar">
+<span class="brand">Studio Hub</span>
+<nav><a href="/">Dashboard</a><a href="/bench">Test Bench</a><a href="/control">Control</a><a href="/equipment" aria-current="page">Equipment</a><a href="/docs">API docs</a></nav>
+</header>
+<div class="wrap">
 <h1>Equipment datapoints</h1>
-<p>Freeform facts per device (modifiers, distances, diffusion — whole-phrase labels welcome). Saved to the local studio file and fed to the AI. Built-in fields below are read-only.</p>
+<p class="lede">Freeform facts per device (modifiers, distances, diffusion — whole-phrase labels welcome). Saved to the local studio file and fed to the AI. Built-in fields below are read-only.</p>
 <div class="card"><h2>Device</h2>
-<div><select id="eq-studio"></select> <select id="eq-device"></select></div>
+<div class="row"><select id="eq-studio"></select> <select id="eq-device"></select></div>
 <div id="eq-facts"></div></div>
 <div class="card"><h2>Datapoints</h2>
-<table><thead><tr><th>Label</th><th>Value</th><th></th></tr></thead>
+<table class="grid-t"><thead><tr><th>Label</th><th>Value</th><th></th></tr></thead>
 <tbody id="eq-rows"></tbody></table>
-<div><button onclick="eqAdd('', '')">Add row</button> <button onclick="eqSave()">Save</button></div>
+<div class="row"><button onclick="eqAdd('', '')">Add row</button> <button class="primary" onclick="eqSave()">Save</button></div>
 <div id="eq-out"></div></div>
+</div>
 <script>
 async function jget(path) {
   const r = await fetch(path);
@@ -41,16 +35,22 @@ async function jput(path, body) {
   if (!r.ok) throw new Error(JSON.stringify(j));
   return j;
 }
-function out(id, obj, ok) {
+function esc(s) {
+  return String(s === null || s === undefined ? "" : s)
+    .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+}
+function out(id, obj, ok, summary) {
+  const line = summary === undefined
+    ? (obj && typeof obj === "object" ? (obj.status || obj.error || (ok === false ? "Failed" : "Done")) : String(obj))
+    : summary;
   document.getElementById(id).innerHTML =
-    '<span class="' + (ok === false ? "bad" : "ok") + '">●</span><pre>' + JSON.stringify(obj, null, 2) + "</pre>";
+    '<div class="result ' + (ok === false ? "bad" : "ok") + '"><div class="result-line"><span class="dot">●</span><span>' +
+    esc(line) + '</span></div><details class="result-json"><summary>Details</summary><pre>' +
+    esc(JSON.stringify(obj, null, 2)) + "</pre></details></div>";
 }
 let EQ_STUDIO = null;
 function studio() { return EQ_STUDIO || document.getElementById("eq-studio").value; }
 function device() { return document.getElementById("eq-device").value; }
-function esc(s) {
-  return String(s == null ? "" : s).replace(/&/g, "&amp;").replace(/</g, "&lt;");
-}
 function eqAdd(key, value) {
   const tr = document.createElement("tr");
   tr.innerHTML = '<td><input type="text" class="eq-key" value="' + esc(key).replace(/"/g, "&quot;") +
@@ -88,7 +88,7 @@ async function loadDevice() {
       ["Modifiers", d.modifiers ? JSON.stringify(d.modifiers) : ""],
       ["Usual", d.usual ? JSON.stringify(d.usual) : ""],
     ];
-    document.getElementById("eq-facts").innerHTML = "<table>" +
+    document.getElementById("eq-facts").innerHTML = '<table class="grid-t">' +
       facts.map(([k, v]) => "<tr><th>" + k + "</th><td>" + esc(v) + "</td></tr>").join("") + "</table>";
     document.getElementById("eq-rows").innerHTML = "";
     Object.entries(r.details || {}).forEach(([k, v]) => eqAdd(k, v));
@@ -105,7 +105,8 @@ async function eqSave() {
   try {
     const r = await jput("/api/studios/" + studio() + "/devices/" + device() + "/details",
       JSON.stringify({details}));
-    out("eq-out", {status: "saved " + Object.keys(r.details).length + " datapoint(s) on " + r.device}, true);
+    const msg = "saved " + Object.keys(r.details).length + " datapoint(s) on " + r.device;
+    out("eq-out", {status: msg}, true);
   } catch (e) { out("eq-out", {error: String(e)}, false); }
 }
 (async () => {
