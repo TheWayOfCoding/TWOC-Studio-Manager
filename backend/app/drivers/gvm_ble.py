@@ -44,6 +44,21 @@ MAX_SCENE = 18  # 1300D/1500D manual scene list
 
 PAGE_NAMES = {"cct": 0x01, "hsi": 0x02, "scene": 0x03}
 
+# Last-sent single-key echoes per panel address (merged look). Drivers are
+# constructed per call (bench + modes), so memory lives here keyed by
+# address, not on instances. Powers hardware snapshots; never echoed
+# (addresses stay scrubbed at the API boundary).
+_PANEL_LOOKS = {}
+
+
+def panel_look(address):
+    """Last-sent look for one panel ({} when untouched since hub start)."""
+    return dict(_PANEL_LOOKS.get(address, {}))
+
+
+def _record_look(address, summary):
+    _PANEL_LOOKS[address] = {**_PANEL_LOOKS.get(address, {}), **summary}
+
 
 class GvmError(Exception):
     """Panel unreachable, discovery failed, or command rejected."""
@@ -320,6 +335,7 @@ class GvmBleDriver(Driver):
             return DriverResult(ok=False, state=dict(summary), error=err)
         try:
             sent = asyncio.run(_awrite(self.address, frame, self.timeout))
+            _record_look(self.address, summary)
             return DriverResult(ok=True, state={**summary, **sent})
         except Exception as exc:  # noqa: BLE001 - drivers report, never raise
             return DriverResult(ok=False, state=dict(summary), error=str(exc))
@@ -353,6 +369,7 @@ class GvmBleDriver(Driver):
         results = []
         for (_, summary), outcome in zip(planned, outcomes):
             if outcome.get("ok"):
+                _record_look(self.address, summary)
                 results.append(DriverResult(ok=True, state={**summary, **outcome["sent"]}))
             else:
                 results.append(
@@ -369,6 +386,7 @@ class GvmBleDriver(Driver):
             return DriverResult(ok=False, state={"power": "off?"}, error=err)
         try:
             sent = asyncio.run(_awrite(self.address, power_frame(False), self.timeout))
+            _record_look(self.address, {"power": "off"})
             return DriverResult(ok=True, state={"power": "off", **sent})
         except Exception as exc:  # noqa: BLE001 - safe_stop must never raise
             return DriverResult(ok=False, state={"power": "off?"}, error=str(exc))

@@ -5,7 +5,7 @@ Plan phase validates everything (unknown ids, ranges, safety) and raises
 before anything moves. Execute phase runs power -> lights -> OBS -> screen;
 anything degraded is skipped and named, never silent (mode-catalog rule).
 
-Lights translate per driver family (mock, gvm, dmx). Fades are opt-in
+Lights translate per driver family (mock, gvm, dmx, ninja, ir). Fades are opt-in
 dwell seconds per step: a mode/preset default with per-light overrides and
 an apply-time override that wins over both. AI (custom) plans additionally
 clamp intensity to each fixture's configured aiCap, reporting every clamp,
@@ -18,7 +18,9 @@ import time
 
 from ..core.safety import SafetyViolation
 from ..drivers.base import DriverResult
+from ..drivers.ninja_ble import NinjaError, address_byte
 from .base import Module
+from .ir import STRIP_FIXED_COLORS, nearest_strip_color
 from .power import PowerError, UnknownPowerGroupError
 
 LOG_CAP = 100
@@ -53,6 +55,20 @@ GVM_TRANSLATE = {
 # first so hue/saturation/scene frames land on the right panel page.
 GVM_KEY_ORDER = ("page", "power", "brightness", "cct", "hue", "saturation", "scene")
 
+# Ninja steady looks: generic keys to broadcast-look keys. Scenes pass
+# through only for confirmed shows (modes/presets/AI refuse them above);
+# gm/preset stay bench-only (no generic key names them).
+NINJA_TRANSLATE = {
+    "power": "power",
+    "intensity": "brightness",
+    "cct": "cct",
+    "scene": "scene",
+}
+
+# Power/brightness first so a pristine cache (brightness unknown since hub
+# start) accepts the step even on drivers without batching.
+NINJA_KEY_ORDER = ("power", "brightness", "cct", "scene")
+
 
 class ModesError(Exception):
     """Malformed mode/preset content (config error, fails the apply)."""
@@ -82,15 +98,20 @@ class ModesModule(Module):
     power: PowerModule | None. lights: {device_id: Driver} | None.
     obs: callable(scene) -> DriverResult | None.
     screens: callable({screen_id: spec}) -> {screen_id: DriverResult} | None.
+    obs_boot: callable(scene, collection) -> (job, started) | None. Modes
+    flagged autoStartObs kick it instead of switching immediately (the job
+    waits out the PC boot, then cuts collection and scene); without it
+    they switch at once.
     """
 
-    def __init__(self, name, registry, power=None, lights=None, obs=None, screens=None):
+    def __init__(self, name, registry, power=None, lights=None, obs=None, screens=None, obs_boot=None):
         super().__init__(name, {})
         self.registry = registry
         self.power = power
         self.lights = lights
         self.obs = obs
         self.screens = screens
+        self.obs_boot = obs_boot
         self.log = []
 
     def describe(self):
@@ -115,11 +136,16 @@ class ModesModule(Module):
             "last": self.log[-1] if self.log else None,
         }
 
-    def plan_mode(self, mode_id, fade_s=None):
+    def plan_mode(self, mode_id, fade_s=None, include_manual=False):
         """Validate a mode into an executable plan. Raises before anything moves."""
-        return self.plan_custom(mode_id, self.registry.get_mode(mode_id), kind="mode", fade_s=fade_s)
+        return self.plan_custom(
+            mode_id, self.registry.get_mode(mode_id), kind="mode", fade_s=fade_s, include_manual=include_manual
+        )
 
-    def plan_custom(self, plan_id, content, kind="custom", fade_s=None, ai_caps=True, allow_scenes=False):
+    def plan_custom(
+        self, plan_id, content, kind="custom", fade_s=None, ai_caps=True, allow_scenes=False,
+        include_manual=False,
+    ):
         """Validate ad-hoc mode-like content (AI directives). Same rules as modes."""
         if not isinstance(content, dict):
             raise ModesError("custom plan content must be an object")
@@ -135,7 +161,11 @@ class ModesModule(Module):
             "id": plan_id,
             "intent": content.get("intent"),
             "toggles": content.get("toggles") or {},
-            "power": self._plan_power(content.get("powerOn") or [], content.get("powerOff") or []),
+            "auto_boot": bool(content.get("autoStartObs")),
+            "auto_collection": content.get("obsCollection"),
+            "power": self._plan_power(
+                content.get("powerOn") or [], content.get("powerOff") or [], include_manual=include_manual
+            ),
             "lights": self._plan_lights(
                 content.get("lights") or {}, default_dwell, ai_caps, fade_lock,
                 allow_scenes=allow_scenes,
@@ -144,18 +174,21 @@ class ModesModule(Module):
             "screens": {"screens": content.get("screen") or {}},
         }
 
-    def apply_mode(self, mode_id, sleep=None, fade_s=None, power_delay_s=None):
+    def apply_mode(self, mode_id, sleep=None, fade_s=None, power_delay_s=None, include_manual=False):
         """Plan, then execute power -> lights -> OBS -> screen. Returns the result."""
         delay = _check_power_delay(power_delay_s) if power_delay_s is not None else 0
-        plan = self.plan_mode(mode_id, fade_s=fade_s)
-        return self._execute(plan, sleep or time.sleep, delay)
+        plan = self.plan_mode(mode_id, fade_s=fade_s, include_manual=include_manual)
+        return self._execute(plan, sleep or time.sleep, delay, include_manual=include_manual)
 
     def apply_custom(self, plan_id, content, sleep=None, fade_s=None, power_delay_s=None,
-                     ai_caps=True, allow_scenes=False):
+                     ai_caps=True, allow_scenes=False, include_manual=False):
         """Plan, then apply ad-hoc mode-like content. Returns the result."""
         delay = _check_power_delay(power_delay_s) if power_delay_s is not None else 0
-        plan = self.plan_custom(plan_id, content, fade_s=fade_s, ai_caps=ai_caps, allow_scenes=allow_scenes)
-        return self._execute(plan, sleep or time.sleep, delay)
+        plan = self.plan_custom(
+            plan_id, content, fade_s=fade_s, ai_caps=ai_caps, allow_scenes=allow_scenes,
+            include_manual=include_manual,
+        )
+        return self._execute(plan, sleep or time.sleep, delay, include_manual=include_manual)
 
     def plan_preset(self, preset_id, fade_s=None):
         """Validate a preset (lights + screen only) into an executable plan."""
@@ -169,8 +202,10 @@ class ModesModule(Module):
             "kind": "preset",
             "id": preset_id,
             "intent": None,
+            "auto_boot": False,
+            "auto_collection": None,
             "toggles": {},
-            "power": {"plans": [], "skipped": []},
+            "power": {"plans": [], "skipped": [], "protected": []},
             "lights": self._plan_lights(preset.get("lights") or {}, default_dwell, False, fade_lock),
             "obs": {"scene": None},
             "screens": {"screens": preset.get("screen") or {}},
@@ -185,10 +220,18 @@ class ModesModule(Module):
         plan = self.plan_preset(preset_id, fade_s=fade_s)
         return self._execute(plan, sleep or time.sleep)
 
-    def _execute(self, plan, sleep, power_delay_s=0):
-        power = self._exec_power(plan["power"], sleep, plan.get("preset_power_note"), power_delay_s)
+    def _execute(self, plan, sleep, power_delay_s=0, include_manual=False):
+        power = self._exec_power(
+            plan["power"], sleep, plan.get("preset_power_note"), power_delay_s, include_manual=include_manual
+        )
         lights = self._exec_lights(plan["lights"])
-        obs = self._exec_obs(plan["obs"], plan.get("preset_obs_note"))
+        obs = self._exec_obs(
+            plan["obs"],
+            plan.get("preset_obs_note"),
+            auto_boot=plan.get("auto_boot"),
+            power_status=power["status"],
+            collection=plan.get("auto_collection"),
+        )
         screens = self._exec_screens(plan["screens"])
         subsystems = {"power": power, "lights": lights, "obs": obs, "screens": screens}
         id_key = {"mode": "mode", "preset": "preset"}.get(plan["kind"], "custom")
@@ -212,20 +255,22 @@ class ModesModule(Module):
         del self.log[:-LOG_CAP]
         return result
 
-    def _plan_power(self, on_groups, off_groups):
-        planned, skipped = [], []
+    def _plan_power(self, on_groups, off_groups, include_manual=False):
+        planned, skipped, protected = [], [], []
         if self.power is None:
             for group in list(on_groups) + list(off_groups):
                 skipped.append({"target": group, "reason": f"power module not wired (group {group})"})
-            return {"plans": planned, "skipped": skipped}
+            return {"plans": planned, "skipped": skipped, "protected": protected}
         for group, on in [(g, True) for g in on_groups] + [(g, False) for g in off_groups]:
             try:
-                planned.append({"group": group, "on": on, "steps": self.power.plan_group_power(group, on)})
+                steps, kept_out = self.power.plan_group_power(group, on, include_manual=include_manual)
+                planned.append({"group": group, "on": on, "steps": steps})
+                protected.extend(kept_out)
             except UnknownPowerGroupError:
                 raise
             except PowerError as exc:
                 skipped.append({"target": group, "reason": f"group {group}: {exc}"})
-        return {"plans": planned, "skipped": skipped}
+        return {"plans": planned, "skipped": skipped, "protected": protected}
 
     def _plan_lights(self, lights, default_dwell=0, ai_caps=False, fade_lock=None, allow_scenes=False):
         if not isinstance(lights, dict):
@@ -276,6 +321,12 @@ class ModesModule(Module):
                 translated = self._translate_dmx(device_id, device, kept, skipped)
                 if translated is None:
                     continue
+            elif family == "ninja":
+                translated = self._translate_ninja(device_id, device, kept, skipped)
+                if translated is None:
+                    continue
+            elif family == "ir":
+                translated = self._translate_ir(device_id, kept, skipped)
             else:
                 skipped.append(
                     {"target": device_id, "reason": f"no translator for driver family '{family}' ({device_id})"}
@@ -382,6 +433,98 @@ class ModesModule(Module):
                 )
         return translated
 
+    def _translate_ninja(self, device_id, device, kept, skipped):
+        """Generic power/intensity/cct keys pass through; the driver merges
+        them into one broadcast look (see apply_many).
+
+        Returns None (whole device skipped) when the channel/group map itself
+        is bad; per-key problems are skipped and named individually.
+        """
+        address = device.get("driverAddress") or {}
+        try:
+            address_byte(address.get("channel"), address.get("group"))
+        except NinjaError:
+            skipped.append(
+                {"target": device_id, "reason": f"{device_id} has a bad Ninja address map: {address!r}"}
+            )
+            return None
+        spec = self.registry.effective_device(device_id).get("spec") or {}
+        fixed = spec.get("fixedTemp") is True
+        fixed_kelvin = spec.get("colorTempK")
+        translated = []
+        for key in kept:
+            if key not in NINJA_TRANSLATE:
+                skipped.append(
+                    {"target": f"{device_id}.{key}", "reason": f"ninja does not support {key}"}
+                )
+                continue
+            if key == "cct" and fixed:
+                detail = f" (fixed {fixed_kelvin}K)" if fixed_kelvin else ""
+                skipped.append(
+                    {"target": f"{device_id}.cct", "reason": f"{device_id} is fixed-temp{detail}"}
+                )
+                continue
+            translated.append((NINJA_TRANSLATE[key], kept[key]))
+        translated.sort(key=lambda pair: NINJA_KEY_ORDER.index(pair[0]))
+        return translated
+
+    def _translate_ir(self, device_id, kept, skipped):
+        """Strip looks: power/intensity flip the on/off labels, color names a
+        fixed button, hue/saturation map to the nearest measured color.
+
+        The strip has no absolute brightness: intensity only decides on vs
+        off (brightness steps stay bench-only relative controls). Power
+        arrives first so a color never fires at a dark strip.
+        """
+        power_cmds, color_cmds = [], []
+        for key in kept:
+            if key == "power":
+                value = kept[key]
+                normalized = "on" if value is True else "off" if value is False else value
+                if normalized not in ("on", "off"):
+                    raise ModesError(f"lights[{device_id}].power needs on|off")
+                power_cmds.append(("label", normalized))
+            elif key == "intensity":
+                value = kept[key]
+                if isinstance(value, bool) or not isinstance(value, (int, float)):
+                    raise ModesError(f"lights[{device_id}].intensity must be a number")
+                power_cmds.append(("label", "on" if value > 0 else "off"))
+            elif key == "color":
+                label = kept[key]
+                if label not in STRIP_FIXED_COLORS:
+                    skipped.append(
+                        {
+                            "target": f"{device_id}.color",
+                            "reason": f"{device_id}: unknown strip color {label!r}",
+                        }
+                    )
+                    continue
+                color_cmds.append(("label", label))
+            elif key == "hue":
+                value = kept[key]
+                if isinstance(value, bool) or not isinstance(value, (int, float)):
+                    raise ModesError(f"lights[{device_id}].hue must be a number")
+                saturation = kept.get("saturation", 100)
+                if isinstance(saturation, bool) or not isinstance(saturation, (int, float)):
+                    raise ModesError(f"lights[{device_id}].saturation must be a number")
+                if not 0 <= saturation <= 100:
+                    raise ModesError(f"lights[{device_id}].saturation must be 0..100")
+                color_cmds.append(("label", nearest_strip_color(value, saturation)))
+            elif key == "saturation":
+                if "hue" not in kept:
+                    skipped.append(
+                        {
+                            "target": f"{device_id}.saturation",
+                            "reason": f"{device_id}: saturation needs hue (strip has no white channel)",
+                        }
+                    )
+                # else folded into the hue mapping above
+            else:
+                skipped.append(
+                    {"target": f"{device_id}.{key}", "reason": f"ir does not support {key}"}
+                )
+        return power_cmds + color_cmds
+
     def _check_light_ranges(self, device_id, command):
         merged = self.registry.effective_device(device_id)
         spec = merged.get("spec") or {}
@@ -416,22 +559,31 @@ class ModesModule(Module):
             kept[key] = value
         return kept, skipped
 
-    def _exec_power(self, power_plan, sleep, preset_note=None, power_delay_s=0):
+    def _exec_power(self, power_plan, sleep, preset_note=None, power_delay_s=0, include_manual=False):
         skipped = list(power_plan["skipped"])
+        protected = list(power_plan.get("protected") or [])
         if preset_note is not None:
-            return {"status": "skipped", "applied": [], "skipped": [{"target": "power", "reason": preset_note}]}
+            return {
+                "status": "skipped",
+                "applied": [],
+                "skipped": [{"target": "power", "reason": preset_note}],
+                "protected": [],
+            }
         if not power_plan["plans"] and not skipped:
             return {
                 "status": "skipped",
                 "applied": [],
                 "skipped": [{"target": "power", "reason": "mode declares no power changes"}],
+                "protected": protected,
             }
         if self.power is None:
-            return {"status": "skipped", "applied": [], "skipped": skipped}
+            return {"status": "skipped", "applied": [], "skipped": skipped, "protected": protected}
         applied = []
         for item in power_plan["plans"]:
             plugs = {step["device"]: step["plug"] for step in item["steps"]}
-            for res in self.power.set_group_power(item["group"], item["on"], sleep, power_delay_s):
+            for res in self.power.set_group_power(
+                item["group"], item["on"], sleep, power_delay_s, include_manual=include_manual
+            ):
                 applied.append(
                     {
                         "device": res["device"],
@@ -443,7 +595,7 @@ class ModesModule(Module):
                     }
                 )
         status = "ready" if not skipped and all(item["ok"] for item in applied) else "degraded"
-        return {"status": status, "applied": applied, "skipped": skipped}
+        return {"status": status, "applied": applied, "skipped": skipped, "protected": protected}
 
     def _exec_lights(self, lights_plan):
         skipped = list(lights_plan["skipped"])
@@ -541,10 +693,25 @@ class ModesModule(Module):
         status = "ready" if not skipped and all(item["ok"] for item in applied) else "degraded"
         return {"status": status, "applied": applied, "skipped": skipped, "capped": capped, "notes": notes}
 
-    def _exec_obs(self, obs_plan, preset_note=None):
+    def _exec_obs(self, obs_plan, preset_note=None, auto_boot=False, power_status="skipped", collection=None):
         if preset_note is not None:
             return {"status": "skipped", "applied": [], "skipped": [{"target": "obs", "reason": preset_note}]}
         scene = obs_plan["scene"]
+        if auto_boot and self.obs_boot is not None and power_status == "ready":
+            job, started = self.obs_boot(scene, collection)
+            verb = "started" if started else "already running"
+            return {
+                "status": "skipped",
+                "applied": [],
+                "skipped": [
+                    {
+                        "target": scene or "obs",
+                        "reason": f"obs boot job {job['id']} {verb}; "
+                        f"{scene or 'opening scene'} lands when OBS is ready",
+                    }
+                ],
+                "boot_job": job["id"],
+            }
         if scene is None:
             return {
                 "status": "skipped",

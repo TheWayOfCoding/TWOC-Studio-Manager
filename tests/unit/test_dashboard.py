@@ -24,6 +24,9 @@ def test_dashboard_structure():
         'id="pwr-delay-on"',
         'id="pwr-delay-s"',
         "power_delay_s",
+        'id="mode-include-protected"',
+        "also cut protected zones",
+        "include_manual",
         "applyMode(",
         "applyPreset(",
         "aiLook(",
@@ -53,6 +56,8 @@ def test_dashboard_structure():
         'id="all-off-manual"',
         "loadZones(",
         "zonePower(",
+        "zoneObsAuto(",
+        "Start OBS automatically after boot?",
         "powerAllOff(",
         "/zones/",
         "/power/all-off",
@@ -62,16 +67,46 @@ def test_dashboard_structure():
         'id="status"',
         'id="obs"',
         'id="obs-confirm"',
+        'id="obs-collection"',
         "loadStatus(",
         "obsSwitch(",
         "obsStream(",
+        "obsCollection(",
         "/obs/status",
         "/obs/switch",
         "/obs/stream",
+        "/obs/collection",
         "loadActions(",
         "undoLast(",
+        "(non-JSON reply",
         "/actions",
         "/actions/undo",
+        'id="snap-id"',
+        "snapHardware(",
+        "/presets/from-hardware",
+    ):
+        assert marker in html
+
+
+@pytest.mark.unit
+def test_ai_mic_block_static():
+    """Mic block: tall prompt box, auto-direct, guidance, friendly errors.
+
+    File read, not HTTP: must stay green without a socket bind.
+    """
+    from pathlib import Path as PathLib
+
+    html = (PathLib(__file__).resolve().parents[2] / "backend" / "app" / "static" / "index.html").read_text(
+        encoding="utf-8"
+    )
+    for marker in (
+        '<textarea id="ai-prompt" rows="6"',
+        'id="ai-mic-auto"',
+        'id="ai-mic-hint"',
+        "aiMicError(",
+        "isBrave()",
+        "auto-direct on hear",
+        "chrome://settings/content/microphone",
     ):
         assert marker in html
 

@@ -8,7 +8,9 @@ import pytest
 from app.config.loader import load_all
 from app.core.safety import SafetyViolation
 from app.drivers.base import DriverResult
+from app.drivers.ir_usb_serial import IrLabelDriver
 from app.drivers.mock import MockDriver
+from app.drivers.ninja_ble import NinjaBleDriver
 from app.modules.power import PowerModule, UnknownPowerGroupError
 from app.modules.modes import ModesError, ModesModule
 from app.registry import Registry, UnknownDeviceError, UnknownModeError, UnknownPresetError
@@ -185,16 +187,96 @@ def test_uncontrollable_device_skipped(modes):
 
 
 @pytest.mark.unit
-def test_poweroff_policy_aborts_before_moving(modes):
+def test_poweroff_policy_skips_protected(modes):
+    """Group-off holds manual-only members by name and still moves the rest."""
     modes.registry._modes["off"] = {
         "id": "off",
         "label": "Off",
         "powerOn": ["bench-power"],
         "powerOff": ["desk-power"],
     }
-    with pytest.raises(SafetyViolation, match="demo-screen"):
-        modes.apply_mode("off", sleep=lambda s: None)
-    assert "on" not in modes.power.drivers["plug-1"].state
+    result = modes.apply_mode("off", sleep=lambda s: None)
+    power = result["subsystems"]["power"]
+    assert power["status"] == "ready"
+    assert result["ok"] is True
+    assert power["protected"] == [
+        {"device": "demo-screen", "plug": "plug-3", "reason": "manual-only (tick the box to include)"}
+    ]
+    assert "on" not in modes.power.drivers["plug-3"].state
+    assert modes.power.drivers["plug-1"].state["on"] is True
+    assert modes.power.drivers["plug-2"].state["on"] is True
+
+
+@pytest.mark.unit
+def test_poweroff_include_manual_cuts(modes):
+    """The protected-zone override cuts manual-only members too."""
+    modes.registry._modes["off"] = {
+        "id": "off",
+        "label": "Off",
+        "powerOn": ["bench-power"],
+        "powerOff": ["desk-power"],
+    }
+    result = modes.apply_mode("off", sleep=lambda s: None, include_manual=True)
+    power = result["subsystems"]["power"]
+    assert power["status"] == "ready"
+    assert power["protected"] == []
+    assert modes.power.drivers["plug-3"].state["on"] is False
+
+
+@pytest.mark.unit
+def test_auto_boot_kicks_job_when_power_ready(modes):
+    """Flagged modes boot OBS in the background instead of switching at once."""
+    modes.registry._modes["pc"] = {
+        "id": "pc",
+        "label": "PC",
+        "powerOn": ["bench-power"],
+        "obsScene": "Main",
+        "obsCollection": "ScottyPhoton",
+        "autoStartObs": True,
+    }
+    seen = {}
+    modes.obs_boot = lambda scene, collection: seen.update(scene=scene, collection=collection) or ({"id": "job9"}, True)
+    result = modes.apply_mode("pc", sleep=lambda s: None)
+    obs = result["subsystems"]["obs"]
+    assert obs["status"] == "skipped"
+    assert obs["boot_job"] == "job9"
+    assert "job9" in obs["skipped"][0]["reason"]
+    assert seen == {"scene": "Main", "collection": "ScottyPhoton"}
+    assert modes.test_obs_calls == []
+
+
+@pytest.mark.unit
+def test_auto_boot_falls_back_without_ready_power(modes):
+    """No kick when the plugs never came up; the normal switch runs instead."""
+    modes.power = None
+    modes.registry._modes["pc"] = {
+        "id": "pc",
+        "label": "PC",
+        "powerOn": ["bench-power"],
+        "obsScene": "Main",
+        "autoStartObs": True,
+    }
+    called = []
+    modes.obs_boot = lambda scene, collection: called.append((scene, collection)) or ({"id": "x"}, True)
+    result = modes.apply_mode("pc", sleep=lambda s: None)
+    assert called == []
+    assert modes.test_obs_calls == ["Main"]
+    assert "boot_job" not in result["subsystems"]["obs"]
+
+
+@pytest.mark.unit
+def test_auto_boot_without_starter_switches_at_once(modes):
+    """Unwired starter degrades to the immediate switch (undo path)."""
+    modes.registry._modes["pc"] = {
+        "id": "pc",
+        "label": "PC",
+        "powerOn": ["bench-power"],
+        "obsScene": "Main",
+        "autoStartObs": True,
+    }
+    assert modes.obs_boot is None
+    modes.apply_mode("pc", sleep=lambda s: None)
+    assert modes.test_obs_calls == ["Main"]
 
 
 @pytest.mark.unit
@@ -702,3 +784,341 @@ def test_exec_batch_shortfall_fails_missing_keys(modes):
     applied = result["subsystems"]["lights"]["applied"]
     assert [item["ok"] for item in applied] == [True, False]
     assert "too few" in applied[1]["error"]
+
+
+NINJA_PROFILES = {
+    "ninja-bicolor": {
+        "spec": {"intensityRange": [0, 100], "cctRange": [2500, 8500]},
+        "capabilities": {"intensity": True, "cct": True, "rgb": False, "ble": True},
+    },
+    "ninja-fixed": {
+        "spec": {"intensityRange": [0, 100], "fixedTemp": True, "colorTempK": 5600},
+        "capabilities": {"intensity": True, "cct": False, "rgb": False, "ble": True},
+    },
+}
+
+
+def make_ninja_registry():
+    devices = [
+        {
+            "id": "ninja-key",
+            "name": "Ninja key",
+            "type": "light",
+            "zone": "bench",
+            "profile": "ninja-bicolor",
+            "controllable": True,
+            "driver": "ninja",
+            "driverAddress": {"channel": 3, "group": "A"},
+            "aiCap": {"intensity": 10},
+        },
+        {
+            "id": "ninja-fixed",
+            "name": "Ninja fixed",
+            "type": "light",
+            "zone": "bench",
+            "profile": "ninja-fixed",
+            "controllable": True,
+            "driver": "ninja",
+            "driverAddress": {"channel": 3, "group": "B"},
+        },
+        {
+            "id": "ninja-broken",
+            "name": "Ninja broken",
+            "type": "light",
+            "zone": "bench",
+            "profile": "ninja-fixed",
+            "controllable": True,
+            "driver": "ninja",
+        },
+    ]
+    loaded = {
+        "studio": {"id": "s", "label": "s"},
+        "devices": devices,
+        "zones": [{"id": "bench"}],
+        "modes": [],
+        "presets": {},
+    }
+    return Registry.from_loaded(loaded, NINJA_PROFILES)
+
+
+@pytest.fixture()
+def ninja_modes():
+    registry = make_ninja_registry()
+    lights = {
+        "ninja-key": NinjaBleDriver("ninja-key", 3, "A", backend="mock"),
+        "ninja-fixed": NinjaBleDriver("ninja-fixed", 3, "B", backend="mock"),
+        "ninja-broken": NinjaBleDriver("ninja-broken", 3, "C", backend="mock"),
+    }
+    return ModesModule("modes", registry, lights=lights)
+
+
+@pytest.mark.unit
+def test_ninja_keys_merge_into_one_broadcast(ninja_modes):
+    ninja_modes.registry._modes["look"] = {
+        "id": "look",
+        "label": "Look",
+        "lights": {"ninja-key": {"intensity": 5, "cct": 5600}},
+    }
+    result = ninja_modes.apply_mode("look", sleep=lambda s: None)
+    assert result["subsystems"]["lights"]["status"] == "ready"
+    driver = ninja_modes.lights["ninja-key"]
+    assert driver.look["brightness"] == 5
+    assert driver.look["cct"] == 5600
+    published = driver.advertiser.published
+    assert len(published) == 2  # one look, two repeat sends
+    frame = bytes.fromhex(published[0]["payload"])
+    assert frame[7] == 0x19 and frame[9] == 56
+    assert frame[10] == frame[21] == 5
+
+
+@pytest.mark.unit
+def test_ninja_power_off_and_zero_dark(ninja_modes):
+    ninja_modes.registry._modes["off"] = {
+        "id": "off",
+        "label": "Off",
+        "lights": {"ninja-key": {"power": "off"}},
+    }
+    result = ninja_modes.apply_mode("off", sleep=lambda s: None)
+    assert result["subsystems"]["lights"]["status"] == "ready"
+    assert ninja_modes.lights["ninja-key"].look["brightness"] == 0
+    ninja_modes.registry._modes["dark"] = {
+        "id": "dark",
+        "label": "Dark",
+        "lights": {"ninja-key": {"intensity": 0}},
+    }
+    result = ninja_modes.apply_mode("dark", sleep=lambda s: None)
+    assert result["subsystems"]["lights"]["status"] == "ready"
+
+
+@pytest.mark.unit
+def test_ninja_fixed_temp_cct_skipped(ninja_modes):
+    ninja_modes.registry._modes["look"] = {
+        "id": "look",
+        "label": "Look",
+        "lights": {"ninja-fixed": {"intensity": 4, "cct": 5600}},
+    }
+    result = ninja_modes.apply_mode("look", sleep=lambda s: None)
+    lights = result["subsystems"]["lights"]
+    assert lights["status"] == "degraded"
+    assert any("cct" in item["reason"] for item in lights["skipped"])
+    assert ninja_modes.lights["ninja-fixed"].look["brightness"] == 4
+
+
+@pytest.mark.unit
+def test_ninja_bad_address_map_degraded(ninja_modes):
+    ninja_modes.registry._modes["look"] = {
+        "id": "look",
+        "label": "Look",
+        "lights": {"ninja-broken": {"intensity": 5}},
+    }
+    result = ninja_modes.apply_mode("look", sleep=lambda s: None)
+    lights = result["subsystems"]["lights"]
+    assert lights["status"] == "degraded"
+    assert any("bad Ninja address map" in item["reason"] for item in lights["skipped"])
+    assert ninja_modes.lights["ninja-broken"].advertiser.published == []
+
+
+@pytest.mark.unit
+def test_ninja_unsupported_key_skipped(ninja_modes):
+    ninja_modes.registry._modes["look"] = {
+        "id": "look",
+        "label": "Look",
+        "lights": {"ninja-key": {"intensity": 5, "gm": 3}},
+    }
+    result = ninja_modes.apply_mode("look", sleep=lambda s: None)
+    lights = result["subsystems"]["lights"]
+    assert lights["status"] == "degraded"
+    assert any("does not support gm" in item["reason"] for item in lights["skipped"])
+    assert ninja_modes.lights["ninja-key"].look["brightness"] == 5
+
+
+@pytest.mark.unit
+def test_ninja_ai_cap_clamps_and_reports(ninja_modes):
+    result = ninja_modes.apply_custom(
+        "ai-x", {"lights": {"ninja-key": {"intensity": 50}}}, sleep=lambda s: None
+    )
+    lights = result["subsystems"]["lights"]
+    assert lights["status"] == "ready"
+    assert ninja_modes.lights["ninja-key"].look["brightness"] == 10
+    assert lights["capped"] == [{"target": "ninja-key", "key": "intensity", "asked": 50, "capped": 10}]
+
+
+@pytest.mark.unit
+def test_ninja_fade_applies_instantly_with_note(ninja_modes):
+    ninja_modes.registry._modes["look"] = {
+        "id": "look",
+        "label": "Look",
+        "fade_s": 0.5,
+        "lights": {"ninja-key": {"intensity": 5}},
+    }
+    result = ninja_modes.apply_mode("look", sleep=lambda s: None)
+    lights = result["subsystems"]["lights"]
+    assert lights["status"] == "ready"
+    assert ninja_modes.lights["ninja-key"].look["brightness"] == 5
+    assert any("ninja-key" in item["reason"] for item in lights["notes"])
+
+
+@pytest.mark.unit
+def test_ninja_scene_plans_for_confirmed_shows(ninja_modes):
+    plan = ninja_modes.plan_custom(
+        "show-x",
+        {"lights": {"ninja-key": {"scene": 3, "intensity": 5}}},
+        allow_scenes=True,
+    )
+    assert plan["lights"]["devices"][0]["commands"] == [("brightness", 5), ("scene", 3)]
+
+
+IR_PROFILES = {
+    "strip": {
+        "spec": {},
+        "capabilities": {"ir": True, "intensity": True, "rgb": True},
+    },
+}
+
+
+class FakeIrUsb:
+    """Recording stand-in for the IR serial transport (emits nothing)."""
+
+    def __init__(self):
+        self.sent = []
+
+    def apply(self, command):
+        self.sent.append(list(command["send"]))
+        return DriverResult(ok=True, state={"sent": command["send"]})
+
+
+def make_ir_registry():
+    loaded = {
+        "studio": {"id": "s", "label": "s"},
+        "devices": [
+            {
+                "id": "strip",
+                "name": "Strip",
+                "type": "lightstrip",
+                "zone": "bench",
+                "profile": "strip",
+                "controllable": True,
+                "driver": "ir",
+            }
+        ],
+        "zones": [{"id": "bench"}],
+        "modes": [],
+        "presets": {},
+    }
+    return Registry.from_loaded(loaded, IR_PROFILES)
+
+
+@pytest.fixture()
+def ir_modes(tmp_path):
+    import json as json_module
+
+    store = tmp_path / "strip.json"
+    store.write_text(
+        json_module.dumps(
+            {
+                "on": {"code": [0, 239, 3]},
+                "off": {"code": [0, 239, 2]},
+                "red": {"code": [0, 239, 4]},
+                "azure": {"code": [0, 239, 17]},
+            }
+        ),
+        encoding="utf-8",
+    )
+    usb = FakeIrUsb()
+    lights = {"strip": IrLabelDriver("strip", store, usb=usb, settle_s=0)}
+    module = ModesModule("modes", make_ir_registry(), lights=lights)
+    module.test_usb = usb
+    return module
+
+
+@pytest.mark.unit
+def test_ir_power_and_intensity_flip_labels(ir_modes):
+    ir_modes.registry._modes["off"] = {
+        "id": "off",
+        "label": "Off",
+        "lights": {"strip": {"power": "off"}},
+    }
+    result = ir_modes.apply_mode("off", sleep=lambda s: None)
+    assert result["subsystems"]["lights"]["status"] == "ready"
+    ir_modes.registry._modes["on"] = {
+        "id": "on",
+        "label": "On",
+        "lights": {"strip": {"intensity": 50}},
+    }
+    result = ir_modes.apply_mode("on", sleep=lambda s: None)
+    assert result["subsystems"]["lights"]["status"] == "ready"
+    ir_modes.registry._modes["dark"] = {
+        "id": "dark",
+        "label": "Dark",
+        "lights": {"strip": {"intensity": 0}},
+    }
+    result = ir_modes.apply_mode("dark", sleep=lambda s: None)
+    assert result["subsystems"]["lights"]["status"] == "ready"
+    assert ir_modes.test_usb.sent == [[0, 239, 2], [0, 239, 3], [0, 239, 2]]
+
+
+@pytest.mark.unit
+def test_ir_color_and_hue_send_buttons(ir_modes):
+    ir_modes.registry._modes["look"] = {
+        "id": "look",
+        "label": "Look",
+        "lights": {"strip": {"color": "azure"}},
+    }
+    result = ir_modes.apply_mode("look", sleep=lambda s: None)
+    assert result["subsystems"]["lights"]["status"] == "ready"
+    ir_modes.registry._modes["warm"] = {
+        "id": "warm",
+        "label": "Warm",
+        "lights": {"strip": {"hue": 0}},
+    }
+    result = ir_modes.apply_mode("warm", sleep=lambda s: None)
+    assert result["subsystems"]["lights"]["status"] == "ready"
+    assert ir_modes.test_usb.sent == [[0, 239, 17], [0, 239, 4]]
+
+
+@pytest.mark.unit
+def test_ir_hue_sat_maps_nearest_measured(ir_modes):
+    ir_modes.registry._modes["look"] = {
+        "id": "look",
+        "label": "Look",
+        "lights": {"strip": {"hue": 210, "saturation": 100}},
+    }
+    result = ir_modes.apply_mode("look", sleep=lambda s: None)
+    assert result["subsystems"]["lights"]["status"] == "ready"
+    assert ir_modes.test_usb.sent == [[0, 239, 17]]  # azure reads nearest 210 blue
+
+
+@pytest.mark.unit
+def test_ir_unknown_and_unsupported_skipped(ir_modes):
+    ir_modes.registry._modes["look"] = {
+        "id": "look",
+        "label": "Look",
+        "lights": {"strip": {"saturation": 50}},
+    }
+    result = ir_modes.apply_mode("look", sleep=lambda s: None)
+    assert any("needs hue" in item["reason"] for item in result["subsystems"]["lights"]["skipped"])
+    ir_modes.registry._modes["look"]["lights"] = {"strip": {"color": "puce"}}
+    result = ir_modes.apply_mode("look", sleep=lambda s: None)
+    assert any("unknown strip color" in item["reason"] for item in result["subsystems"]["lights"]["skipped"])
+    ir_modes.registry._modes["look"]["lights"] = {"strip": {"cct": 5000}}
+    result = ir_modes.apply_mode("look", sleep=lambda s: None)
+    assert any("does not support cct" in item["reason"] for item in result["subsystems"]["lights"]["skipped"])
+    assert ir_modes.test_usb.sent == []
+
+
+@pytest.mark.unit
+def test_ir_bad_values_rejected_before_moving(ir_modes):
+    ir_modes.registry._modes["bad"] = {
+        "id": "bad",
+        "label": "Bad",
+        "lights": {"strip": {"power": "dim"}},
+    }
+    with pytest.raises(ModesError, match="power"):
+        ir_modes.apply_mode("bad", sleep=lambda s: None)
+    ir_modes.registry._modes["bad"]["lights"] = {"strip": {"hue": "warm"}}
+    with pytest.raises(ModesError, match="hue"):
+        ir_modes.apply_mode("bad", sleep=lambda s: None)
+    ir_modes.registry._modes["bad"]["lights"] = {"strip": {"hue": 200, "saturation": 150}}
+    with pytest.raises(ModesError, match="saturation"):
+        ir_modes.apply_mode("bad", sleep=lambda s: None)
+    assert ir_modes.test_usb.sent == []

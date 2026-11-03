@@ -11,17 +11,21 @@ error. Keep personal hardware details in `studios.local/` only.
 
 ## plug-map.json (studios.local/)
 
-`studios.local/plug-map.json` maps Kasa plug ids to LAN hosts for modes power:
+`studios.local/plug-map.json` maps Kasa plug ids to aliases + fallback hosts
+for modes power:
 
 ```json
-{"plugs": [{"plug": "plug-1", "host": "192.0.2.10", "zone": "pc"}]}
+{"plugs": [{"plug": "plug-1", "alias": "Studio Plug 1", "host": "192.0.2.10", "zone": "pc"}]}
 ```
 
-Entries are claimed by zone, so a studio only touches its own plugs. Plugs on
-newer account-locked firmware may add `"username"`/`"password"` per entry;
-modes passes them to the driver, and they are never echoed in responses.
-The bench discovery card finds current hosts; the map itself is hand-maintained
-— re-discover after a stale host, then edit the host here and redeploy.
+Plugs are identified by **alias**: at modes-build time each alias resolves to
+its live LAN host via cached discovery (one broadcast refreshes all, 5-min
+TTL), so DHCP drift is harmless and the map never goes stale. The stored
+`host` is offline fallback only. Entries are claimed by zone, so a studio
+only touches its own plugs. Plugs on newer account-locked firmware may add
+`"username"`/`"password"` per entry; modes passes them to the driver, and
+they are never echoed in responses. The bench discovery card shows live
+hosts; the map itself stays hand-maintained for alias/zone/creds.
 
 ## obs.json (studios.local/)
 
@@ -49,6 +53,21 @@ the scene names in `modes.json` match the OBS collection exactly.
 api.meta.ai only, never logged or echoed in responses. Create one key per
 use (name the hub key for the hub); it ships to the hub with the normal
 `studios.local` deploy files and never commits.
+
+## link.json (studios.local/)
+
+`studios.local/link.json` holds the PC-link settings (hub side, git-ignored):
+
+```json
+{"wol_mac": "AA:BB:CC:DD:EE:FF", "audio_out": "Line Out", "audio_in": "Line In"}
+```
+
+`wol_mac` is the main PC's wired NIC address (`ipconfig /all` on that PC —
+paste it into this file, never into chat); `/api/link/wol` wakes it without
+opening anything on that machine. `audio_out` matches a hub output by name
+substring (see `/api/link/devices`); `audio_in` matches a hub input for the
+reverse ack wire (see `/api/link/inputs`). Per-request `device` /
+`listen_device` override both. Neither value is ever echoed in responses.
 
 ## shows.json (per studio in studios.local/)
 

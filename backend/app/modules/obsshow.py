@@ -22,7 +22,7 @@ class ObsShowModule(Module):
         return {
             "module": self.name,
             "transports": sorted(self.drivers),
-            "actions": ["state", "scenes", "switch", "stream-status"],
+            "actions": ["state", "scenes", "switch", "stream-status", "collections", "collection"],
             "guarded": ["stream start/stop need explicit confirmation"],
         }
 
@@ -64,3 +64,13 @@ class ObsShowModule(Module):
     def stream_status(self):
         """Whether OBS is streaming right now."""
         return self.drivers["ws"].apply({"action": "stream-status"})
+
+    def list_collections(self):
+        """Scene-collection list plus the current one."""
+        return self.drivers["ws"].apply({"action": "collections"})
+
+    def set_collection(self, collection):
+        """Switch to a named scene collection."""
+        if not collection:
+            raise ObsModuleError("set_collection needs a collection name")
+        return self.drivers["ws"].apply({"action": "collection", "collection": collection})

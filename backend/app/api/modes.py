@@ -7,6 +7,7 @@ panels through registry BLE addresses. Anything unwired degrades by name.
 """
 
 import json
+import os
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -15,13 +16,17 @@ from fastapi import APIRouter, HTTPException, Request
 from ..core.logging import get_logger
 from ..core.safety import SafetyViolation
 from ..drivers.dmx_light import DmxLightDriver
+from .obs import boot_try_start
 from ..drivers.dmx_usb import get_shared_driver
 from ..drivers.gvm_ble import GvmBleDriver
+from ..drivers.ir_usb_serial import IrLabelDriver, default_port
 from ..drivers.kasa import KasaDriver, resolve_host
+from ..drivers.ninja_ble import NinjaError
 from ..drivers.obs_ws import DEFAULT_PORT as OBS_DEFAULT_PORT
 from ..drivers.obs_ws import ObsWsDriver
 from ..drivers.screen import ScreenDriver
 from ..modules.screens import ScreensModule
+from .ninja import _fixed_cct, shared_driver
 from ..modules.modes import ModesError, ModesModule
 from ..modules.power import PowerModule, UnknownPowerGroupError
 from ..registry import (
@@ -80,12 +85,15 @@ def _plug_drivers(registry, config_root):
     return drivers
 
 
-def _light_drivers(registry):
-    """One BLE driver per addressed GVM panel, one DMX adapter per mapped light.
+def _light_drivers(registry, config_root):
+    """One BLE driver per addressed GVM panel, one DMX adapter per mapped
+    light, one broadcast driver per addressed Ninja light, one label driver
+    per IR strip.
 
-    DMX adapters share the bench's universe driver, so fades walk from the
-    same buffered levels on every surface. Bad channel maps still wire here;
-    the planner names them (degraded, never silent). Never exposes addresses.
+    DMX adapters share the bench's universe driver, and Ninja drivers share
+    the bench's per-address cache, so every surface walks from the same
+    levels instead of restarting. Bad maps skip wiring here; the planner
+    names them (degraded, never silent). Never exposes addresses.
     """
     drivers = {}
     universe = None
@@ -113,6 +121,30 @@ def _light_drivers(registry):
             drivers[device_id] = DmxLightDriver(
                 device_id, universe, address.get("dimmer"), address.get("cct"), cct_range
             )
+        elif family == "ninja":
+            address = device.get("driverAddress") or {}
+            try:
+                spec = registry.effective_device(device_id).get("spec") or {}
+                drivers[device_id] = shared_driver(
+                    address.get("channel"), address.get("group"), _fixed_cct(spec)
+                )
+            except NinjaError:
+                continue  # planner names the bad map
+            except Exception:  # noqa: BLE001 - one bad light must not break the build
+                continue
+        elif family == "ir":
+            if device.get("type") != "lightstrip":
+                continue
+            studio_id = registry.studio.get("id")
+            store = (
+                Path(config_root)
+                / "studios.local"
+                / studio_id
+                / "ir-codes"
+                / f"{device_id}.json"
+            )
+            port = os.environ.get("IR_PORT") or default_port()
+            drivers[device_id] = IrLabelDriver(device_id, store, port=port)
     return drivers
 
 
@@ -164,7 +196,8 @@ def _obs_applier(registry, config_root):
     host, port, password = cfg["host"], cfg.get("port", OBS_DEFAULT_PORT), cfg.get("password")
 
     def apply_scene(scene):
-        driver = ObsWsDriver("obs-modes", host, port, password)
+        # Long connect window: modes routinely land seconds after OBS starts.
+        driver = ObsWsDriver("obs-modes", host, port, password, connect_attempts=8, connect_delay_s=2.0)
         try:
             return driver.apply({"action": "switch", "scene": scene})
         finally:
@@ -185,14 +218,14 @@ def _screens_applier(registry):
 
 
 def build_modes_module(registry, config_root):
-    """Wire a modes module: plug-map power, BLE + DMX lights, OBS, screens."""
+    """Wire a modes module: plug-map power, GVM + DMX + Ninja + IR lights, OBS, screens."""
     plugs = _plug_drivers(registry, config_root)
     power = PowerModule("power", registry, plugs) if plugs else None
     return ModesModule(
         "modes",
         registry,
         power=power,
-        lights=_light_drivers(registry),
+        lights=_light_drivers(registry, config_root),
         obs=_obs_applier(registry, config_root),
         screens=_screens_applier(registry),
     )
@@ -210,6 +243,16 @@ def _apply_power_delay(body):
     if body is None:
         return None
     return body.get("power_delay_s")
+
+
+def _apply_include_manual(body):
+    """Optional apply-time protected-zone override. False means policy holds."""
+    if body is None:
+        return False
+    value = body.get("include_manual", False)
+    if not isinstance(value, bool):
+        raise ModesError(f"include_manual must be true|false: {value!r}")
+    return value
 
 
 def _studio_log(request, studio_id):
@@ -265,7 +308,11 @@ def modes_list(studio_id: str, request: Request):
     return {
         "default": registry.studio.get("defaultMode"),
         "modes": [
-            {"id": mode_id, "label": registry.get_mode(mode_id).get("label", mode_id)}
+            {
+                "id": mode_id,
+                "label": registry.get_mode(mode_id).get("label", mode_id),
+                "powersOff": bool(registry.get_mode(mode_id).get("powerOff")),
+            }
             for mode_id in registry.mode_ids
         ],
     }
@@ -275,14 +322,21 @@ def modes_list(studio_id: str, request: Request):
 def modes_apply(studio_id: str, mode_id: str, request: Request, body: dict | None = None):
     """Apply a mode across power, lights, OBS, and screens. Staged, gated.
 
-    Optional body {"fade_s": dwell, "power_delay_s": secs} fades every
-    light and staggers plug steps for this apply only.
+    Optional body {"fade_s": dwell, "power_delay_s": secs, "include_manual": bool}
+    fades every light, staggers plug steps, and optionally cuts policy-protected
+    zones for this apply only.
     """
     registry: Registry = _registry_or_404(request, studio_id)
     module = build_modes_module(registry, request.app.state.config_root)
+    module.obs_boot = lambda scene, collection=None: boot_try_start(request, studio_id, scene, collection)
     log.info("mode apply", extra={"fields": {"studio": studio_id, "mode": mode_id}})
     try:
-        result = module.apply_mode(mode_id, fade_s=_apply_fade(body), power_delay_s=_apply_power_delay(body))
+        result = module.apply_mode(
+            mode_id,
+            fade_s=_apply_fade(body),
+            power_delay_s=_apply_power_delay(body),
+            include_manual=_apply_include_manual(body),
+        )
     except UnknownModeError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     except (UnknownDeviceError, UnknownPowerGroupError, ModesError, SafetyViolation) as exc:
@@ -314,6 +368,8 @@ def presets_apply(studio_id: str, preset_id: str, request: Request, body: dict |
     module = build_modes_module(registry, request.app.state.config_root)
     log.info("preset apply", extra={"fields": {"studio": studio_id, "preset": preset_id}})
     try:
+        if body is not None and "include_manual" in body:
+            _apply_include_manual(body)  # validated, then ignored: presets don't change power
         result = module.apply_preset(preset_id, fade_s=_apply_fade(body), power_delay_s=_apply_power_delay(body))
     except UnknownPresetError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc

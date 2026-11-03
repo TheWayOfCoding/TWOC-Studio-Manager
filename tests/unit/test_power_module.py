@@ -101,9 +101,34 @@ def test_execute_delay_pauses_between_steps_only(power):
 
 @pytest.mark.unit
 def test_plan_group_power_mirrors_zone(power):
-    plan = power.plan_group_power("bench-power", True)
+    plan, protected = power.plan_group_power("bench-power", True)
     assert [step["device"] for step in plan] == ["demo-cam", "demo-key"]
     assert [step["plug"] for step in plan] == ["plug-2", "plug-1"]
+    assert protected == []
+
+
+@pytest.mark.unit
+def test_plan_group_off_skips_manual_only(power):
+    plan, protected = power.plan_group_power("desk-power", False)
+    assert plan == []
+    assert protected == [
+        {"device": "demo-screen", "plug": "plug-3", "reason": "manual-only (tick the box to include)"}
+    ]
+
+
+@pytest.mark.unit
+def test_plan_group_off_include_manual(power):
+    plan, protected = power.plan_group_power("desk-power", False, include_manual=True)
+    assert [step["device"] for step in plan] == ["demo-screen"]
+    assert protected == []
+
+
+@pytest.mark.unit
+def test_plan_group_off_never_always_skipped(power):
+    power.registry._devices["demo-cam"]["powerOffPolicy"] = "never"
+    plan, protected = power.plan_group_power("bench-power", False, include_manual=True)
+    assert "plug-2" not in [step["plug"] for step in plan]
+    assert protected == [{"device": "demo-cam", "plug": "plug-2", "reason": "never off programmatically"}]
 
 
 @pytest.mark.unit

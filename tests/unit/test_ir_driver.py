@@ -6,7 +6,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from app.drivers.ir_usb_serial import IrUsbSerialDriver, default_port, parse_codes
+from app.drivers.ir_usb_serial import IrLabelDriver, IrUsbSerialDriver, default_port, parse_codes
 
 
 class FakeHandle:
@@ -186,3 +186,39 @@ def test_state_undetected_port_errors_helpfully():
     result = IrUsbSerialDriver("ir").get_state()
     assert not result.ok
     assert "IR_PORT" in result.error
+
+
+class StubUsb:
+    def __init__(self):
+        self.sent = []
+
+    def apply(self, command):
+        self.sent.append(command["send"])
+        from app.drivers.base import DriverResult
+
+        return DriverResult(ok=True, state={"sent": command["send"]})
+
+
+@pytest.mark.unit
+def test_label_driver_sends_store_code(tmp_path):
+    store = tmp_path / "strip.json"
+    store.write_text('{"azure": {"code": [0, 239, 17]}}', encoding="utf-8")
+    usb = StubUsb()
+    driver = IrLabelDriver("strip", store, usb=usb, settle_s=0)
+    result = driver.apply({"label": "azure"})
+    assert result.ok
+    assert result.state == {"label": "azure", "sent": [0, 239, 17]}
+    assert usb.sent == [[0, 239, 17]]
+    assert driver.get_state().state == {"labels": ["azure"]}
+
+
+@pytest.mark.unit
+def test_label_driver_unknown_label_and_bad_command(tmp_path):
+    store = tmp_path / "strip.json"
+    store.write_text('{"azure": {"code": [0, 239, 17]}}', encoding="utf-8")
+    driver = IrLabelDriver("strip", store, usb=StubUsb(), settle_s=0)
+    assert not driver.apply({"label": "puce"}).ok
+    assert "puce" in driver.apply({"label": "puce"}).error
+    assert not driver.apply({"brightness": 5}).ok
+    missing = IrLabelDriver("strip", tmp_path / "nope.json", usb=StubUsb(), settle_s=0)
+    assert not missing.apply({"label": "azure"}).ok

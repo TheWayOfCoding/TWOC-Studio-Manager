@@ -1,0 +1,11 @@
+{
+  "device": "Microphone (Front)",
+  "rate": 44100,
+  "log_file": null,
+  "actions": {
+    "ping": null,
+    "obs": {"launch": "C:/PATH/TO/Portable-OBS/bin/64bit/obs64.exe", "cwd": "C:/PATH/TO/Portable-OBS/bin/64bit", "args": ["--portable", "--minimize-to-tray"], "watch_obs": true}
+  },
+  "ack": null,
+  "obs_watch": {"host": "127.0.0.1", "port": 4455, "timeout_s": 45, "poll_s": 2}
+}

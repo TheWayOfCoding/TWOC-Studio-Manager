@@ -247,3 +247,19 @@ def test_safe_stop_carries_default_cct():
     payload = bytes.fromhex(driver.safe_stop().state["sends"][0]["payload"])
     assert payload[9] == 56  # fixed-daylight temp, brightness 0 still means off
     assert payload[10] == 0
+
+
+def test_apply_many_merges_one_broadcast():
+    driver = NinjaBleDriver("n", 3, "A", backend="mock")
+    outcomes = driver.apply_many([{"brightness": 6}, {"cct": 3200}])
+    assert len(outcomes) == 2
+    assert all(outcome.ok for outcome in outcomes)
+    assert len(driver.advertiser.published) == 2  # repeats of ONE look, not two
+    assert driver.look["brightness"] == 6
+    assert driver.look["cct"] == 3200
+
+
+def test_apply_many_empty_sends_nothing():
+    driver = NinjaBleDriver("n", 3, "A", backend="mock")
+    assert driver.apply_many([]) == []
+    assert driver.advertiser.published == []

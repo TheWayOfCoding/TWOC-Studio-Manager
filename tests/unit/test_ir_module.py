@@ -4,7 +4,7 @@
 import pytest
 
 from app.drivers.base import DriverResult
-from app.modules.ir import IrCodeStore, IrModule, IrModuleError
+from app.modules.ir import IrCodeStore, IrModule, IrModuleError, nearest_strip_color
 
 
 class StubUsb:
@@ -126,3 +126,13 @@ def test_store_missing_file_reads_empty(tmp_path):
 def test_module_needs_usb_driver(tmp_path):
     with pytest.raises(IrModuleError, match="'usb' driver"):
         IrModule("ir", {}, tmp_path / "codes.json")
+
+
+@pytest.mark.unit
+def test_nearest_strip_color_pins():
+    """Hue asks land on the button that measures closest (canonical spec)."""
+    assert nearest_strip_color(0) == "red"
+    assert nearest_strip_color(120) == "green"
+    assert nearest_strip_color(210, 100) == "azure"
+    assert nearest_strip_color(210, 0) == "white"
+    assert nearest_strip_color(370) == nearest_strip_color(10)  # hue wraps

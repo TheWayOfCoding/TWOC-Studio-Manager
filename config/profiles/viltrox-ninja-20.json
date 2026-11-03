@@ -4,5 +4,5 @@
   "spec": {"maxWatts": 200, "colorTempK": 5600, "fixedTemp": true, "intensityRange": [0, 100]},
   "capabilities": {"intensity": true, "cct": false, "rgb": false, "dmx": true, "ble": true},
   "effects": [{"name": "steady", "photoRisk": "none"}, {"name": "Flash", "photoRisk": "intense"}, {"name": "Burst", "photoRisk": "intense"}, {"name": "Flash lamp", "photoRisk": "intense"}, {"name": "Blink", "photoRisk": "intense"}, {"name": "Weld", "photoRisk": "intense"}, {"name": "SOS", "photoRisk": "intense"}, {"name": "Candlelight", "photoRisk": "intense"}, {"name": "Flame", "photoRisk": "intense"}, {"name": "CCT LOOP", "photoRisk": "intense"}, {"name": "TV", "photoRisk": "intense"}],
-  "notes": "200W fixed-5600K COB with RJ45 DMX in/out. Bench-verified: 1ch dimmer; display floors (26 reads 10). BLE broadcast control (capture-verified Nov 2026, see docs/ninja-ble.md): brightness 0-100; fixed 5600K so CCT bytes are ignored."
+  "notes": "200W fixed-5600K daylight COB with RJ45 DMX in/out (single-color variant; 20B is the bi-color sibling). Bench-verified: 1ch dimmer; display floors (26 reads 10). BLE broadcast control (capture-verified Nov 2026, see docs/ninja-ble.md): brightness 0-100; fixed 5600K so CCT bytes are ignored."
 }

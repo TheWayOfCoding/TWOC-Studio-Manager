@@ -1,12 +1,55 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later
 """IR module: capture remote codes to JSON, replay them on demand."""
 
+import colorsys
 import json
 import tempfile
 import time
 from pathlib import Path
 
 from .base import Module
+
+# Fixed-exposure measured appearance of each official fixed-color label
+# (AVMatrix capture at fixed 5000K/1/60/ISO100 — the canonical color spec).
+# Maps hue/saturation asks to the button that actually looks closest. Keep
+# in sync with strip renames: the keys ARE the official labels.
+STRIP_FIXED_COLORS = {
+    "amber": (28, 136, 53),
+    "azure": (10, 127, 238),
+    "blue": (5, 54, 237),
+    "chartreuse": (48, 71, 23),
+    "cyan": (14, 154, 217),
+    "green": (10, 159, 66),
+    "lime": (32, 105, 38),
+    "magenta": (22, 45, 238),
+    "mint": (13, 159, 193),
+    "neon green": (27, 156, 64),
+    "pink": (28, 43, 238),
+    "red": (74, 16, 8),
+    "royal blue": (8, 50, 238),
+    "teal": (7, 103, 240),
+    "violet": (14, 47, 238),
+    "white": (27, 134, 231),
+}
+
+
+def nearest_strip_color(hue, saturation=100):
+    """Official fixed-color label nearest a hue/saturation ask (RGB distance).
+
+    Hue wraps (circular); saturation clamps 0-100. Ties break
+    alphabetically so the mapping is deterministic.
+    """
+    hue = float(hue) % 360
+    saturation = min(100, max(0, float(saturation)))
+    red, green, blue = colorsys.hsv_to_rgb(hue / 360, saturation / 100, 1.0)
+    target = (red * 255, green * 255, blue * 255)
+    best, best_d2 = None, None
+    for label in sorted(STRIP_FIXED_COLORS):
+        cr, cg, cb = STRIP_FIXED_COLORS[label]
+        d2 = (target[0] - cr) ** 2 + (target[1] - cg) ** 2 + (target[2] - cb) ** 2
+        if best_d2 is None or d2 < best_d2:
+            best, best_d2 = label, d2
+    return best
 
 
 class IrModuleError(Exception):

@@ -182,3 +182,57 @@ class IrUsbSerialDriver(Driver):
                 pass
         raw = b"".join(chunks)
         return {"codes": parse_codes(raw), "raw_bytes": len(raw), "seconds": seconds}
+
+
+class IrLabelDriver(Driver):
+    """One IR-controlled light: label sends from a code store.
+
+    apply({"label": name}) looks up the 3-byte code and blasts it once.
+    Unknown labels and port failures report ok=False (modes degrade by
+    name). A short settle follows each send: the module swallows a second
+    frame sent mid-transmit.
+    """
+
+    def __init__(self, driver_id, store, port=None, usb=None, settle_s=0.3):
+        super().__init__(driver_id)
+        from ..modules.ir import IrCodeStore
+
+        self.store = store if isinstance(store, IrCodeStore) else IrCodeStore(store)
+        self.usb = usb if usb is not None else IrUsbSerialDriver(f"{driver_id}-usb", port)
+        self.settle_s = settle_s
+
+    def capabilities(self):
+        return {"family": "ir", "transport": "usb-serial", "commands": ["label"]}
+
+    def get_state(self):
+        try:
+            labels = sorted(self.store.load())
+        except Exception as exc:  # noqa: BLE001 - drivers report, never raise
+            return DriverResult(ok=False, error=str(exc))
+        return DriverResult(ok=True, state={"labels": labels})
+
+    def apply(self, command):
+        if not isinstance(command, dict) or "label" not in command:
+            return DriverResult(ok=False, error='command needs {"label": name}')
+        try:
+            code = self.store.get(command["label"])
+        except Exception as exc:  # noqa: BLE001 - unknown label, malformed store
+            return DriverResult(ok=False, error=str(exc))
+        result = self.usb.apply({"send": code})
+        if not result.ok:
+            return DriverResult(
+                ok=False, state={"label": command["label"]}, error=result.error
+            )
+        if self.settle_s:
+            time.sleep(self.settle_s)
+        return DriverResult(ok=True, state={"label": command["label"], "sent": code})
+
+    def safe_stop(self):
+        """IR has no resting output: report labels, emit nothing."""
+        return self.get_state()
+
+    def probe(self):
+        probe = getattr(self.usb, "probe", None)
+        if probe is None:
+            return self.get_state()
+        return probe()

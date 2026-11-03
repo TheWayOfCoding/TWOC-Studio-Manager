@@ -4,11 +4,38 @@ One-click studio director for content creators: zone power, lights, OBS scenes,
 and backdrop screens driven from one LAN web UI, with an AI lighting layer on top.
 Runs on a Raspberry Pi or a Windows Hub host; developed on a PC and deployed over the LAN.
 
-**Status:** Live on the Windows Hub host: real USB-DMX / Kasa / IR / GVM-BLE
-drivers, modes engine, OBS + screens + AI-director scaffolds, mode dashboard,
-Test Bench, health API, and a watchdog task. DMX is verified against two
-Viltrox lights (dwell-paced fades); the OBS handshake and screen persistence
-are still scaffold.
+**Status:** Live on the Windows Hub host, demo-ready: every light family
+drives through bench, modes, presets, and AI; OBS scene control with a
+dashboard card; backdrop screens with push + audio bed; voice-prompted AI
+looks; undo + action log; health API and watchdog task. GVM HSI is
+live-verified, Ninja BLE runs all three fixtures with DMX retained on the
+bench, the IR strip maps hues to measured colors, and the AI director is
+live-proven on real hardware.
+
+## What it does
+
+- **Modes:** one click powers zones, sets lights, switches OBS, updates
+  screens — with per-mode fades and honest degrade-by-name when anything
+  is unwired or offline.
+- **Lights:** GVM BLE panels (brightness/CCT/HSI/scenes), Viltrox Ninja
+  fixtures over BLE broadcast (brightness/CCT/power), USB-DMX faders, and
+  an IR shelf strip (16 calibrated colors) — every family on the bench,
+  in modes, and under AI.
+- **AI director:** prompt + target + scope (all/zones/lights) over mock or
+  live providers, with per-fixture baselines, AI power caps, one critique
+  pass, and save-as-preset. Voice input on the dashboard (Chrome/Edge).
+- **Screens:** kiosk page with pushed themes/text, WebAudio bed, and
+  self-reload across hub restarts.
+- **Presentations:** captioned multi-step shows with narration wash,
+  stop-to-final, and per-step result reporting.
+
+## Pages
+
+- `/` dashboard: health, modes, zones, power, presets, shows, OBS, AI look
+- `/control` one-asset remote (phone and OBS-dock friendly)
+- `/bench` hardware bring-up per driver family
+- `/equipment` per-device facts editor
+- `/screen/<id>` kiosk backdrop page
 
 ## Quickstart (PC)
 
@@ -60,6 +87,7 @@ and health-checks (or set `STUDIO_HUB_HOST` once).
 - `config/` — JSON schemas live with the loader; `profiles/` + example studio here,
   real studios in git-ignored `config/studios.local/`
 - `tests/` — `unit/`, `regression/` (golden), `hardware/` (Pi only, `STUDIO_HW=1`)
+- `docs/` — protocol + wiring + environment rundowns (public-safe)
 - `tools/` — Pi + Windows bootstraps, service definitions, deploy scripts
 
 ## Privacy rule

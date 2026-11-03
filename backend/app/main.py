@@ -27,7 +27,9 @@ from .api.screen import router as screen_router  # noqa: E402
 from .api.dmx import router as dmx_router  # noqa: E402
 from .api.equipment import router as equipment_router  # noqa: E402
 from .api.ai import router as ai_router  # noqa: E402
+from .api.presets import router as presets_router  # noqa: E402
 from .api.shows import router as shows_router  # noqa: E402
+from .api.link import router as link_router  # noqa: E402
 from .config.loader import ConfigError, list_studios, load_all  # noqa: E402
 from .registry import Registry  # noqa: E402
 
@@ -86,7 +88,9 @@ def create_app():
     app.include_router(dmx_router)
     app.include_router(equipment_router)
     app.include_router(ai_router)
+    app.include_router(presets_router)
     app.include_router(shows_router)
+    app.include_router(link_router)
     app.include_router(router)
 
     @app.get("/", include_in_schema=False)
@@ -96,6 +100,10 @@ def create_app():
     @app.get("/bench", include_in_schema=False)
     def bench():
         return FileResponse(STATIC_DIR / "bench.html")
+
+    @app.get("/control", include_in_schema=False)
+    def control():
+        return FileResponse(STATIC_DIR / "control.html")
 
     @app.get("/equipment", include_in_schema=False)
     def equipment():

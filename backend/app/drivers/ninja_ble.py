@@ -439,6 +439,22 @@ class NinjaBleDriver(Driver):
             self.look = dict(summary["look"])
         return DriverResult(ok=True, state={**summary, "sends": sends})
 
+    def apply_many(self, commands):
+        """Merge several single-key commands into ONE broadcast look.
+
+        The modes engine calls this when a step names more than one key, so
+        a {brightness, cct} step lands as one beat instead of two smeared
+        frames. Returns one DriverResult per command (the shared outcome).
+        """
+        merged = {}
+        for command in commands or []:
+            if isinstance(command, dict):
+                merged.update(command)
+        if not merged:
+            return [DriverResult(ok=False, error="nothing to send") for _ in (commands or [])]
+        outcome = self.apply(merged)
+        return [outcome for _ in commands]
+
     def safe_stop(self):
         """Darken this address (brightness 0). Best-effort, never raises."""
         try:

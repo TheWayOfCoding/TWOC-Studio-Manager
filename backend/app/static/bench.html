@@ -19,7 +19,7 @@ details p { margin: .4em 0; max-width: 46em; }
 </style>
 </head>
 <body>
-<nav><a href="/">Studio Hub</a> | <strong>Test Bench</strong> | <a href="/equipment">Equipment</a> | <a href="/docs">API docs</a></nav>
+<nav><a href="/">Studio Hub</a> | <strong>Test Bench</strong> | <a href="/control">Control</a> | <a href="/equipment">Equipment</a> | <a href="/docs">API docs</a></nav>
 <h1>Test Bench</h1>
 <p>Interactive bring-up surface: real hardware drivers (DMX lights, Kasa plugs,
 IR capture, GVM panels, Ninja BLE, OBS, backdrop screens) next to mock-driver trials.</p>
@@ -119,6 +119,38 @@ pass <input type="password" id="obs-pass">
 <button onclick="obsStream('stop')">Stop stream</button>
 <span>stream actions ask for confirmation</span></div>
 <div id="obs"></div></div>
+<div class="card"><h2>PC link (audio wire)</h2>
+<p>Talk to the main PC over two headphone cables: cable A carries commands
+out, cable B carries confirmations back. Work top to bottom: assign the
+ports once, test the wire, then boot OBS.</p>
+<div><b>1. Wire ports.</b> TX plays out of the hub (green jack); RX listens
+on the hub (red jack). Selections persist on the hub.</div>
+<div>TX port (cable A out) <select id="link-tx"></select>
+RX port (cable B in) <select id="link-rx"></select>
+<button onclick="linkPortsLoad()">Load ports</button>
+<button onclick="linkPortsSave()">Save ports</button>
+<span id="link-ports-note"></span></div>
+<div><b>2. Test the wire.</b> A ping should come back confirmed within
+seconds; listen hears whatever is currently on the wire.</div>
+<div><button onclick="linkDevices()">Hub outputs</button>
+<button onclick="linkInputs()">Hub inputs</button>
+<button onclick="linkTest()">Test tone 1s</button></div>
+<div>command <select id="link-cmd"><option value="ping">ping</option><option value="obs">obs</option></select>
+<button onclick="linkSend()">Send</button>
+<button onclick="linkSendWait()">Send+Wait</button>
+<button onclick="linkListen()">Listen 2s</button>
+<span>Send+Wait listens 8s (ping) / 60s (obs) for the ack</span></div>
+<div><b>3. Boot the main PC's OBS.</b> Pings until the PC answers, starts
+OBS, then cuts to the collection and scene. Takes minutes on a cold PC;
+the status line follows automatically until it finishes.</div>
+<div>studio <input type="text" id="link-studio" value="home-studio" style="width:10em">
+collection <input type="text" id="link-collection" value="ScottyPhoton" style="width:12em">
+scene <input type="text" id="link-scene" value="Face Full View" style="width:12em">
+<button onclick="linkBoot()">Boot + OBS</button>
+<button onclick="linkBootStatus()">Boot status</button>
+<button onclick="linkBootStop()">Boot stop</button></div>
+<div id="link-boot-human"></div>
+<div id="link"></div></div>
 <div class="card"><h2>DMX lights</h2>
 <p>Full fixture range. Power past 10% needs the <b>allow bright</b> tick on its row —
 these lights are blinding, and that tick is the only warning you get.
@@ -172,7 +204,9 @@ async function jget(path) {
 }
 async function jpost(path, body) {
   const r = await fetch(path, {method: "POST", headers: {"Content-Type": "application/json"}, body: body});
-  const j = await r.json();
+  const text = await r.text();
+  let j;
+  try { j = JSON.parse(text); } catch (e) { throw new Error(path + ": " + r.status + " (non-JSON reply: " + text.slice(0, 120) + ")"); }
   if (!r.ok) throw new Error(JSON.stringify(j));
   return j;
 }
@@ -433,6 +467,104 @@ async function obsStream(action) {
   if (!confirm("Really " + action + " the stream?")) return;
   try { const r = await jpost("/api/testbench/obs/stream", JSON.stringify(obsBody({action: action, confirmed: true}))); out("obs", r, r.ok); }
   catch (e) { out("obs", {error: String(e)}, false); }
+}
+async function linkDevices() {
+  try { const r = await jget("/api/link/devices"); out("link", r, r.ok); }
+  catch (e) { out("link", {error: String(e)}, false); }
+}
+async function linkInputs() {
+  try { const r = await jget("/api/link/inputs"); out("link", r, r.ok); }
+  catch (e) { out("link", {error: String(e)}, false); }
+}
+async function linkTest() {
+  try { const r = await jpost("/api/link/test", JSON.stringify({seconds: 1.0, freq: 1000.0})); out("link", r, r.ok); }
+  catch (e) { out("link", {error: String(e)}, false); }
+}
+async function linkSend() {
+  const command = document.getElementById("link-cmd").value;
+  try { const r = await jpost("/api/link/send", JSON.stringify({command: command})); out("link", r, r.ok); }
+  catch (e) { out("link", {error: String(e)}, false); }
+}
+async function linkListen() {
+  try { const r = await jpost("/api/link/listen", JSON.stringify({seconds: 2.0})); out("link", r, r.ok); }
+  catch (e) { out("link", {error: String(e)}, false); }
+}
+async function linkSendWait() {
+  const command = document.getElementById("link-cmd").value;
+  const wait = command === "obs" ? 60.0 : 8.0;
+  try { const r = await jpost("/api/link/send-and-wait", JSON.stringify({command: command, wait_s: wait}));
+    out("link", r, !!(r.ok && r.state && r.state.confirmed)); }
+  catch (e) { out("link", {error: String(e)}, false); }
+}
+function linkFill(sel, devices, saved) {
+  const el = document.getElementById(sel);
+  el.innerHTML = '<option value="">(default)</option>' + devices.map(d =>
+    "<option value=\"" + d.index + "\">" + d.index + ": " + d.name + "</option>").join("");
+  if (saved === null || saved === undefined || saved === "") { el.value = ""; return; }
+  const match = devices.find(d => String(d.index) === String(saved)) ||
+    devices.find(d => String(d.name).toLowerCase().includes(String(saved).toLowerCase()));
+  el.value = match ? String(match.index) : "";
+}
+async function linkPortsLoad() {
+  try {
+    const [outs, ins, cfg] = await Promise.all(
+      [jget("/api/link/devices"), jget("/api/link/inputs"), jget("/api/link/config")]);
+    linkFill("link-tx", (outs.state && outs.state.devices) || [], cfg.audio_out);
+    linkFill("link-rx", (ins.state && ins.state.devices) || [], cfg.audio_in);
+    document.getElementById("link-ports-note").textContent =
+      "saved TX=" + (cfg.audio_out === null || cfg.audio_out === undefined ? "(default)" : cfg.audio_out) +
+      " RX=" + (cfg.audio_in === null || cfg.audio_in === undefined ? "(default)" : cfg.audio_in) +
+      (cfg.wol_configured ? " · WoL MAC set" : " · no WoL MAC");
+  } catch (e) { out("link", {error: String(e)}, false); }
+}
+async function linkPortsSave() {
+  const val = id => { const v = document.getElementById(id).value; return v === "" ? null : parseInt(v, 10); };
+  try { const r = await jpost("/api/link/config",
+    JSON.stringify({audio_out: val("link-tx"), audio_in: val("link-rx")}));
+    out("link", r, r.ok); linkPortsLoad(); }
+  catch (e) { out("link", {error: String(e)}, false); }
+}
+function linkStudio() { return document.getElementById("link-studio").value || "home-studio"; }
+function linkEsc(s) { return String(s === null || s === undefined ? "" : s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;"); }
+function renderBootHuman(job) {
+  const counts = {};
+  (job.phases || []).forEach(p => { counts[p.phase] = (counts[p.phase] || 0) + 1; });
+  const where = job.collection ? linkEsc(job.collection) + " / " + linkEsc(job.scene) : linkEsc(job.scene);
+  let msg, cls = "warn";
+  if (job.state === "pinging") msg = "Waiting for the main PC to answer over the wire (ping " + (counts.pinging || 1) + ")…";
+  else if (job.state === "launching") msg = "Main PC is awake — starting OBS (try " + (counts.launching || 1) + " of 3)…";
+  else if (job.state === "setting_collection") msg = "OBS is up — switching to collection " + linkEsc(job.collection) + "…";
+  else if (job.state === "setting_scene") msg = "Switching to scene " + linkEsc(job.scene) + "…";
+  else if (job.state === "ready") { msg = "Done — OBS is running " + where + "."; cls = "ok"; }
+  else if (job.state === "stopped") msg = "Stopped.";
+  else { msg = "Failed (" + linkEsc(job.state) + "): " + linkEsc(job.error || "unknown error"); cls = "bad"; }
+  document.getElementById("link-boot-human").innerHTML = '<span class="' + cls + '">●</span> ' + msg;
+}
+let LINK_BOOT_WATCH = null;
+async function linkBoot() {
+  const scene = document.getElementById("link-scene").value || "Face Full View";
+  const collection = document.getElementById("link-collection").value || null;
+  try { const r = await jpost("/api/studios/" + linkStudio() + "/obs/boot",
+    JSON.stringify({scene: scene, collection: collection}));
+    out("link", r, r.ok); if (r.ok) linkBootStatus(); }
+  catch (e) { out("link", {error: String(e)}, false); }
+}
+async function linkBootStatus() {
+  if (LINK_BOOT_WATCH) return;
+  LINK_BOOT_WATCH = true;
+  try {
+    for (let i = 0; i < 200; i++) {
+      const r = await jget("/api/studios/" + linkStudio() + "/obs/boot/status");
+      out("link", r, true); renderBootHuman(r.job);
+      if (!r.job.running) return;
+      await new Promise(res => setTimeout(res, 5000));
+    }
+  } catch (e) { out("link", {error: String(e)}, false); }
+  finally { LINK_BOOT_WATCH = null; }
+}
+async function linkBootStop() {
+  try { const r = await jpost("/api/studios/" + linkStudio() + "/obs/boot/stop", "{}"); out("link", r, r.ok); }
+  catch (e) { out("link", {error: String(e)}, false); }
 }
 function dmxPort() { return document.getElementById("dmx-port").value || null; }
 function dmxValOut() { document.getElementById("dmx-val-out").textContent = document.getElementById("dmx-val").value; }

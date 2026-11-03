@@ -171,7 +171,11 @@ def dmx_fade(body: FadeBody):
 
 
 def _fixture_map(request, studio_id):
-    """Controllable DMX lights in a studio. Unknown studio 404s."""
+    """Lights with a DMX path in a studio. Unknown studio 404s.
+
+    Listed by address map, not by primary driver: a BLE-primary light keeps
+    its DMX bench card as long as the channel map is configured.
+    """
     try:
         registry = request.app.state.registries[studio_id]
     except KeyError as exc:
@@ -179,12 +183,15 @@ def _fixture_map(request, studio_id):
     fixtures, skipped = {}, []
     for device_id in registry.device_ids:
         device = registry.get_device(device_id)
-        if device.get("type") != "light" or device.get("driver") != "dmx":
+        if device.get("type") != "light":
             continue
+        address = (device.get("driverAddress") or {}).get("dmx")
+        if not address and device.get("driver") != "dmx":
+            continue  # no DMX path on this device
         if not device.get("controllable", True):
             skipped.append({"target": device_id, "reason": f"{device_id} is not controllable"})
             continue
-        address = (device.get("driverAddress") or {}).get("dmx") or {}
+        address = address or {}
         dimmer = address.get("dimmer")
         cct_ch = address.get("cct")
         for channel in (dimmer,) if cct_ch is None else (dimmer, cct_ch):

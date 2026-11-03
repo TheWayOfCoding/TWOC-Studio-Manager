@@ -86,6 +86,30 @@ def test_ignores_input_echo_blocks():
 
 
 @pytest.mark.unit
+def test_ai_look_maps_provider_outage_to_502(monkeypatch):
+    """A dead provider fails the request honestly; nothing moves, nothing 500s."""
+    from fastapi.testclient import TestClient
+
+    from app.api import ai as ai_api
+    from app.main import app
+
+    class DownProvider:
+        def name(self):
+            return "meta"
+
+        def direct(self, prompt, targets, manifest):
+            raise MetaProviderError("meta api unreachable: down")
+
+    monkeypatch.setattr(ai_api, "_meta_provider", lambda root: DownProvider())
+    response = TestClient(app).post(
+        "/api/studios/example-studio/ai/look",
+        json={"prompt": "cozy", "targets": "lights", "provider": "meta"},
+    )
+    assert response.status_code == 502
+    assert "unreachable" in response.json()["detail"]
+
+
+@pytest.mark.unit
 def test_transport_and_shape_failures_report():
     def boom(url, key, body):
         raise RuntimeError("down")

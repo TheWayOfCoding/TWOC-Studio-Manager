@@ -2,7 +2,7 @@
   "id": "bytech-strip",
   "kind": "lightstrip",
   "spec": {},
-  "capabilities": {"ir": true},
+  "capabilities": {"ir": true, "intensity": true, "rgb": true},
   "effects": [{"name": "steady", "photoRisk": "none"}],
-  "notes": "Background shelf strip. Protocol TBD via IR remote capture (Phase 2)."
+  "notes": "Background shelf strip. 16 fixed colors + on/off via IR replay (see docs/ir-capture.md for official labels). No absolute brightness: modes intensity only flips on/off, hue/saturation map to the nearest measured color, brightness steps stay bench-only."
 }

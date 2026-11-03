@@ -2,5 +2,6 @@
   "identifier": "main",
   "description": "Kiosk window may close itself on double-ESC.",
   "windows": ["main"],
-  "permissions": ["core:window:allow-close"]
+  "permissions": ["core:window:allow-close"],
+  "remote": { "urls": ["http://localhost:8001/*", "http://127.0.0.1:8001/*"] }
 }

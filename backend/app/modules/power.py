@@ -48,16 +48,40 @@ class PowerModule(Module):
         devices = self.registry.devices_in_zone(zone_id)
         return self._plan_steps([item for item in devices if item.get("powerPlug")], on)
 
-    def plan_group_power(self, group_id, on):
+    def plan_group_power(self, group_id, on, include_manual=False):
         """Same plan over a power group instead of a zone. No hardware moves.
 
-        Raises UnknownPowerGroupError when no device carries the group.
+        Returns (steps, protected): policy-protected members are skipped by
+        name on power-off (never always; manual-only unless include_manual),
+        mirroring plan_all_power, so one protected device never aborts the
+        rest of the group. Raises UnknownPowerGroupError when no device
+        carries the group.
         """
         devices = [self.registry.get_device(item) for item in self.registry.device_ids]
         members = [item for item in devices if item.get("powerGroup") == group_id]
         if not members:
             raise UnknownPowerGroupError(f"unknown power group: {group_id}")
-        return self._plan_steps([item for item in members if item.get("powerPlug")], on)
+        members = [item for item in members if item.get("powerPlug")]
+        if not on:
+            kept, protected = [], []
+            for item in members:
+                policy = item.get("powerOffPolicy", "auto")
+                if policy == "never":
+                    protected.append(
+                        {"device": item["id"], "plug": item["powerPlug"], "reason": "never off programmatically"}
+                    )
+                elif policy == "manual-only" and not include_manual:
+                    protected.append(
+                        {
+                            "device": item["id"],
+                            "plug": item["powerPlug"],
+                            "reason": "manual-only (tick the box to include)",
+                        }
+                    )
+                else:
+                    kept.append(item)
+            return self._plan_steps(kept, on, include_manual=include_manual), protected
+        return self._plan_steps(members, on), []
 
     def plan_all_power(self, on, include_manual=False):
         """Plan over every plugged device, skipping protected policies by name.
@@ -123,9 +147,10 @@ class PowerModule(Module):
         """Execute a zone plan step by step. Returns per-step results."""
         return self._execute(self.plan_zone_power(zone_id, on), sleep, delay_s)
 
-    def set_group_power(self, group_id, on, sleep=time.sleep, delay_s=0):
+    def set_group_power(self, group_id, on, sleep=time.sleep, delay_s=0, include_manual=False):
         """Execute a power-group plan step by step. Returns per-step results."""
-        return self._execute(self.plan_group_power(group_id, on), sleep, delay_s)
+        steps, _protected = self.plan_group_power(group_id, on, include_manual=include_manual)
+        return self._execute(steps, sleep, delay_s)
 
     def _execute(self, plan, sleep, delay_s=0):
         """Switch every step. delay_s > 0 pauses between steps only (never after)."""

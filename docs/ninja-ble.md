@@ -101,11 +101,28 @@ real fixture. No separate power byte observed.
 
 - The hub must **advertise**, not connect: no GATT, no pairing. On
   Windows this means a BLE advertisement publisher (WinRT), not a
-  BLE client library. Payload = the 27-byte scan response above.
-- Address the target group via `AD`; keep `CT` incrementing; mimic
-  the double-send for state changes. Whether lights enforce the
-  counter or require rotating sender addresses is untested — try
-  fixed address + incrementing counter first.
+  BLE client library. Payload = the 27-byte frame above.
+- Hub control SHIPPED (Nov 2): frame builders + Mock/WinRT advertisers
+  with cached look+counter per address, scene gate, bench card (direct
+  ch/grp + dry-run + raw hex). Every send is a full look.
+- TRANSPORT PROVEN: fixtures accept the command bytes placed in ADV
+  manufacturer data — no scan-rsp needed (WinRT has no scan-rsp API;
+  user eyeball confirmed a real fixture moved). Frames are air-verified
+  byte-exact against the app template.
+- Dongles that reject extended/anonymous advertising fall back to legacy
+  (extended+anonymous off); the mode is reported per send. The hub
+  mimics the app with rotating sender addresses + incrementing `CT` and
+  double-sends state changes. Whether lights enforce the counter or
+  require rotation is still unknown.
+- Open-loop honesty: fixtures never report, so hub state carries a
+  transmitted flag (memory, not telemetry), and a pristine cache rejects
+  a partial first-send (brightness/power required, else a dark-flash
+  trap). State reads never transmit.
+- Modes/AI wiring live (steady looks only): power/intensity/cct translate
+  through the modes engine with the bench sharing one cached driver per
+  address (multi-key steps merge to one broadcast). Fixed-temp panels
+  skip cct by name. Scenes stay bench-only except confirmed shows;
+  gm/preset stay bench-only (no generic keys).
 - Slider-authority (preset byte cosmetic?) still needs one eyeball:
   run8 set 4500K/2600K via slider (`PP`=`0x64`); confirm the 400
   actually showed neutral-then-warm.

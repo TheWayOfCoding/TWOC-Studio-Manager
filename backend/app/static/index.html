@@ -12,29 +12,36 @@ nav a { margin-right: 1em; }
 pre { background: #f4f4f4; padding: 0.5em; overflow-x: auto; white-space: pre-wrap; }
 button { margin: 0.2em 0.4em 0.2em 0; }
 input[type=text] { width: 24em; max-width: 100%; }
+textarea#ai-prompt { width: 100%; box-sizing: border-box; font: inherit; }
+.hint { color: #444; font-size: 0.9em; }
 .subs span { margin-right: 1em; white-space: nowrap; }
 </style>
 </head>
 <body>
-<nav><strong>Studio Hub</strong> | <a href="/bench">Test Bench</a> | <a href="/equipment">Equipment</a> | <a href="/docs">API docs</a></nav>
+<nav><strong>Studio Hub</strong> | <a href="/bench">Test Bench</a> | <a href="/control">Control</a> | <a href="/equipment">Equipment</a> | <a href="/docs">API docs</a></nav>
 <h1>Studio Hub</h1>
 <div class="card"><h2>Health</h2><div id="health">loading…</div></div>
 <div class="card"><h2>Studio</h2><select id="studio"></select></div>
-<div class="card"><h2>Modes</h2><div><label><input type="checkbox" id="pwr-delay-on"> stagger power</label> <input type="number" id="pwr-delay-s" value="1" min="0" max="5" step="0.1" style="width:4em"> s</div><div id="modes">loading…</div><div id="mode-out"></div><div id="actions"></div><div><button id="undo-btn" onclick="undoLast()">Undo</button></div></div>
+<div class="card"><h2>Modes</h2><div><label><input type="checkbox" id="pwr-delay-on"> stagger power</label> <input type="number" id="pwr-delay-s" value="1" min="0" max="5" step="0.1" style="width:4em"> s</div><div><label><input type="checkbox" id="mode-include-protected"> also cut protected zones</label></div><div id="modes">loading…</div><div id="mode-out"></div><div id="actions"></div><div><button id="undo-btn" onclick="undoLast()">Undo</button></div></div>
+<div class="card"><h2>OBS</h2><div id="status">loading…</div><div>collection <select id="obs-collection"></select> <button onclick="obsCollection()">Switch collection</button></div><div id="obs"></div><div><label><input type="checkbox" id="obs-confirm"> confirm stream start/stop</label> <button onclick="obsStream('start')">Start stream</button><button onclick="obsStream('stop')">Stop stream</button></div><div id="obs-out"></div></div>
 <div class="card"><h2>Zones</h2><div id="zones">loading…</div><div id="zone-out"></div></div>
 <div class="card" id="power"><h2>Power</h2><div><button id="all-off" onclick="powerAllOff()">All Off</button>
 <label><input type="checkbox" id="all-off-manual"> also switch devices normally left on</label></div><div id="power-out"></div></div>
-<div class="card"><h2>Presets</h2><div id="presets">loading…</div><div id="preset-out"></div></div>
+<div class="card"><h2>Presets</h2><div id="presets">loading…</div><div><input type="text" id="snap-id" placeholder="preset id"><button onclick="snapHardware()">Snapshot hardware</button></div><div id="preset-out"></div></div>
 <div class="card"><h2>Presentations</h2>
 <div><label><input type="checkbox" id="show-confirm"> confirm scene steps</label>
 <button onclick="showStop()">Stop</button></div>
 <div id="shows">loading…</div><div id="show-out"></div></div>
 <div class="card"><h2>AI look</h2>
-<div><input type="text" id="ai-prompt" placeholder="cozy interview">
-<select id="ai-targets"><option value="both">lights+screen</option>
+<div><textarea id="ai-prompt" rows="6" placeholder="cozy interview"></textarea></div>
+<div><select id="ai-targets"><option value="both">lights+screen</option>
 <option value="lights">lights</option><option value="screens">screen</option></select>
 <select id="ai-provider"><option value="mock">mock</option><option value="meta">meta</option></select>
-<button onclick="aiLook()">Direct</button> <button id="ai-mic" onclick="aiMic()">Mic</button></div>
+<button onclick="aiLook()">Direct</button> <button id="ai-mic" onclick="aiMic()">Mic</button>
+<label><input type="checkbox" id="ai-mic-auto"> auto-direct on hear</label></div>
+<p class="hint" id="ai-mic-hint">Voice needs Chrome or Edge over https. Chrome uses its own selected
+microphone (chrome://settings/content/microphone) — not necessarily the Windows default. Brave and
+hardened browsers provide no speech service: type the prompt instead.</p>
 <div id="ai-scope"><label><input type="radio" name="ai-scope-mode" value="all" checked onchange="scopeRefresh()"> all</label>
 <label><input type="radio" name="ai-scope-mode" value="zones" onchange="scopeRefresh()"> zones</label>
 <label><input type="radio" name="ai-scope-mode" value="lights" onchange="scopeRefresh()"> lights</label></div>
@@ -51,7 +58,9 @@ async function jget(path) {
 }
 async function jpost(path, body) {
   const r = await fetch(path, {method: "POST", headers: {"Content-Type": "application/json"}, body: body});
-  const j = await r.json();
+  const text = await r.text();
+  let j;
+  try { j = JSON.parse(text); } catch (e) { throw new Error(path + ": " + r.status + " (non-JSON reply: " + text.slice(0, 120) + ")"); }
   if (!r.ok) throw new Error(JSON.stringify(j));
   return j;
 }
@@ -87,16 +96,51 @@ async function loadPresets() {
 }
 async function applyMode(id) {
   out("mode-out", {status: "applying " + id + "…"}, true);
-  let body = "{}";
+  const opts = {include_manual: document.getElementById("mode-include-protected").checked};
   if (document.getElementById("pwr-delay-on").checked) {
-    body = JSON.stringify({power_delay_s: parseFloat(document.getElementById("pwr-delay-s").value) || 0});
+    opts.power_delay_s = parseFloat(document.getElementById("pwr-delay-s").value) || 0;
   }
+  const body = JSON.stringify(opts);
   try { renderApply("mode-out", await jpost("/api/studios/" + studio() + "/modes/" + id + "/apply", body)); loadActions(); }
   catch (e) { out("mode-out", {error: String(e)}, false); }
+}
+async function loadStatus() {
+  try {
+    const s = await jget("/api/studios/" + studio() + "/obs/status");
+    document.getElementById("status").innerHTML = !s.configured
+      ? '<span class="bad">●</span> not configured (studios.local/obs.json)'
+      : '<span class="' + (s.connected ? "ok" : "warn") + '">●</span> ' +
+        (s.connected ? ("program: " + (s.current || "?") + (s.streaming ? " — STREAMING" : " — not streaming")) : "configured, OBS unreachable");
+    document.getElementById("obs").innerHTML = (s.scenes || []).map(n =>
+      "<button onclick=\"obsSwitch('" + n.replace(/'/g, "\\'") + "')\"" + (n === s.current ? " disabled" : "") + ">" + n + "</button>").join("");
+    const sel = document.getElementById("obs-collection");
+    sel.innerHTML = (s.collections || []).map(n => "<option>" + n + "</option>").join("");
+    if (s.collection) sel.value = s.collection;
+  } catch (e) { document.getElementById("status").innerHTML = '<span class="bad">●</span> ' + String(e); }
+}
+async function obsCollection() {
+  const collection = document.getElementById("obs-collection").value;
+  try { out("obs-out", await jpost("/api/studios/" + studio() + "/obs/collection", JSON.stringify({collection})), true); loadStatus(); }
+  catch (e) { out("obs-out", {error: String(e)}, false); }
+}
+async function obsSwitch(scene) {
+  try { out("obs-out", await jpost("/api/studios/" + studio() + "/obs/switch", JSON.stringify({scene})), true); loadStatus(); }
+  catch (e) { out("obs-out", {error: String(e)}, false); }
+}
+async function obsStream(action) {
+  if (!document.getElementById("obs-confirm").checked) { out("obs-out", {error: "tick confirm first"}, false); return; }
+  try { out("obs-out", await jpost("/api/studios/" + studio() + "/obs/stream", JSON.stringify({action, confirmed: true})), true); loadStatus(); }
+  catch (e) { out("obs-out", {error: String(e)}, false); }
 }
 async function applyPreset(id) {
   out("preset-out", {status: "applying " + id + "…"}, true);
   try { renderApply("preset-out", await jpost("/api/studios/" + studio() + "/presets/" + id + "/apply", "{}")); loadActions(); }
+  catch (e) { out("preset-out", {error: String(e)}, false); }
+}
+async function snapHardware() {
+  const id = document.getElementById("snap-id").value.trim();
+  if (!id) { out("preset-out", {error: "preset id required"}, false); return; }
+  try { out("preset-out", await jpost("/api/studios/" + studio() + "/presets/from-hardware", JSON.stringify({preset_id: id})), true); loadPresets(); }
   catch (e) { out("preset-out", {error: String(e)}, false); }
 }
 async function loadActions() {
@@ -121,6 +165,8 @@ async function loadZones() {
       "<div><strong>" + x.label + "</strong> " +
       '<button onclick="zonePower(\'' + x.id + "',true)\">On</button>" +
       '<button onclick="zonePower(\'' + x.id + "',false)\">Off</button>" +
+      ' <label><input type="checkbox" ' + (x.autoStartObs ? "checked" : "") +
+      ' onchange="zoneObsAuto(\'' + x.id + '\',this.checked)"> Start OBS automatically after boot?</label>' +
       " <small>" + x.plugs.join(", ") + "</small></div>").join("");
   } catch (e) { document.getElementById("zones").textContent = "zones unavailable"; }
 }
@@ -130,6 +176,16 @@ async function zonePower(id, on) {
     const r = await jpost("/api/studios/" + studio() + "/zones/" + id + "/power", JSON.stringify({on}));
     out("zone-out", r, r.ok); loadActions();
   } catch (e) { out("zone-out", {error: String(e)}, false); }
+}
+async function zoneObsAuto(id, on) {
+  try {
+    const r = await fetch("/api/studios/" + studio() + "/zones/" + id + "/config",
+      {method: "PUT", headers: {"Content-Type": "application/json"}, body: JSON.stringify({autoStartObs: on})});
+    const j = await r.json();
+    if (!r.ok) throw new Error(JSON.stringify(j));
+    out("zone-out", j, true);
+  } catch (e) { out("zone-out", {error: String(e)}, false); }
+  loadZones();
 }
 async function powerAllOff() {
   const manual = document.getElementById("all-off-manual").checked;
@@ -191,30 +247,56 @@ async function loadScope() {
     document.getElementById("ai-scope-zones").innerHTML = zones.map((z) =>
       '<label><input type="checkbox" class="scope-zone" value="' + z + '" checked> ' + z + "</label> ").join("");
     document.getElementById("ai-scope-lights").innerHTML = devs
-      .filter((d) => d.type === "light" && d.controllable !== false).map((d) =>
+      .filter((d) => (d.type === "light" || d.type === "lightstrip") && d.controllable !== false).map((d) =>
       '<label><input type="checkbox" class="scope-light" value="' + d.id + '" checked> ' +
       (d.name || d.id) + "</label> ").join("");
     scopeRefresh();
   } catch (e) { /* scope stays empty = all */ }
 }
-function aiMic() {
+function aiMicError(code) {
+  const map = {
+    network: "speech service unreachable — Brave and hardened browsers block it; use Chrome or Edge over https, or type instead",
+    "not-allowed": "microphone blocked — allow it for this page (lock icon in the address bar), then retry",
+    "service-not-allowed": "microphone blocked — allow it for this page (lock icon in the address bar), then retry",
+    "no-speech": "heard nothing — speak right after clicking Mic",
+    "audio-capture": "no microphone found for the browser — check the OS mic, then Chrome's mic at chrome://settings/content/microphone",
+    aborted: "mic stopped",
+  };
+  return map[code] || ("mic: " + code);
+}
+async function aiMic() {
   const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
   if (!window.isSecureContext) {
     out("ai-out", {error: "mic needs a secure page: open the hub over https, or set Chrome flag unsafely-treat-insecure-origin-as-secure for this address"}, false);
     return;
   }
   if (!SR) { out("ai-out", {error: "voice input needs Chrome or Edge"}, false); return; }
+  try {
+    if (navigator.brave && await navigator.brave.isBrave()) {
+      out("ai-out", {error: "Brave provides no speech service — type the prompt instead"}, false);
+      return;
+    }
+  } catch (e) { /* detection failed; try the mic anyway */ }
   const rec = new SR();
   rec.lang = "en-US";
   rec.interimResults = false;
   rec.maxAlternatives = 1;
-  out("ai-out", {status: "listening…"}, true);
+  let heard = false;
+  const btn = document.getElementById("ai-mic");
+  out("ai-out", {status: "listening… speak now"}, true);
+  if (btn) btn.disabled = true;
   rec.onresult = (e) => {
+    heard = true;
     document.getElementById("ai-prompt").value = e.results[0][0].transcript;
+    if (document.getElementById("ai-mic-auto").checked) { aiLook(); return; }
     out("ai-out", {status: "heard — hit Direct to run it"}, true);
   };
-  rec.onerror = (e) => { out("ai-out", {error: "mic: " + e.error}, false); };
-  rec.start();
+  rec.onerror = (e) => { out("ai-out", {error: aiMicError(e.error)}, false); };
+  rec.onend = () => {
+    if (btn) btn.disabled = false;
+    if (!heard) out("ai-out", {status: "mic stopped — nothing heard"}, true);
+  };
+  try { rec.start(); } catch (e) { out("ai-out", {error: aiMicError("audio-capture")}, false); }
 }
 async function aiLook() {
   const body = JSON.stringify({prompt: document.getElementById("ai-prompt").value,
@@ -253,9 +335,9 @@ async function aiSave() {
     const s = await jget("/api/studios");
     const sel = document.getElementById("studio");
     sel.innerHTML = s.map(x => "<option value=\"" + x.id + "\">" + x.label + "</option>").join("");
-    sel.onchange = () => { STUDIO = sel.value; loadModes(); loadPresets(); loadShows(); loadActions(); loadScope(); loadZones(); };
+    sel.onchange = () => { STUDIO = sel.value; loadModes(); loadPresets(); loadShows(); loadActions(); loadScope(); loadZones(); loadStatus(); };
     STUDIO = (s.find(x => x.id === "home-studio") || s[0] || {}).id || null;
-    if (STUDIO) { sel.value = STUDIO; loadModes(); loadPresets(); loadShows(); loadActions(); loadScope(); loadZones(); }
+    if (STUDIO) { sel.value = STUDIO; loadModes(); loadPresets(); loadShows(); loadActions(); loadScope(); loadZones(); loadStatus(); }
     if (!(window.SpeechRecognition || window.webkitSpeechRecognition)) {
       const mic = document.getElementById("ai-mic");
       if (mic) { mic.disabled = true; mic.title = "voice input needs Chrome or Edge"; }

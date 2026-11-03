@@ -1,8 +1,8 @@
 {
   "id": "viltrox-ninja-400",
   "kind": "light",
-  "spec": {"maxWatts": 400, "bicolor": true, "intensityRange": [0, 100], "cctRange": [2500, 8500]},
+  "spec": {"maxWatts": 150, "bicolor": true, "intensityRange": [0, 100], "cctRange": [2500, 8500], "cri": 95, "lumens": 12750},
   "capabilities": {"intensity": true, "cct": true, "rgb": false, "dmx": true, "ble": true},
   "effects": [{"name": "steady", "photoRisk": "none"}, {"name": "Flash", "photoRisk": "intense"}, {"name": "Burst", "photoRisk": "intense"}, {"name": "Flash lamp", "photoRisk": "intense"}, {"name": "Blink", "photoRisk": "intense"}, {"name": "Weld", "photoRisk": "intense"}, {"name": "SOS", "photoRisk": "intense"}, {"name": "Candlelight", "photoRisk": "intense"}, {"name": "Flame", "photoRisk": "intense"}, {"name": "CCT LOOP", "photoRisk": "intense"}, {"name": "TV", "photoRisk": "intense"}],
-  "notes": "Bi-color COB with RJ45 DMX. Bench-verified: 2ch (dimmer, CCT 0=2500K..255=8500K linear); display floors (25->9, 26->10). B-SWAP candidate for PC key. BLE broadcast control (capture-verified Nov 2026, see docs/ninja-ble.md): brightness 0-100, CCT 2500-8500 step 100."
+  "notes": "150W bi-color COB (Mark I, 2500-8500K, CRI 95). Bench-verified: 2ch DMX (dimmer, CCT 0=2500K..255=8500K, only 0/128/255 anchored); display floors (25->9, 26->10). BLE broadcast control (capture-verified Nov 2026, see docs/ninja-ble.md): brightness 0-100, CCT 2500-8500 step 100. Vendor dial bottoms at 20%; BLE/DMX drive 0-100."
 }

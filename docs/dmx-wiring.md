@@ -32,8 +32,16 @@ it. Our working cable was built from a T-568B cable with one custom end:
 
 > **TO CONFIRM — exact custom crimp order.** The working cable's custom
 > end was built and verified live, but its full 8-wire order was never
-> written down. Re-meter it (procedure below) and replace this note with
-> the measured pin→wire table before rebuilding from this doc alone.
+> metered into a pin→wire table. Re-meter it (procedure below) and replace
+> this note with the measured table before rebuilding from this doc alone.
+>
+> Build notes (unconfirmed — do not trust without metering): the working
+> end was intended as fixture-end 1=brown (D+), 2=white-brown (D−),
+> 7=green (GND), adapter end plain T-568B, daisy-chain links plain
+> straight CAT5, cable labeled DMX-ONLY. The first attempt miswired
+> (ground landed on an unused pin, fixture got no ground); the re-crimp
+> targets brown→1, white-brown→2, green→7. If a fresh build stays silent,
+> try swapping the data pair (polarity) before anything else.
 
 ## Continuity procedure (multimeter)
 
@@ -52,7 +60,10 @@ end to compensate — the fixture end must always land on 1/2/7.
 
 - Ninja 400 (bi-color 2500–8500K): dimmer = DMX ch 1, CCT = ch 2.
 - Ninja 20 (fixed 5600K): dimmer = DMX ch 20.
-- CCT is linear: 0 = 2500K, 255 = 8500K.
+- CCT encoding: 0 = 2500K, 255 = 8500K, 128 ≈ 5500K verified; midpoints
+  between those three points are UNCALIBRATED (on-screen readout is known
+  inaccurate away from them). Treat the map as three anchored points, not a
+  proven-straight line.
 - The on-screen % readout **floors**: DMX 25 reads 9, DMX 26 reads 10
   (nominal 10%). The driver converts accordingly.
 

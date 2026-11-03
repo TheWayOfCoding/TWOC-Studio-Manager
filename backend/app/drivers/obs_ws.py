@@ -10,6 +10,7 @@ stays unimplemented (module enforces confirmation first).
 import base64
 import hashlib
 import json
+import time
 
 from .base import Driver, DriverResult
 
@@ -31,7 +32,7 @@ class ObsWsDriver(Driver):
 
     def __init__(
         self, driver_id, host="127.0.0.1", port=DEFAULT_PORT, password=None, client=None,
-        timeout=DEFAULT_TIMEOUT,
+        timeout=DEFAULT_TIMEOUT, connect_attempts=1, connect_delay_s=2.0, sleep=time.sleep,
     ):
         super().__init__(driver_id)
         self.host = host
@@ -39,6 +40,9 @@ class ObsWsDriver(Driver):
         self.password = password
         self._client = client
         self.timeout = timeout
+        self.connect_attempts = max(int(connect_attempts), 1)
+        self.connect_delay_s = connect_delay_s
+        self._sleep = sleep
 
     def capabilities(self):
         return {
@@ -84,6 +88,14 @@ class ObsWsDriver(Driver):
                 return DriverResult(ok=False, error='stream needs "start"|"stop"')
             if action == "stream-status":
                 return DriverResult(ok=True, state=client.call("GetStreamStatus", {}))
+            if action == "collections":
+                return DriverResult(ok=True, state=client.call("GetSceneCollectionList", {}))
+            if action == "collection":
+                name = command.get("collection")
+                if not name:
+                    return DriverResult(ok=False, error="collection needs a collection name")
+                client.call("SetCurrentSceneCollection", {"sceneCollectionName": name})
+                return DriverResult(ok=True, state={"collection": name})
             return DriverResult(ok=False, error=f"unknown obs action: {action}")
         except Exception as exc:  # noqa: BLE001 - drivers report, never raise
             return DriverResult(ok=False, error=str(exc))
@@ -108,9 +120,18 @@ class ObsWsDriver(Driver):
             return DriverResult(ok=False, error=str(exc))
 
     def _connected_client(self):
-        if self._client is None:
-            self._client = _default_client(self.host, self.port, self.password, self.timeout)
-        return self._client
+        if self._client is not None:
+            return self._client
+        last_error = None
+        for attempt in range(self.connect_attempts):
+            try:
+                self._client = _default_client(self.host, self.port, self.password, self.timeout)
+                return self._client
+            except Exception as exc:  # noqa: BLE001 - retried, last one raises below
+                last_error = exc
+                if attempt < self.connect_attempts - 1:
+                    self._sleep(self.connect_delay_s)
+        raise last_error
 
 
 def _auth_secret(password, salt, challenge):

@@ -11,6 +11,7 @@ from app.ai.director import apply_look, build_manifest, critique
 from app.ai.mock import MockProvider
 from app.config.loader import load_all
 from app.drivers.mock import MockDriver
+from app.drivers.ninja_ble import NinjaBleDriver
 from app.modules.modes import ModesError, ModesModule
 from app.registry import Registry
 
@@ -290,3 +291,90 @@ def test_manifest_lists_screen_devices():
     manifest = build_manifest(StubRegistry())
     assert manifest["screens"] == ["wall"]
     assert sorted(manifest["lights"]) == ["lamp"]
+
+
+@pytest.mark.unit
+def test_manifest_includes_ninja_light(modes):
+    """A controllable Ninja light joins the manifest with its baseline + cap."""
+    modes.registry._devices["ninja-x"] = {
+        "id": "ninja-x",
+        "name": "Ninja X",
+        "type": "light",
+        "zone": "pc",
+        "profile": "viltrox-ninja-10",
+        "controllable": True,
+        "driver": "ninja",
+        "driverAddress": {"channel": 3, "group": "A"},
+        "usual": {"intensity": 7},
+        "aiCap": {"intensity": 10},
+    }
+    manifest = build_manifest(modes.registry)
+    assert manifest["lights"]["ninja-x"]["usual"] == {"intensity": 7}
+    assert manifest["lights"]["ninja-x"]["aiCap"] == {"intensity": 10}
+    modes.registry._devices["ninja-x"]["controllable"] = False
+    assert "ninja-x" not in build_manifest(modes.registry)["lights"]
+
+
+@pytest.mark.unit
+def test_ai_look_reaches_ninja_light():
+    """End to end: mock directs half the usual, the translator broadcasts it."""
+    profiles = {
+        "ninja-fixed": {
+            "spec": {"intensityRange": [0, 100], "fixedTemp": True, "colorTempK": 5600},
+            "capabilities": {"intensity": True, "cct": False, "rgb": False, "ble": True},
+        }
+    }
+    loaded = {
+        "studio": {"id": "s", "label": "s"},
+        "devices": [
+            {
+                "id": "nx",
+                "name": "NX",
+                "type": "light",
+                "zone": "pc",
+                "profile": "ninja-fixed",
+                "controllable": True,
+                "driver": "ninja",
+                "driverAddress": {"channel": 3, "group": "A"},
+                "usual": {"intensity": 8},
+                "aiCap": {"intensity": 10},
+            }
+        ],
+        "zones": [{"id": "pc"}],
+        "modes": [],
+        "presets": {},
+    }
+    module = ModesModule(
+        "modes",
+        Registry.from_loaded(loaded, profiles),
+        lights={"nx": NinjaBleDriver("nx", 3, "A", backend="mock")},
+    )
+    outcome = apply_look(MockProvider(), module, "cozy", "lights")
+    assert outcome["directives"]["lights"] == {"nx": {"intensity": 4}}
+    assert outcome["apply"]["subsystems"]["lights"]["status"] == "ready"
+    assert module.lights["nx"].look["brightness"] == 4
+
+
+@pytest.mark.unit
+def test_manifest_and_scope_include_lightstrip(modes):
+    """The IR strip joins the manifest and zone scopes like any light."""
+    from types import SimpleNamespace
+
+    from app.api.ai import _resolve_scope
+
+    modes.registry._devices["strip"] = {
+        "id": "strip",
+        "name": "Strip",
+        "type": "lightstrip",
+        "zone": "pc",
+        "profile": "bytech-strip",
+        "controllable": True,
+        "driver": "ir",
+    }
+    manifest = build_manifest(modes.registry)
+    assert manifest["lights"]["strip"]["capabilities"]["rgb"] is True
+    zone = modes.registry.zone_ids[0]
+    modes.registry._devices["strip"]["zone"] = zone
+    body = SimpleNamespace(scope_mode="zones", scope_zones=[zone], scope_lights=[])
+    allowed, _ = _resolve_scope(modes.registry, body)
+    assert "strip" in allowed

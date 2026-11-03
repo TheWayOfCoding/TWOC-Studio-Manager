@@ -26,3 +26,6 @@ pytest-of-*/
 
 # Local portable OBS copy (hundreds of MB, machine-specific).
 Portable-OBS/
+
+# PC-link listener config (local device names + launch paths).
+tools/pc-link/local.json

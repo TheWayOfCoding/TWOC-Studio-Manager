@@ -12,9 +12,11 @@ from app.modules.obsshow import ObsModuleError, ObsShowModule
 class FakeObsClient:
     """Scripted OBS WebSocket v5 peer."""
 
-    def __init__(self, scenes=("Main", "BRB"), fail_on=()):
+    def __init__(self, scenes=("Main", "BRB"), fail_on=(), collections=("Untitled", "ScottyPhoton")):
         self.scenes = list(scenes)
         self.current = self.scenes[0] if self.scenes else None
+        self.collections = list(collections)
+        self.current_collection = self.collections[0] if self.collections else None
         self.streaming = False
         self.calls = []
         self.fail_on = set(fail_on)
@@ -33,6 +35,17 @@ class FakeObsClient:
             if name not in self.scenes:
                 raise KeyError(f"no scene {name}")
             self.current = name
+            return {}
+        if request == "GetSceneCollectionList":
+            return {
+                "sceneCollections": list(self.collections),
+                "currentSceneCollectionName": self.current_collection,
+            }
+        if request == "SetCurrentSceneCollection":
+            name = data["sceneCollectionName"]
+            if name not in self.collections:
+                raise KeyError(f"no collection {name}")
+            self.current_collection = name
             return {}
         if request == "StartStream":
             self.streaming = True
@@ -78,11 +91,74 @@ def test_switch_rejects_empty_name(module):
 
 
 @pytest.mark.unit
+def test_list_and_set_collection(module):
+    listed = module.list_collections()
+    assert listed.ok is True
+    assert listed.state["sceneCollections"] == ["Untitled", "ScottyPhoton"]
+    assert listed.state["currentSceneCollectionName"] == "Untitled"
+    switched = module.set_collection("ScottyPhoton")
+    assert switched.ok is True
+    assert switched.state == {"collection": "ScottyPhoton"}
+    assert module.list_collections().state["currentSceneCollectionName"] == "ScottyPhoton"
+    with pytest.raises(ObsModuleError, match="collection name"):
+        module.set_collection("")
+
+
+@pytest.mark.unit
 def test_driver_reports_connection_failure():
     driver = ObsWsDriver("obs", "obs-pc", client=FakeObsClient(fail_on=("GetSceneList",)))
     result = ObsShowModule("obs", {"ws": driver}).list_scenes()
     assert result.ok is False
     assert "boom" in result.error
+
+
+@pytest.mark.unit
+def test_connect_retries_then_succeeds(monkeypatch):
+    import app.drivers.obs_ws as obs_ws
+
+    attempts, sleeps = [], []
+
+    def flaky(host, port, password, timeout=10):
+        attempts.append(1)
+        if len(attempts) < 3:
+            raise ConnectionError("refused")
+        return FakeObsClient()
+
+    monkeypatch.setattr(obs_ws, "_default_client", flaky)
+    driver = ObsWsDriver("obs", "obs-pc", connect_attempts=4, connect_delay_s=2.0, sleep=sleeps.append)
+    result = driver.apply({"action": "switch", "scene": "BRB"})
+    assert result.ok
+    assert result.state == {"scene": "BRB"}
+    assert len(attempts) == 3
+    assert sleeps == [2.0, 2.0]
+
+
+@pytest.mark.unit
+def test_connect_exhaustion_reports_last_error(monkeypatch):
+    import app.drivers.obs_ws as obs_ws
+
+    def down(host, port, password, timeout=10):
+        raise ConnectionError("down")
+
+    sleeps = []
+    monkeypatch.setattr(obs_ws, "_default_client", down)
+    driver = ObsWsDriver("obs", "obs-pc", connect_attempts=3, sleep=sleeps.append)
+    result = driver.apply({"action": "switch", "scene": "BRB"})
+    assert result.ok is False
+    assert "down" in result.error
+    assert sleeps == [2.0, 2.0]
+
+
+@pytest.mark.unit
+def test_connect_default_single_attempt(monkeypatch):
+    import app.drivers.obs_ws as obs_ws
+
+    attempts, sleeps = [], []
+    monkeypatch.setattr(obs_ws, "_default_client", lambda *a, **k: attempts.append(1) or FakeObsClient())
+    driver = ObsWsDriver("obs", "obs-pc", sleep=sleeps.append)
+    assert driver.apply({"action": "switch", "scene": "BRB"}).ok
+    assert len(attempts) == 1
+    assert sleeps == []
 
 
 @pytest.mark.unit

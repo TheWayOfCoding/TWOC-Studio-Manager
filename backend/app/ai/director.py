@@ -20,7 +20,7 @@ def build_manifest(registry):
         if device.get("driver") == "screen":
             screens.append(device_id)
             continue
-        if device.get("type") != "light" or not device.get("controllable", True):
+        if device.get("type") not in ("light", "lightstrip") or not device.get("controllable", True):
             continue
         try:
             merged = registry.effective_device(device_id)

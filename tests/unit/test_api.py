@@ -227,6 +227,126 @@ def test_modes_list():
         ("demo_stream", "Demo Stream"),
         ("demo_work", "Demo Work"),
     ]
+    assert [item["powersOff"] for item in body["modes"]] == [False, False]
+
+
+@contextmanager
+def _powers_off_registries():
+    """One studio with a power-off mode and a plain mode."""
+    studio = {"id": "s1", "label": "S1"}
+    modes = [
+        {"id": "off", "label": "Off", "powerOff": ["g"]},
+        {"id": "on", "label": "On"},
+    ]
+    registries = app.state.registries
+    saved = dict(registries)
+    registries.clear()
+    registries["s1"] = Registry(studio, [], [], modes, {}, {})
+    try:
+        yield
+    finally:
+        registries.clear()
+        registries.update(saved)
+
+
+@pytest.mark.unit
+def test_modes_list_flags_power_off_modes():
+    """Modes list marks power-off modes so clients can see which cut power."""
+    with _powers_off_registries():
+        response = client.get("/api/studios/s1/modes")
+        assert response.status_code == 200
+        flags = {item["id"]: item["powersOff"] for item in response.json()["modes"]}
+        assert flags == {"off": True, "on": False}
+
+
+@contextmanager
+def _mode_power_registries():
+    """One studio with an auto and a manual-only plug behind a powerOff mode."""
+    studio = {"id": "s1", "label": "S1"}
+    devices = [
+        {
+            "id": "lamp",
+            "name": "Lamp",
+            "type": "light",
+            "zone": "z",
+            "powerGroup": "g-auto",
+            "powerPlug": "plug-1",
+            "powerOffPolicy": "auto",
+        },
+        {
+            "id": "rig",
+            "name": "Rig",
+            "type": "camera",
+            "zone": "z",
+            "powerGroup": "g-safe",
+            "powerPlug": "plug-2",
+            "powerOffPolicy": "manual-only",
+        },
+    ]
+    zones = [{"id": "z", "name": "Z"}]
+    modes = [{"id": "off", "label": "Off", "powerOff": ["g-auto", "g-safe"]}]
+    registries = app.state.registries
+    saved = dict(registries)
+    registries.clear()
+    registries["s1"] = Registry(studio, devices, zones, modes, {}, {})
+    try:
+        yield
+    finally:
+        registries.clear()
+        registries.update(saved)
+
+
+@pytest.mark.unit
+def test_mode_apply_include_manual_cuts_protected(monkeypatch):
+    """Mode apply holds protected zones by default; the flag cuts them."""
+    from app.drivers.mock import MockDriver
+
+    drivers = {plug: MockDriver(plug) for plug in ("plug-1", "plug-2")}
+    monkeypatch.setattr("app.api.modes._plug_drivers", lambda registry, root: drivers)
+    with _mode_power_registries():
+        default = client.post("/api/studios/s1/modes/off/apply", json={})
+        assert default.status_code == 200
+        power = default.json()["subsystems"]["power"]
+        assert power["status"] == "ready"
+        assert power["protected"] == [
+            {"device": "rig", "plug": "plug-2", "reason": "manual-only (tick the box to include)"}
+        ]
+        assert drivers["plug-1"].state["on"] is False
+        assert "on" not in drivers["plug-2"].state
+        forced = client.post("/api/studios/s1/modes/off/apply", json={"include_manual": True})
+        assert forced.status_code == 200
+        assert forced.json()["subsystems"]["power"]["protected"] == []
+        assert drivers["plug-2"].state["on"] is False
+        bad = client.post("/api/studios/s1/modes/off/apply", json={"include_manual": "yes"})
+        assert bad.status_code == 422
+
+
+@pytest.mark.unit
+def test_mode_apply_kicks_obs_boot(monkeypatch):
+    """Mode applies wire the boot starter through to flagged modes."""
+    from app.api import modes as modes_api
+    from app.drivers.mock import MockDriver
+
+    drivers = {plug: MockDriver(plug) for plug in ("plug-1", "plug-2", "plug-3")}
+    monkeypatch.setattr(modes_api, "_plug_drivers", lambda registry, root: drivers)
+    seen = {}
+    monkeypatch.setattr(
+        modes_api,
+        "boot_try_start",
+        lambda request, studio, scene=None, collection=None: seen.update(studio=studio, scene=scene)
+        or ({"id": "job2", "state": "pinging", "scene": scene or "Face Full View"}, True),
+    )
+    registry = app.state.registries["example-studio"]
+    mode = registry.get_mode("demo_stream")
+    mode["autoStartObs"] = True
+    try:
+        body = client.post("/api/studios/example-studio/modes/demo_stream/apply", json={}).json()
+        obs = body["subsystems"]["obs"]
+        assert obs["status"] == "skipped"
+        assert obs["boot_job"] == "job2"
+        assert seen == {"studio": "example-studio", "scene": "Demo - Main"}
+    finally:
+        mode.pop("autoStartObs", None)
 
 
 @pytest.mark.unit
@@ -314,8 +434,9 @@ def test_obs_applier_scoped_per_studio_and_disconnects(tmp_path, monkeypatch):
     made = {}
 
     class FakeObs:
-        def __init__(self, driver_id, host, port, password):
+        def __init__(self, driver_id, host, port, password, **kwargs):
             made["ctor"] = (driver_id, host, port, password)
+            made["window"] = (kwargs.get("connect_attempts"), kwargs.get("connect_delay_s"))
             self.closed = False
 
         def apply(self, command):
@@ -342,6 +463,7 @@ def test_obs_applier_scoped_per_studio_and_disconnects(tmp_path, monkeypatch):
     assert made["ctor"] == ("obs-modes", "192.0.2.9", 4455, "pw")
     assert made["apply"] == {"action": "switch", "scene": "Main"}
     assert made["closed"] is True
+    assert made["window"] == (8, 2.0)  # modes wait out an OBS launch
 
     other = dict(loaded, studio={"id": "y", "label": "Y"})
     assert modes_api._obs_applier(Registry.from_loaded(other, {}), tmp_path) is None
@@ -462,65 +584,86 @@ def test_modes_apply_power_delay_accepted_and_validated():
 
 
 @pytest.mark.unit
-def test_modes_apply_home_hands_on_drives_dmx(monkeypatch):
-    """hands_on sets both DMX fixtures (stub universe, plugs unwired: no hardware)."""
+def test_modes_apply_home_hands_on_drives_ninja_ble(monkeypatch):
+    """hands_on sets both Ninja fixtures over BLE (mock advertisers, no radio)."""
     from app.api import modes as modes_api
-    from app.drivers.dmx_usb import dmx_for_cct, dmx_for_percent
+    from app.drivers.ninja_ble import NinjaBleDriver
 
-    stub = StubUniverse()
     FakeGvm.instances = {}
+    mock_drivers = {}
+
+    def fake_shared(channel, group, default_cct=None, mock=False, repeats=2):
+        key = (channel, str(group).upper())
+        if key not in mock_drivers:
+            driver = NinjaBleDriver(
+                f"ninja-ble-{channel}-{group}", channel, group, backend="mock"
+            )
+            if default_cct is not None:
+                driver.seed_default_cct(default_cct)
+            mock_drivers[key] = driver
+        return mock_drivers[key]
+
     monkeypatch.setattr(modes_api, "_plug_drivers", lambda registry, root: {})
     monkeypatch.setattr(modes_api, "_obs_applier", lambda registry, root: None)
     monkeypatch.setattr(modes_api, "_screens_applier", lambda registry: None)
-    monkeypatch.setattr(modes_api, "get_shared_driver", lambda port=None: stub)
     monkeypatch.setattr(modes_api, "GvmBleDriver", FakeGvm)
+    monkeypatch.setattr(modes_api, "shared_driver", fake_shared)
     response = client.post("/api/studios/home-studio/modes/hands_on/apply")
     assert response.status_code == 200
     lights = response.json()["subsystems"]["lights"]
     assert lights["status"] == "ready"
-    assert stub.channels == {
-        1: dmx_for_percent(2),
-        2: dmx_for_cct(5600, 2500, 8500),
-        20: dmx_for_percent(2),
+    assert mock_drivers[(3, "B")].look == {
+        "brightness": 2, "cct": 5600, "gm": 0, "preset": None, "scene": None,
     }
+    assert mock_drivers[(3, "C")].look["brightness"] == 2
     assert FakeGvm.instances["gvm-ho"].calls == [{"brightness": 5}, {"cct": 5000}]
     faded = client.post("/api/studios/home-studio/modes/hands_on/apply", json={"fade_s": 0.5})
     assert faded.status_code == 200
-    assert faded.json()["subsystems"]["lights"]["status"] == "ready"
-    assert ("fade", {1: 2}, "percent", 0.5) in stub.calls
-    assert ("fade", {20: 2}, "percent", 0.5) in stub.calls
+    faded_lights = faded.json()["subsystems"]["lights"]
+    assert faded_lights["status"] == "ready"
+    assert any("ninja-400" in item["reason"] for item in faded_lights["notes"])
+    assert any("ninja-20" in item["reason"] for item in faded_lights["notes"])
 
 
 @pytest.mark.unit
-def test_build_modes_module_wires_home_dmx_without_http(monkeypatch):
+def test_build_modes_module_wires_home_ninja_without_http(monkeypatch):
     """Same hands_on path through the module directly (runs socket-free)."""
     from app.api import modes as modes_api
     from app.config.loader import load_all
-    from app.drivers.dmx_usb import dmx_for_cct, dmx_for_percent
+    from app.drivers.ninja_ble import NinjaBleDriver
     from app.registry import Registry as RegistryCls
 
     data = load_all(CONFIG_ROOT)
     registry = RegistryCls.from_loaded(data["studios"]["home-studio"], data["profiles"])
     stub = StubUniverse()
     FakeGvm.instances = {}
+    mock_drivers = {}
+
+    def fake_shared(channel, group, default_cct=None, mock=False, repeats=2):
+        key = (channel, str(group).upper())
+        if key not in mock_drivers:
+            mock_drivers[key] = NinjaBleDriver(
+                f"ninja-ble-{channel}-{group}", channel, group, backend="mock"
+            )
+        return mock_drivers[key]
+
     monkeypatch.setattr(modes_api, "_plug_drivers", lambda reg, root: {})
     monkeypatch.setattr(modes_api, "_obs_applier", lambda reg, root: None)
     monkeypatch.setattr(modes_api, "_screens_applier", lambda reg: None)
     monkeypatch.setattr(modes_api, "get_shared_driver", lambda port=None: stub)
     monkeypatch.setattr(modes_api, "GvmBleDriver", FakeGvm)
+    monkeypatch.setattr(modes_api, "shared_driver", fake_shared)
     module = modes_api.build_modes_module(registry, CONFIG_ROOT)
     result = module.apply_mode("hands_on", sleep=lambda s: None)
     assert result["subsystems"]["lights"]["status"] == "ready"
-    assert stub.channels == {
-        1: dmx_for_percent(2),
-        2: dmx_for_cct(5600, 2500, 8500),
-        20: dmx_for_percent(2),
-    }
+    assert stub.channels == {}  # DMX universe untouched: fixtures are BLE-primary
+    assert mock_drivers[(3, "B")].look["brightness"] == 2
+    assert mock_drivers[(3, "B")].look["cct"] == 5600
+    assert mock_drivers[(3, "C")].look["brightness"] == 2
     assert FakeGvm.instances["gvm-ho"].calls == [{"brightness": 5}, {"cct": 5000}]
     faded = module.apply_mode("hands_on", sleep=lambda s: None, fade_s=0.5)
     assert faded["subsystems"]["lights"]["status"] == "ready"
-    assert ("fade", {1: 2}, "percent", 0.5) in stub.calls
-    assert ("fade", {20: 2}, "percent", 0.5) in stub.calls
+    assert any("ninja-400" in item["reason"] for item in faded["subsystems"]["lights"]["notes"])
 
 
 @pytest.mark.unit
@@ -1144,6 +1287,7 @@ def test_zones_list():
     assert sorted(zones) == ["bench", "desk"]
     assert zones["bench"]["groups"] == ["bench-power"]
     assert sorted(zones["bench"]["plugs"]) == ["plug-1", "plug-2"]
+    assert zones["bench"]["autoStartObs"] is False
     assert client.get("/api/studios/nope/zones").status_code == 404
 
 
@@ -1157,8 +1301,97 @@ def test_zone_power_switches(monkeypatch):
     off = client.post("/api/studios/example-studio/zones/bench/power", json={"on": False})
     assert off.status_code == 200
     assert off.json()["ok"] is True
+    assert off.json()["obs_boot"] is None
     assert drivers["plug-1"].state["on"] is False
     assert client.post("/api/studios/example-studio/zones/nope/power", json={"on": True}).status_code == 404
+
+
+@contextmanager
+def _tmp_zone_studio(tmp_path):
+    """Real app pointed at a tmp config root with one local studio (id "x")."""
+    import json as json_lib
+    import shutil
+
+    from app.config.loader import load_all
+    from app.registry import Registry
+
+    config_root = Path(__file__).resolve().parents[2] / "config"
+    shutil.copytree(config_root / "profiles", tmp_path / "profiles")
+    studio_dir = tmp_path / "studios.local" / "x"
+    shutil.copytree(config_root / "studios" / "example-studio", studio_dir)
+    meta_path = studio_dir / "studio.json"
+    meta = json_lib.loads(meta_path.read_text(encoding="utf-8"))
+    meta["id"] = "x"
+    meta_path.write_text(json_lib.dumps(meta), encoding="utf-8")
+
+    data = load_all(tmp_path)
+    saved = (app.state.config_root, dict(app.state.registries))
+    app.state.config_root = tmp_path
+    app.state.registries = {"x": Registry.from_loaded(data["studios"]["x"], data["profiles"])}
+    try:
+        yield studio_dir
+    finally:
+        app.state.config_root, registries = saved
+        app.state.registries.clear()
+        app.state.registries.update(registries)
+
+
+@pytest.mark.unit
+def test_zone_config_save_roundtrip(tmp_path):
+    import json as json_lib
+
+    with _tmp_zone_studio(tmp_path) as studio_dir:
+        assert client.get("/api/studios/x/zones").json()["zones"][0]["autoStartObs"] is False
+        saved = client.put("/api/studios/x/zones/bench/config", json={"autoStartObs": True})
+        assert saved.status_code == 200
+        assert saved.json() == {"zone": "bench", "autoStartObs": True}
+        zones = {zone["id"]: zone for zone in client.get("/api/studios/x/zones").json()["zones"]}
+        assert zones["bench"]["autoStartObs"] is True
+        stored = json_lib.loads((studio_dir / "zones.json").read_text(encoding="utf-8"))
+        assert [item for item in stored if item["id"] == "bench"][0]["autoStartObs"] is True
+        assert client.put("/api/studios/x/zones/nope/config", json={"autoStartObs": True}).status_code == 404
+        assert client.put("/api/studios/nope/zones/bench/config", json={"autoStartObs": True}).status_code == 404
+
+
+@pytest.mark.unit
+def test_zone_config_refuses_tracked_studios():
+    assert client.put("/api/studios/example-studio/zones/bench/config", json={"autoStartObs": True}).status_code == 422
+
+
+@pytest.mark.unit
+def test_zone_power_kicks_obs_boot(monkeypatch):
+    from app.api import power as power_api
+    from app.drivers.mock import MockDriver
+
+    drivers = {plug: MockDriver(plug) for plug in ("plug-1", "plug-2", "plug-3")}
+    monkeypatch.setattr(power_api, "_plug_drivers", lambda registry, root: drivers)
+    seen = {}
+    monkeypatch.setattr(
+        power_api,
+        "boot_try_start",
+        lambda request, studio, scene=None: seen.update(studio=studio, scene=scene)
+        or ({"id": "job1", "state": "pinging", "scene": "Face Full View"}, True),
+    )
+    registry = app.state.registries["example-studio"]
+    zone = registry.get_zone("bench")
+    zone["autoStartObs"] = True
+    try:
+        on = client.post("/api/studios/example-studio/zones/bench/power", json={"on": True})
+        assert on.status_code == 200
+        assert on.json()["obs_boot"] == {"job": "job1", "started": True, "state": "pinging", "scene": "Face Full View"}
+        assert seen == {"studio": "example-studio", "scene": None}
+        off = client.post("/api/studios/example-studio/zones/bench/power", json={"on": False})
+        assert off.json()["obs_boot"] is None
+    finally:
+        zone.pop("autoStartObs", None)
+
+
+@pytest.mark.unit
+def test_zone_power_off_refuses_protected():
+    """Zone-off on a manual-only zone is an honest 422, never a 500."""
+    response = client.post("/api/studios/example-studio/zones/desk/power", json={"on": False})
+    assert response.status_code == 422
+    assert "refusing auto power-off of demo-screen" in response.json()["detail"]
 
 
 @pytest.mark.unit
@@ -1197,12 +1430,46 @@ def test_obs_status_reports(monkeypatch):
         def stream_status(self):
             return DriverResult(ok=True, state={"outputActive": False})
 
+        def list_collections(self):
+            return DriverResult(
+                ok=True,
+                state={"sceneCollections": ["Untitled", "ScottyPhoton"], "currentSceneCollectionName": "Untitled"},
+            )
+
     monkeypatch.setattr(obs_api, "_studio_obs", lambda root, studio: (StubObsModule(), "BRB"))
     body = client.get("/api/studios/example-studio/obs/status").json()
     assert body["configured"] is True
     assert body["connected"] is True
     assert body["current"] == "Main"
     assert body["streaming"] is False
+    assert body["collection"] == "Untitled"
+    assert body["collections"] == ["Untitled", "ScottyPhoton"]
+
+
+@pytest.mark.unit
+def test_obs_status_skips_followups_when_down(monkeypatch):
+    """One refused probe answers status; stream/collections are not retried."""
+    from app.api import obs as obs_api
+    from app.drivers.base import DriverResult
+
+    class StubObsModule:
+        def list_scenes(self):
+            return DriverResult(ok=False, state={}, error="refused")
+
+        def stream_status(self):
+            raise AssertionError("must not be called when scenes fail")
+
+        def list_collections(self):
+            raise AssertionError("must not be called when scenes fail")
+
+    monkeypatch.setattr(obs_api, "_studio_obs", lambda root, studio: (StubObsModule(), None))
+    body = client.get("/api/studios/example-studio/obs/status").json()
+    assert body["connected"] is False
+    assert body["current"] is None
+    assert body["streaming"] is None
+    assert body["scenes"] == []
+    assert body["collection"] is None
+    assert body["collections"] == []
     monkeypatch.setattr(obs_api, "_studio_obs", lambda root, studio: None)
     assert client.get("/api/studios/example-studio/obs/status").json()["configured"] is False
     assert client.get("/api/studios/nope/obs/status").status_code == 404
@@ -1234,6 +1501,31 @@ def test_obs_switch_uses_safe_fallback(monkeypatch):
 
 
 @pytest.mark.unit
+def test_obs_collection_switches(monkeypatch):
+    from app.api import obs as obs_api
+    from app.drivers.base import DriverResult
+
+    class StubObsModule:
+        def __init__(self):
+            self.seen = None
+
+        def set_collection(self, collection):
+            self.seen = collection
+            return DriverResult(ok=True, state={"collection": collection})
+
+    stub = StubObsModule()
+    monkeypatch.setattr(obs_api, "_studio_obs", lambda root, studio: (stub, None))
+    switched = client.post("/api/studios/example-studio/obs/collection", json={"collection": "ScottyPhoton"})
+    assert switched.status_code == 200
+    assert switched.json()["state"] == {"collection": "ScottyPhoton"}
+    assert stub.seen == "ScottyPhoton"
+    monkeypatch.setattr(obs_api, "_studio_obs", lambda root, studio: None)
+    assert (
+        client.post("/api/studios/example-studio/obs/collection", json={"collection": "X"}).status_code == 422
+    )
+
+
+@pytest.mark.unit
 def test_obs_stream_guarded(monkeypatch):
     from app.api import obs as obs_api
     from app.core.safety import SafetyViolation
@@ -1255,6 +1547,94 @@ def test_obs_stream_guarded(monkeypatch):
     started = client.post(base, json={"action": "start", "confirmed": True})
     assert started.status_code == 200
     assert started.json()["state"] == {"streaming": True}
+
+
+@contextmanager
+def _clean_boot_state():
+    """Isolate boot-job tests from the app-global job store."""
+    jobs = app.state.__dict__.setdefault("boot_jobs", {})
+    stops = app.state.__dict__.setdefault("boot_stops", {})
+    saved_jobs, saved_stops = dict(jobs), dict(stops)
+    jobs.clear()
+    stops.clear()
+    try:
+        yield
+    finally:
+        jobs.clear()
+        stops.clear()
+        jobs.update(saved_jobs)
+        stops.update(saved_stops)
+
+
+@pytest.mark.unit
+def test_obs_boot_lifecycle(monkeypatch):
+    import threading
+    import time
+
+    from app.api import obs as obs_api
+
+    proceed = threading.Event()
+
+    def fake_run(job, link, obs_set, sleep=None, stop=None, cfg=None, collect_set=None):
+        assert stop is not None and proceed.wait(timeout=10)
+        job["state"] = "ready"
+        return job
+
+    monkeypatch.setattr(obs_api, "run_boot", fake_run)
+    base = "/api/studios/example-studio/obs/boot"
+    with _clean_boot_state():
+        assert client.get(base + "/status").status_code == 404
+        assert client.post(base + "/stop").status_code == 404
+        started = client.post(base, json={})
+        assert started.status_code == 200
+        job_id = started.json()["job"]["id"]
+        assert client.post(base, json={}).status_code == 409
+        mid = client.get(base + "/status").json()["job"]
+        assert mid["id"] == job_id and mid["running"] is True
+        assert mid["scene"] == "Face Full View"
+        named = client.post(base, json={"scene": "Custom"})
+        assert named.status_code == 409  # running job wins over a new scene
+        proceed.set()
+        deadline = time.monotonic() + 10
+        while client.get(base + "/status").json()["job"]["running"] and time.monotonic() < deadline:
+            time.sleep(0.05)
+        done = client.get(base + "/status").json()["job"]
+        assert done["running"] is False and done["state"] == "ready"
+        again = client.post(base, json={"scene": "Custom", "collection": "ScottyPhoton"})
+        assert again.status_code == 200
+        assert again.json()["job"]["scene"] == "Custom"
+        assert again.json()["job"]["collection"] == "ScottyPhoton"
+        assert client.post("/api/studios/nope/obs/boot", json={}).status_code == 404
+
+
+@pytest.mark.unit
+def test_obs_boot_stop_and_attach(monkeypatch):
+    import threading
+    import time
+
+    from types import SimpleNamespace
+
+    from app.api import obs as obs_api
+
+    def fake_run(job, link, obs_set, sleep=None, stop=None, cfg=None, collect_set=None):
+        assert stop is not None and stop.wait(timeout=10)
+        job["state"] = "stopped"
+        return job
+
+    monkeypatch.setattr(obs_api, "run_boot", fake_run)
+    base = "/api/studios/example-studio/obs/boot"
+    with _clean_boot_state():
+        started = client.post(base, json={})
+        assert started.status_code == 200
+        job_id = started.json()["job"]["id"]
+        attached, is_new = obs_api.boot_try_start(SimpleNamespace(app=app), "example-studio")
+        assert is_new is False and attached["id"] == job_id
+        stopped = client.post(base + "/stop")
+        assert stopped.status_code == 200
+        deadline = time.monotonic() + 10
+        while client.get(base + "/status").json()["job"]["running"] and time.monotonic() < deadline:
+            time.sleep(0.05)
+        assert client.get(base + "/status").json()["job"]["state"] == "stopped"
 
 
 @pytest.mark.unit

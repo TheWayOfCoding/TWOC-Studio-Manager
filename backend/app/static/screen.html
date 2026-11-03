@@ -115,8 +115,11 @@ addEventListener("keydown", (e) => {
   if (e.key !== "Escape" || !window.__TAURI_INTERNALS__) return;
   const now = Date.now(), hint = document.getElementById("exit");
   if (now - escAt < 2000) {
-    hint.textContent = "";
-    window.__TAURI_INTERNALS__.invoke("plugin:window|close", { label: "main" });
+    hint.textContent = "closing\u2026";
+    try {
+      const done = window.__TAURI_INTERNALS__.invoke("plugin:window|close", { label: "main" });
+      if (done && done.catch) done.catch((e) => { hint.textContent = "close denied (" + e + ")"; });
+    } catch (e) { hint.textContent = "close failed (" + e + ")"; }
   } else {
     escAt = now;
     hint.textContent = "ESC again to exit";

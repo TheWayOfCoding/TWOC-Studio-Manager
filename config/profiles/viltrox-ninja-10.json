@@ -1,8 +1,8 @@
 {
   "id": "viltrox-ninja-10",
   "kind": "light",
-  "spec": {"maxWatts": 120, "colorTempK": 5600, "fixedTemp": true, "intensityRange": [0, 100]},
+  "spec": {"maxWatts": 120, "colorTempK": 5600, "fixedTemp": true, "intensityRange": [0, 100], "cri": 95, "tlci": 95, "lumens": 14400},
   "capabilities": {"intensity": true, "cct": false, "rgb": false, "ble": true},
   "effects": [{"name": "steady", "photoRisk": "none"}, {"name": "Flash", "photoRisk": "intense"}, {"name": "Burst", "photoRisk": "intense"}, {"name": "Flash lamp", "photoRisk": "intense"}, {"name": "Blink", "photoRisk": "intense"}, {"name": "Weld", "photoRisk": "intense"}, {"name": "SOS", "photoRisk": "intense"}, {"name": "Candlelight", "photoRisk": "intense"}, {"name": "Flame", "photoRisk": "intense"}, {"name": "CCT LOOP", "photoRisk": "intense"}, {"name": "TV", "photoRisk": "intense"}],
-  "notes": "120W COB key light. 6 onboard effects unreviewed (treat as intense until seen). Wireless protocol TBD; power via plug. BLE broadcast control (capture-verified Nov 2026, see docs/ninja-ble.md): brightness 0-100; fixed 5600K so CCT bytes are ignored."
+  "notes": "120W daylight COB key light (fixed 5600K, CRI/TLCI 95). Vendor lists 6 effects; all 10 app scenes drive it over BLE (TV verified live). BLE broadcast control (capture-verified Nov 2026, see docs/ninja-ble.md): brightness 0-100; fixed 5600K so CCT bytes are ignored. No DMX on this fixture."
 }

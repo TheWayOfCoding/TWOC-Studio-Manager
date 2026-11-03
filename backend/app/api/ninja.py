@@ -135,12 +135,14 @@ def _check_repeats(repeats):
         raise HTTPException(status_code=422, detail=f"repeats must be an int 1..5: {repeats!r}")
 
 
-def _module(channel, group, mock, repeats, default_cct=None):
-    """Cached driver per address: look + counter survive across calls."""
-    try:
-        address_byte(channel, group)
-    except NinjaError as exc:
-        raise HTTPException(status_code=422, detail=str(exc)) from exc
+def shared_driver(channel, group, default_cct=None, mock=False, repeats=2):
+    """Cached driver per address: look + counter survive across calls.
+
+    Shared by the bench and the modes engine so a step walks from the
+    last-sent look instead of restarting from defaults. Raises NinjaError
+    on a bad address (callers translate to their own error shape).
+    """
+    address_byte(channel, group)  # validates now, fails fast
     key = (channel, str(group).upper(), bool(mock))
     driver = _DRIVERS.get(key)
     if driver is None:
@@ -152,6 +154,28 @@ def _module(channel, group, mock, repeats, default_cct=None):
     if default_cct is not None:
         driver.seed_default_cct(default_cct)
     driver.repeats = repeats
+    return driver
+
+
+def cached_driver(channel, group):
+    """Production-cache driver for one address, or None (never created).
+
+    Snapshots read through this so they never fabricate a pristine driver:
+    no cache entry means nothing was ever sent to the address.
+    """
+    try:
+        address_byte(channel, group)
+    except NinjaError:
+        return None
+    return _DRIVERS.get((channel, str(group).upper(), False))
+
+
+def _module(channel, group, mock, repeats, default_cct=None):
+    """Bench module over the shared cached driver."""
+    try:
+        driver = shared_driver(channel, group, default_cct, mock, repeats)
+    except NinjaError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
     return NinjaModule("ninja", {"ble": driver})
 
 

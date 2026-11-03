@@ -141,7 +141,7 @@ def _resolve_scope(registry, body):
                 continue
             if device.get("controllable", True) is False:
                 continue
-            if device.get("type") == "light" or device.get("driver") == "screen":
+            if device.get("type") in ("light", "lightstrip") or device.get("driver") == "screen":
                 allowed.append(device_id)
         return allowed, {"mode": "zones", "zones": list(body.scope_zones), "lights": []}
     if mode == "lights":

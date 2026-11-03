@@ -188,6 +188,7 @@ class DmxUsbDriver(Driver):
         self.frames_per_apply = frames_per_apply
         self.channels = {}
         self.blackout = False
+        self.emitted = False  # any frame sent since hub start (snapshot honesty)
 
     def capabilities(self):
         return {
@@ -205,6 +206,7 @@ class DmxUsbDriver(Driver):
                 "port": self.port,
                 "universe": self.universe,
                 "blackout": self.blackout,
+                "emitted": self.emitted,
                 "channels": {str(ch): val for ch, val in sorted(self.channels.items()) if val},
             },
         )
@@ -396,3 +398,4 @@ class DmxUsbDriver(Driver):
                 handle.close()
             except Exception:  # noqa: BLE001 - close is best effort
                 pass
+        self.emitted = True

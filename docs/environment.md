@@ -12,9 +12,9 @@ Facts below mirror the repo's scripts and requirements files.
   registers tasks, starts the hub.
 - Python deps (`backend/requirements.txt`, pip into `.venv`):
   fastapi, uvicorn, jsonschema, python-kasa, pyserial, bleak,
-  websocket-client, and winsdk (Windows-only marker — Pi installs
-  skip it). Deploy ships code, not deps: after a requirements change,
-  run pip install on the hub once.
+  websocket-client, sounddevice (PC-link tone playback), and winsdk
+  (Windows-only marker — Pi installs skip it). Deploy ships code, not
+  deps: after a requirements change, run pip install on the hub once.
 - Bluetooth: a BLE-capable radio with the `bthserv` service running
   (current hub: USB BT5 adapter). Used by GVM (GATT client) and
   Ninja (advertisement publisher). No pairing is ever done on the OS.

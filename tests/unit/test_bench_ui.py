@@ -103,6 +103,49 @@ def test_dmx_fixture_ui_present():
 
 
 @pytest.mark.unit
+def test_post_helper_tolerates_non_json():
+    assert "(non-JSON reply" in _bench_html()
+
+
+@pytest.mark.unit
+def test_link_card_present():
+    """PC-link card wraps TX + RX in one-click buttons (WoL stays API-only)."""
+    html = _bench_html()
+    for marker in (
+        'id="link"',
+        'id="link-cmd"',
+        "linkDevices()",
+        "linkInputs()",
+        "linkTest()",
+        "linkSend()",
+        "linkSendWait()",
+        "linkListen()",
+        "/api/link/devices",
+        "/api/link/inputs",
+        "/api/link/test",
+        "/api/link/send",
+        "/api/link/send-and-wait",
+        "/api/link/listen",
+        'id="link-tx"',
+        'id="link-rx"',
+        "linkPortsLoad()",
+        "linkPortsSave()",
+        "/api/link/config",
+        'id="link-studio"',
+        'id="link-scene"',
+        'id="link-collection"',
+        'id="link-boot-human"',
+        "linkBoot()",
+        "linkBootStatus()",
+        "linkBootStop()",
+        "renderBootHuman(",
+        "/obs/boot",
+    ):
+        assert marker in html
+    assert "/api/link/wol" not in html
+
+
+@pytest.mark.unit
 def test_screen_audio_volume_controls_present():
     """Screen card drives bed volume (uncapped: the synth runs quiet)."""
     html = _bench_html()
