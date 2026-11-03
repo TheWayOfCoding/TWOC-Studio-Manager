@@ -6,16 +6,37 @@ theme/text/audio-bed state they render. Per-process memory is enough for one
 uvicorn worker; persistence arrives with the live bring-up.
 """
 
+import time
+
 from .base import Driver, DriverResult
 
 SCREEN_STATE = {}
 
 DEFAULT_VOLUME = 10  # bed level when play omits volume
+MAX_TEXT_TTL_S = 3600  # timed text auto-clears after at most an hour
+ANIMATIONS = ("fireplace", "fishtank")  # looping kiosk scenes (own layer)
 
 
 def screen_state(screen_id):
-    """Current scaffold state for one screen (empty dict when untouched)."""
-    return dict(SCREEN_STATE.get(screen_id, {}))
+    """Current scaffold state for one screen (empty dict when untouched).
+
+    A timed text whose seconds have run out is cleared here, so every
+    reader (kiosk feed, bench state) sees it vanish on its next poll.
+    """
+    state = SCREEN_STATE.get(screen_id)
+    if not state:
+        return {}
+    expires = state.get("text_expires_at")
+    if expires is not None and time.monotonic() >= expires:
+        state.pop("text", None)
+        state.pop("text_expires_at", None)
+        # A theme/animation pushed in the same breath as timed text is
+        # part of that card: it leaves with the text instead of running
+        # on alone. Looks pushed on their own never get the marker.
+        if state.pop("theme_timed", False):
+            state.pop("theme", None)
+            state.pop("animation", None)
+    return dict(state)
 
 
 class ScreenDriver(Driver):
@@ -67,10 +88,45 @@ class ScreenDriver(Driver):
             else:
                 state.pop("track", None)
         else:
+            ttl = command.get("text_ttl_s")
+            if ttl is not None:
+                if isinstance(ttl, bool) or not isinstance(ttl, int) or not 0 <= ttl <= MAX_TEXT_TTL_S:
+                    return DriverResult(
+                        ok=False, error=f"text_ttl_s must be a whole number 0..{MAX_TEXT_TTL_S}: {ttl!r}"
+                    )
+                if "text" not in command:
+                    return DriverResult(ok=False, error="text_ttl_s needs a text to time")
             if "theme" in command:
-                state["theme"] = command["theme"]
+                if command["theme"] == "":
+                    state.pop("theme", None)  # empty theme = clear (Default look)
+                else:
+                    state["theme"] = command["theme"]
+                if not ttl:
+                    # A standalone theme push is not part of any timed card.
+                    state.pop("theme_timed", None)
+            if "animation" in command:
+                anim = command["animation"]
+                if anim == "":
+                    state.pop("animation", None)  # empty animation = clear
+                elif anim in ANIMATIONS:
+                    state["animation"] = anim
+                else:
+                    return DriverResult(
+                        ok=False, error=f"animation must be one of {list(ANIMATIONS)} or empty: {anim!r}"
+                    )
+                if not ttl:
+                    state.pop("theme_timed", None)
             if "text" in command:
                 state["text"] = command["text"]
+                if ttl:
+                    state["text_expires_at"] = time.monotonic() + ttl
+                    if "theme" in command or "animation" in command:
+                        state["theme_timed"] = True
+                    else:
+                        state.pop("theme_timed", None)
+                else:
+                    state.pop("text_expires_at", None)
+                    state.pop("theme_timed", None)
             if "wash" in command:
                 wash = command["wash"]
                 if wash is None:
@@ -86,8 +142,13 @@ class ScreenDriver(Driver):
                     return DriverResult(ok=False, error='wash needs {"color": css, "opacity": 0..1}')
                 else:
                     state["wash"] = {"color": wash["color"], "opacity": wash["opacity"]}
-            if "theme" not in command and "text" not in command and "wash" not in command:
-                return DriverResult(ok=False, error="push needs theme, text, and/or wash")
+            if (
+                "theme" not in command
+                and "text" not in command
+                and "wash" not in command
+                and "animation" not in command
+            ):
+                return DriverResult(ok=False, error="push needs theme, text, wash, and/or animation")
         SCREEN_STATE[self.screen] = state
         return DriverResult(ok=True, state={"screen": self.screen, **state})
 

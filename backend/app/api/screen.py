@@ -20,6 +20,8 @@ class PushBody(BaseModel):
     screen: str
     theme: str | None = None
     text: str | None = None
+    text_ttl_s: int | None = None
+    animation: str | None = None
 
 
 class AudioBody(BaseModel):
@@ -51,7 +53,9 @@ def _check_volume(volume):
 def screen_push(body: PushBody):
     """Push theme/text to one backdrop screen. Explicit human trial (Bench)."""
     log.debug("screen push")
-    result = _module(body.screen).push(body.screen, body.theme, body.text)
+    result = _module(body.screen).push(
+        body.screen, body.theme, body.text, body.text_ttl_s, body.animation
+    )
     return {"ok": result.ok, "state": result.state, "error": result.error}
 
 

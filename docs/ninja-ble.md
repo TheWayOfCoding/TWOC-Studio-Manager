@@ -138,6 +138,13 @@ real fixture. No separate power byte observed.
   possible: WinRT publishers/watchers bind to the default radio only,
   so a second dongle cannot independently confirm the first — the
   trigger-based heal above is the substitute.
+- Idle heal (added after a mid-run wedge with no adapter event): the
+  advertiser tracks its last publish, and the first publish after
+  15 minutes idle restarts `bthserv` before sending, flagged
+  `bt_heal_reason: "idle"` (`"adapter"` for the swap/reseat heal). A
+  failed restart stays pending and retries on the next publish. Rapid
+  sends during a show never trigger it, and the first send after hub
+  start relies on the pre-serve restart instead.
 - Eyeball contamination warning: the phone app leaves its last
   advertising set ENABLED after the last tap (the final frame repeats
   indefinitely), so a "hub sent it and the light moved" observation is

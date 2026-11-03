@@ -228,6 +228,8 @@ def _heal_rig(monkeypatch, addresses, restart_ok=True):
     monkeypatch.setattr(WinRtAdvertiser, "_last_adapter_address", None)
     monkeypatch.setattr(WinRtAdvertiser, "_adapter_absent", False)
     monkeypatch.setattr(WinRtAdvertiser, "_heal_pending", False)
+    monkeypatch.setattr(WinRtAdvertiser, "_last_publish_at", None)
+    monkeypatch.setattr(WinRtAdvertiser, "_idle_heal_pending", False)
     adv = WinRtAdvertiser()
     monkeypatch.setattr(adv, "_build_adv", lambda payload: None)
     monkeypatch.setattr(adv, "_attempt", lambda a, p, h, e, n: {"mode": "legacy"})
@@ -289,6 +291,41 @@ def test_publish_skips_heal_when_adapter_unknown(monkeypatch):
     assert adv.publish(b"x" * 27, 0)["mode"] == "legacy"
     assert adv.publish(b"x" * 27, 0)["mode"] == "legacy"
     assert restarts == []
+
+
+def test_publish_heals_after_long_idle(monkeypatch):
+    """First send after a long idle restarts the BT service once, flagged.
+
+    The wedge can form mid-run with no adapter event (today's failure:
+    sends reported Started, the fixture never moved, a manual service
+    restart cured it). An idle gap is the only signal available, so the
+    first publish after it heals before sending; rapid sends never do.
+    """
+    import time
+
+    adv, restarts = _heal_rig(monkeypatch, [111, 111])
+    WinRtAdvertiser._last_publish_at = time.monotonic() - (
+        WinRtAdvertiser._IDLE_HEAL_AFTER_S + 1
+    )
+    healed = adv.publish(b"x" * 27, 0)
+    rapid = adv.publish(b"x" * 27, 0)
+    assert restarts == [1]
+    assert healed["bt_service_restarted"] is True
+    assert "bt_service_restarted" not in rapid
+
+
+def test_publish_idle_heal_retries_after_failed_restart(monkeypatch):
+    """A failed idle restart leaves the idle mark: next publish retries."""
+    import time
+
+    adv, restarts = _heal_rig(monkeypatch, [111, 111], restart_ok=False)
+    WinRtAdvertiser._last_publish_at = time.monotonic() - (
+        WinRtAdvertiser._IDLE_HEAL_AFTER_S + 1
+    )
+    first = adv.publish(b"x" * 27, 0)
+    adv.publish(b"x" * 27, 0)
+    assert restarts == [1, 1]
+    assert "bt_service_restarted" not in first
 
 
 def test_publish_falls_back_to_legacy(monkeypatch):

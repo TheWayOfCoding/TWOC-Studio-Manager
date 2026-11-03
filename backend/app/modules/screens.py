@@ -15,13 +15,22 @@ class ScreensModule(Module):
     def describe(self):
         return {"module": self.name, "screens": sorted(self.drivers)}
 
-    def push(self, screen_id, theme=None, text=None):
-        """Push a theme and/or topic text to one screen."""
+    def push(self, screen_id, theme=None, text=None, text_ttl_s=None, animation=None):
+        """Push a theme and/or topic text to one screen.
+
+        Empty theme/text/animation clears that field; text_ttl_s
+        (seconds) makes the text auto-clear when it runs out (0/None =
+        stays), taking any look pushed with it along.
+        """
         command = {}
         if theme is not None:
             command["theme"] = theme
         if text is not None:
             command["text"] = text
+        if text_ttl_s is not None:
+            command["text_ttl_s"] = text_ttl_s
+        if animation is not None:
+            command["animation"] = animation
         return self._driver(screen_id).apply(command)
 
     def audio(self, screen_id, action, track=None, volume=None):
@@ -44,7 +53,7 @@ class ScreensModule(Module):
                 continue
             spec = spec if isinstance(spec, dict) else {}
             results[screen_id] = driver.apply(
-                {key: spec[key] for key in ("theme", "text", "wash") if key in spec}
+                {key: spec[key] for key in ("theme", "text", "wash", "animation") if key in spec}
                 or {"theme": "default"}
             )
         return results

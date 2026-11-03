@@ -15,6 +15,7 @@
         "label": "main",
         "title": "Studio Kiosk",
         "url": "http://localhost:8001/screen/kqc-screen",
+        "additionalBrowserArgs": "--autoplay-policy=no-user-gesture-required",
         "fullscreen": true,
         "decorations": false,
         "alwaysOnTop": true,

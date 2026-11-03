@@ -169,12 +169,15 @@ bring-up only; prefer the light panels above.</p>
 <div id="dmx"></div></div>
 <div class="card"><h2>Backdrop screens</h2>
 <div class="row"><label class="field">screen <input type="text" id="scr-id" value="kqc-screen" style="width:8em"></label>
-<label class="field">theme <input type="text" id="scr-theme" value="live" style="width:8em"></label>
+<label class="field">theme <select id="scr-theme"><option value="">Default</option><option value="live" selected>Live</option><option value="work">Work</option><option value="focus">Focus</option><option value="warm">Warm</option><option value="candle">Candle</option><option value="sunset">Sunset</option><option value="ocean">Ocean</option><option value="slate">Slate</option><option value="rose">Rose</option></select></label>
+<label class="field">animation <select id="scr-anim"><option value="">None</option><option value="fireplace">Fireplace</option><option value="fishtank">Fish tank</option></select></label>
 <label class="field">text <input type="text" id="scr-text" placeholder="topic"></label>
+<label class="field">show s <input type="number" id="scr-ttl" value="0" min="0" max="3600" style="width:5em"></label>
 <button onclick="scrPush()">Push</button>
+<button onclick="scrClear()">Clear</button>
 <button onclick="scrState()">State</button></div>
-<div class="row"><label class="field">track <input type="text" id="scr-track" value="bed" style="width:8em"></label>
-<label class="field">vol <input type="number" id="scr-vol" value="10" min="0" max="100"></label>
+<div class="row"><label class="field">track <select id="scr-track"><option value="bed" selected>Bed (hum)</option><option value="piano">Piano</option><option value="eurobeat">Eurobeat</option><option value="dance">Dance</option><option value="synthwave">Synthwave</option><option value="tone">Test tone</option></select></label>
+<label class="field">vol <input type="range" id="scr-vol" min="0" max="100" value="100" oninput="document.getElementById('scr-vol-n').value=this.value; scrVolume()"><input type="number" id="scr-vol-n" min="0" max="100" value="100" style="width:4em" onchange="document.getElementById('scr-vol').value=this.value; scrVolume()"> %</label>
 <button onclick="scrAudio('play')">Play bed</button>
 <button onclick="scrAudio('stop')">Stop bed</button>
 <a id="scr-link" href="/screen/kqc-screen" target="_blank">open kiosk</a></div>
@@ -746,18 +749,27 @@ async function dmxSweep() {
 function scrId() { return document.getElementById("scr-id").value || "kqc-screen"; }
 async function scrPush() {
   document.getElementById("scr-link").href = "/screen/" + encodeURIComponent(scrId());
-  const body = {screen: scrId(), theme: document.getElementById("scr-theme").value || null,
-    text: document.getElementById("scr-text").value || null};
+  const ttl = parseInt(document.getElementById("scr-ttl").value, 10);
+  const body = {screen: scrId(), theme: document.getElementById("scr-theme").value,
+    text: document.getElementById("scr-text").value || null,
+    animation: document.getElementById("scr-anim").value};
+  if (body.text && ttl > 0) body.text_ttl_s = ttl;
   try { const r = await jpost("/api/testbench/screen/push", JSON.stringify(body));
     out("scr", r, r.ok, r.ok ? ("Pushed to " + scrId()) : ("Push failed: " + (r.error || "?"))); }
+  catch (e) { out("scr", {error: String(e)}, false); }
+}
+async function scrClear() {
+  try { const r = await jpost("/api/testbench/screen/push", JSON.stringify({screen: scrId(), theme: "", text: "", animation: ""}));
+    out("scr", r, r.ok, r.ok ? ("Cleared " + scrId()) : ("Clear failed: " + (r.error || "?"))); }
   catch (e) { out("scr", {error: String(e)}, false); }
 }
 async function scrState() {
   try { const r = await jpost("/api/testbench/screen/state", JSON.stringify({screen: scrId()})); out("scr", r, r.ok); }
   catch (e) { out("scr", {error: String(e)}, false); }
 }
-async function scrAudio(action) {
-  const raw = document.getElementById("scr-vol").value;
+let scrPlaying = false, scrVolTimer = null;
+async function scrAudio(action, quiet) {
+  const raw = document.getElementById("scr-vol-n").value;
   const vol = raw === "" ? null : parseInt(raw, 10);
   if (action === "play" && vol !== null && (isNaN(vol) || vol < 0 || vol > 100)) {
     out("scr", {error: "volume must be a whole number 0..100"}, false);
@@ -766,8 +778,14 @@ async function scrAudio(action) {
   const body = {screen: scrId(), action: action, track: document.getElementById("scr-track").value || null,
     volume: action === "play" ? vol : null};
   try { const r = await jpost("/api/testbench/screen/audio", JSON.stringify(body));
-    out("scr", r, r.ok, r.ok ? ("Bed " + action + " on " + scrId() + (action === "play" && vol !== null ? " at " + vol + "%" : "")) : ("Bed " + action + " failed")); }
+    scrPlaying = action === "play" && r.ok;
+    if (!quiet || !r.ok) out("scr", r, r.ok, r.ok ? ("Bed " + action + " on " + scrId() + (action === "play" && vol !== null ? " at " + vol + "%" : "")) : ("Bed " + action + " failed")); }
   catch (e) { out("scr", {error: String(e)}, false); }
+}
+function scrVolume() {
+  if (!scrPlaying) return;
+  clearTimeout(scrVolTimer);
+  scrVolTimer = setTimeout(() => scrAudio("play", true), 150);
 }
 (async () => {
   renderKasaList();

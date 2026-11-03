@@ -78,6 +78,70 @@ def test_shell_default_url_matches_kiosk_origin():
 
 
 @pytest.mark.unit
+def test_kiosk_themes_and_remote_audio_start_present():
+    """Curated theme looks + audio that arms without a glass click.
+
+    The shell passes --autoplay-policy=no-user-gesture-required, so the
+    page must also try to create/resume its AudioContext when a play
+    arrives (it used to only create one inside the click handler, which
+    made bench/control Play bed a no-op nobody could hear).
+    """
+    html = _screen_html()
+    for marker in (
+        "THEME_BG",
+        '"live": "#2a1a1a"',
+        '"work": "#1a2a1a"',
+        '"focus":',
+        '"warm":',
+        '"candle":',
+        '"sunset":',
+        '"ocean":',
+        '"slate":',
+        '"rose":',
+        "flicker 5s",
+        "ensureAudio()",
+        "actx.resume()",
+        '"tone"',
+        "880",
+        '"music"',
+        '"piano"',
+        "startPiano",
+        '"eurobeat"',
+        "startEurobeat",
+        '"dance"',
+        "startDance",
+        '"synthwave"',
+        "startSynthwave",
+    ):
+        assert marker in html
+    conf = json.loads(TAURI_CONF.read_text(encoding="utf-8"))
+    window = conf["app"]["windows"][0]
+    assert "no-user-gesture-required" in window.get("additionalBrowserArgs", "")
+
+
+@pytest.mark.unit
+def test_kiosk_animation_scenes_present():
+    """Looping vector scenes: canvas renderer, fireplace + fish tank.
+
+    Fish wander (stateful steering, never the same path twice); the
+    fireplace is a pure function of a 60s loop clock, so it repeats
+    seamlessly forever.
+    """
+    html = _screen_html()
+    for marker in (
+        'id="anim"',
+        "requestAnimationFrame",
+        "LOOP_S = 60",
+        "drawFireplace",
+        "drawFishtank",
+        "wander",
+        "startAnim",
+        "stopAnim",
+    ):
+        assert marker in html
+
+
+@pytest.mark.unit
 def test_kiosk_liveness_contract_present():
     """Poll loop, boot-id self-reload, and scheme-agnostic API fetch."""
     html = _screen_html()

@@ -12,11 +12,13 @@ body { font-family: system-ui, sans-serif; margin: 0; min-height: 100vh; display
 #audio { position: fixed; bottom: 0.5em; right: 1em; font-size: 0.9em; opacity: 0.6; }
 #exit { position: fixed; bottom: 0.5em; left: 1em; font-size: 0.9em; opacity: 0.6; }
 #wash { position: fixed; inset: 0; pointer-events: none; opacity: 0; transition: opacity 1s, background 1s; }
-#wash.candle { animation: flicker 1.6s ease-in-out infinite; }
-@keyframes flicker { 0%,100% { filter: brightness(1); } 30% { filter: brightness(1.25); } 55% { filter: brightness(0.9); } 75% { filter: brightness(1.15); } }
+#anim { position: fixed; inset: 0; display: none; }
+#wash.candle { animation: flicker 5s ease-in-out infinite; }
+@keyframes flicker { 0%,100% { filter: brightness(1); } 30% { filter: brightness(1.06); } 55% { filter: brightness(0.97); } 75% { filter: brightness(1.04); } }
 </style>
 </head>
 <body>
+<canvas id="anim"></canvas>
 <div id="wash"></div>
 <div id="theme"></div>
 <div id="text"></div>
@@ -24,30 +26,424 @@ body { font-family: system-ui, sans-serif; margin: 0; min-height: 100vh; display
 <div id="exit"></div>
 <script>
 const id = decodeURIComponent(location.pathname.split("/").pop());
-// Audio bed: tiny WebAudio synth (no assets). Browsers require a user gesture
-// before sound, so the first click anywhere arms the context; the ♪ indicator
-// shows regardless. Track names shift the base pitch deterministically.
-// Volume is 0..100 from the hub state (default 10); 20% == the original bed
-// loudness, and anything above 20 needs the bench's allow-loud consent.
+// Audio bed: tiny WebAudio synth (no assets). The kiosk shell passes
+// --autoplay-policy=no-user-gesture-required, so a play pushed from the
+// bench/control pages can start sound on its own; ensureAudio() runs on
+// every play tick and the first click anywhere stays as the fallback arm.
+// Track names shift the base pitch deterministically.
+// Volume is 0..100 from the hub state (default 10), uncapped.
 let actx = null, bed = null, seenBoot = null;
-addEventListener("click", () => {
+function ensureAudio() {
   try {
     if (!actx) actx = new (window.AudioContext || window.webkitAudioContext)();
     if (actx.state === "suspended") actx.resume();
   } catch (e) { /* silent kiosk stays silent */ }
-});
+}
+addEventListener("click", ensureAudio);
+// Curated backdrop looks (bench/control offer these in a dropdown; any
+// other theme string from modes/config falls back to the default).
+// Looping vector scenes (own layer, independent of themes). The
+// fireplace is a pure function of a 60s loop clock — every cycle count
+// is an integer, so it repeats seamlessly forever. Fish instead
+// wander: stateful steering from summed sines, so their paths never
+// repeat and never jump.
+const LOOP_S = 60;
+const animCanvas = document.getElementById("anim");
+const gtx = animCanvas.getContext("2d");
+let animName = "", animRaf = null, animLast = 0;
+function sizeAnim() { animCanvas.width = innerWidth; animCanvas.height = innerHeight; }
+addEventListener("resize", sizeAnim); sizeAnim();
+function cyc(t, cycles) { return 2 * Math.PI * cycles * t / LOOP_S; }
+function frac(x) { return x - Math.floor(x); }
+function flamePath(x, base, w, h, sway) {
+  gtx.beginPath();
+  gtx.moveTo(x - w / 2, base);
+  gtx.quadraticCurveTo(x - w / 2, base - h * 0.55, x + sway, base - h);
+  gtx.quadraticCurveTo(x + w / 2, base - h * 0.55, x + w / 2, base);
+  gtx.closePath();
+}
+function drawFireplace(t) {
+  const W = animCanvas.width, H = animCanvas.height;
+  gtx.clearRect(0, 0, W, H);
+  const base = H * 0.88, cx = W / 2;
+  const glow = gtx.createRadialGradient(cx, base, 10, cx, base, W * 0.36);
+  glow.addColorStop(0, "rgba(255,140,40,0.35)");
+  glow.addColorStop(1, "rgba(255,140,40,0)");
+  gtx.fillStyle = glow; gtx.fillRect(0, 0, W, H);
+  const layers = [
+    [W * 0.30, H * 0.52, "rgba(200,60,0,0.55)", 7, 0],
+    [W * 0.22, H * 0.42, "rgba(255,120,10,0.65)", 11, 2.1],
+    [W * 0.13, H * 0.30, "rgba(255,200,60,0.8)", 17, 4.2],
+  ];
+  layers.forEach(([w, h, color, cycles, phase]) => {
+    const sway = Math.sin(cyc(t, cycles) + phase) * w * 0.10;
+    const hh = h * (1 + 0.07 * Math.sin(cyc(t, cycles * 2) + phase));
+    gtx.fillStyle = color;
+    flamePath(cx, base, w, hh, sway); gtx.fill();
+  });
+  for (let i = 0; i < 16; i++) {
+    const dur = [5, 6, 7.5, 10, 12][i % 5];
+    const rise = frac(t / dur + i * 0.37);
+    const x = cx + (frac(i * 0.618) - 0.5) * W * 0.22 + Math.sin(cyc(t, 9) + i) * 6;
+    gtx.globalAlpha = (1 - rise) * 0.9;
+    gtx.fillStyle = "#ffb450";
+    gtx.fillRect(x, base - rise * H * 0.55, 3, 3);
+  }
+  gtx.globalAlpha = 1;
+  gtx.fillStyle = "#4a2c14";
+  gtx.save(); gtx.translate(cx, base); gtx.rotate(0.06); gtx.fillRect(-W * 0.14, -H * 0.02, W * 0.28, H * 0.035); gtx.restore();
+  gtx.save(); gtx.translate(cx, base); gtx.rotate(-0.05); gtx.fillRect(-W * 0.12, -H * 0.045, W * 0.24, H * 0.035); gtx.restore();
+  gtx.fillStyle = "#1c1c1e";
+  gtx.fillRect(cx - W * 0.20, base + H * 0.015, W * 0.40, H * 0.03);
+}
+const FISH = [
+  { x: 0.2, y: 0.35, dir: 1, speed: 26, len: 92, color: "#ff8c42", seed: 1.7, heading: 0, vy: 0 },
+  { x: 0.7, y: 0.55, dir: -1, speed: 20, len: 72, color: "#4db8ff", seed: 4.2, heading: Math.PI, vy: 0 },
+  { x: 0.45, y: 0.25, dir: 1, speed: 33, len: 56, color: "#ffd94d", seed: 8.9, heading: 0, vy: 0 },
+];
+function wander(fish, dt, t, W, H) {
+  fish.heading += (Math.sin(t * 0.37 + fish.seed) * 0.7 + Math.sin(t * 1.13 + fish.seed * 3.1) * 0.3) * dt;
+  let ax = Math.cos(fish.heading), ay = Math.sin(fish.heading) * 0.45;
+  if (fish.x < 0.12) ax += (0.12 - fish.x) * 6;
+  if (fish.x > 0.88) ax -= (fish.x - 0.88) * 6;
+  if (fish.y < 0.15) ay += (0.15 - fish.y) * 6;
+  if (fish.y > 0.78) ay -= (fish.y - 0.78) * 6;
+  const mag = Math.hypot(ax, ay) || 1;
+  fish.x += ax / mag * fish.speed * dt / W;
+  fish.y += ay / mag * fish.speed * dt / H;
+  fish.dir = ax >= 0 ? 1 : -1;
+  fish.vy = ay / mag;
+}
+function drawFish(fish, t) {
+  const W = animCanvas.width, H = animCanvas.height;
+  const px = fish.x * W, py = fish.y * H + Math.sin(t * 1.7 + fish.seed) * 6, L = fish.len;
+  gtx.save();
+  gtx.translate(px, py);
+  gtx.scale(fish.dir, 1);
+  gtx.rotate(fish.vy * 0.35 * fish.dir);
+  const wag = Math.sin(t * 9 + fish.seed * 7) * L * 0.10;
+  gtx.fillStyle = fish.color;
+  gtx.beginPath();
+  gtx.moveTo(-L * 0.30, 0);
+  gtx.lineTo(-L * 0.55, -L * 0.22 + wag);
+  gtx.lineTo(-L * 0.55, L * 0.22 + wag);
+  gtx.closePath(); gtx.fill();
+  gtx.beginPath();
+  gtx.ellipse(0, 0, L * 0.38, L * 0.16, 0, 0, 2 * Math.PI);
+  gtx.fill();
+  gtx.fillStyle = "#ffffff";
+  gtx.beginPath(); gtx.arc(L * 0.20, -L * 0.04, L * 0.045, 0, 2 * Math.PI); gtx.fill();
+  gtx.fillStyle = "#10222e";
+  gtx.beginPath(); gtx.arc(L * 0.21, -L * 0.04, L * 0.022, 0, 2 * Math.PI); gtx.fill();
+  gtx.restore();
+}
+function drawFishtank(t, dt) {
+  const W = animCanvas.width, H = animCanvas.height;
+  gtx.fillStyle = "#07293e";
+  gtx.fillRect(0, 0, W, H);
+  gtx.fillStyle = "rgba(180,225,255,0.05)";
+  for (let i = 0; i < 3; i++) {
+    const rx = W * (0.18 + i * 0.28) + Math.sin(cyc(t, 5) + i * 2) * 24;
+    gtx.beginPath();
+    gtx.moveTo(rx, 0); gtx.lineTo(rx + W * 0.07, 0);
+    gtx.lineTo(rx + W * 0.16, H * 0.75); gtx.lineTo(rx + W * 0.03, H * 0.75);
+    gtx.closePath(); gtx.fill();
+  }
+  gtx.fillStyle = "#7d6234";
+  gtx.beginPath();
+  gtx.moveTo(0, H * 0.92);
+  gtx.quadraticCurveTo(W * 0.5, H * 0.88, W, H * 0.93);
+  gtx.lineTo(W, H); gtx.lineTo(0, H);
+  gtx.closePath(); gtx.fill();
+  [0.08, 0.3, 0.55, 0.8, 0.93].forEach((fx, pi) => {
+    const x = W * fx;
+    gtx.strokeStyle = pi % 2 ? "#2e7d4f" : "#35985e";
+    gtx.lineWidth = 6;
+    for (let b = 0; b < 3; b++) {
+      const sway = Math.sin(cyc(t, 10) + pi + b) * 18;
+      gtx.beginPath();
+      gtx.moveTo(x + b * 9 - 9, H * 0.93);
+      gtx.quadraticCurveTo(x + sway * 0.4, H * 0.75, x + sway, H * (0.55 + b * 0.07));
+      gtx.stroke();
+    }
+    for (let i = 0; i < 3; i++) {
+      const dur = [10, 12, 15][(pi + i) % 3];
+      const rise = frac(t / dur + (pi * 3 + i) * 0.29);
+      gtx.globalAlpha = 0.45 * (1 - rise * 0.5);
+      gtx.strokeStyle = "#cfeaff";
+      gtx.lineWidth = 1.5;
+      gtx.beginPath();
+      gtx.arc(x + Math.sin(cyc(t, 12) + i * 2) * 5, H * 0.9 - rise * H * 0.72, 3 + (i % 3) * 1.6, 0, 2 * Math.PI);
+      gtx.stroke();
+    }
+  });
+  gtx.globalAlpha = 1;
+  FISH.forEach((fish) => { wander(fish, dt, t, W, H); drawFish(fish, t); });
+}
+function drawScene(name, t, dt) {
+  if (name === "fireplace") drawFireplace(t);
+  else if (name === "fishtank") drawFishtank(t, dt);
+}
+function startAnim(name) {
+  if (animName === name && animRaf) return;
+  animName = name;
+  sizeAnim();
+  animCanvas.style.display = "block";
+  animLast = 0;
+  if (animRaf) cancelAnimationFrame(animRaf);
+  const frame = (now) => {
+    if (!animName) return;
+    const dt = animLast ? Math.min((now - animLast) / 1000, 0.05) : 0.016;
+    animLast = now;
+    drawScene(animName, (now / 1000) % LOOP_S, dt);
+    animRaf = requestAnimationFrame(frame);
+  };
+  animRaf = requestAnimationFrame(frame);
+}
+function stopAnim() {
+  animName = "";
+  if (animRaf) cancelAnimationFrame(animRaf);
+  animRaf = null;
+  animCanvas.style.display = "none";
+}
+const THEME_BG = {
+  "live": "#2a1a1a",
+  "work": "#1a2a1a",
+  "focus": "#152238",
+  "warm": "#2a2013",
+  "candle": "#231605",
+  "sunset": "#321a0c",
+  "ocean": "#0c2b2e",
+  "slate": "#20262e",
+  "rose": "#2b131a",
+};
 function trackShift(track) {
   let h = 0;
   for (const ch of (track || "bed")) h = (h * 31 + ch.charCodeAt(0)) >>> 0;
   return 1 + (h % 7) * 0.06;
 }
 function bedLevel(volume) {
-  return 0.035 * ((volume == null ? 10 : volume) / 20);
+  return 0.055 * ((volume == null ? 10 : volume) / 20);
 }
 function bedPlaying() { return bed !== null; }
+function midiHz(midi) { return 440 * Math.pow(2, (midi - 69) / 12); }
+const MUSIC_CHORDS = [[57, 60, 64, 67], [53, 57, 60, 64], [48, 52, 55, 59], [55, 59, 62, 65]];
+const MUSIC_SCALE = [69, 72, 74, 76, 79, 81];
+function makeMaster(volume, scale) {
+  // Hotter masters run through a compressor so boosted levels stay clean.
+  const master = actx.createGain();
+  master.gain.value = 0.0;
+  const comp = actx.createDynamicsCompressor();
+  master.connect(comp); comp.connect(actx.destination);
+  master.gain.linearRampToValueAtTime(bedLevel(volume) * scale, actx.currentTime + 1);
+  return master;
+}
+function stepGain(master, t, peak, decay) {
+  const g = actx.createGain();
+  g.gain.setValueAtTime(peak, t);
+  g.gain.exponentialRampToValueAtTime(0.001, t + decay);
+  g.connect(master);
+  return g;
+}
+function blip(master, t, midi, opts) {
+  const o = actx.createOscillator();
+  o.type = opts.type || "sine";
+  o.frequency.value = midiHz(midi);
+  if (opts.detune) o.detune.value = opts.detune;
+  let node = o;
+  if (opts.lp) {
+    const f = actx.createBiquadFilter();
+    f.type = "lowpass"; f.frequency.value = opts.lp;
+    o.connect(f); node = f;
+  }
+  node.connect(stepGain(master, t, opts.peak || 0.1, opts.decay || 0.3));
+  o.start(t); o.stop(t + (opts.decay || 0.3) + 0.05);
+}
+let NOISE_BUF = null;
+function noiseHit(master, t, peak, decay, freq, type) {
+  if (!NOISE_BUF) {
+    NOISE_BUF = actx.createBuffer(1, actx.sampleRate * 0.5, actx.sampleRate);
+    const data = NOISE_BUF.getChannelData(0);
+    for (let i = 0; i < data.length; i++) data[i] = Math.random() * 2 - 1;
+  }
+  const src = actx.createBufferSource();
+  src.buffer = NOISE_BUF;
+  const f = actx.createBiquadFilter();
+  f.type = type || "highpass"; f.frequency.value = freq;
+  src.connect(f);
+  f.connect(stepGain(master, t, peak, decay));
+  src.start(t); src.stop(t + decay + 0.02);
+}
+function kickHit(master, t, peak) {
+  const o = actx.createOscillator();
+  o.type = "sine";
+  o.frequency.setValueAtTime(120, t);
+  o.frequency.exponentialRampToValueAtTime(40, t + 0.12);
+  o.connect(stepGain(master, t, peak || 0.9, 0.24));
+  o.start(t); o.stop(t + 0.26);
+}
+function startSteps(volume, scale, bpm, totalSteps, onStep) {
+  const master = makeMaster(volume, scale);
+  const seq = { gain: master, levelScale: scale, oscs: [], lfo: null, timers: [], pad: null, step: 0 };
+  const stepDur = 60 / bpm / 4;
+  const tickStep = () => { onStep(seq.step % totalSteps, actx.currentTime + 0.03, master); seq.step += 1; };
+  tickStep();
+  seq.timers.push(setInterval(tickStep, stepDur * 1000));
+  bed = seq;
+}
+function pianoNote(master, t, midi, peak, decay) {
+  // Piano-ish voice: fundamental + fading harmonics, exponential decay.
+  const g = actx.createGain();
+  g.gain.setValueAtTime(peak, t);
+  g.gain.exponentialRampToValueAtTime(0.001, t + decay);
+  g.connect(master);
+  [[1, 1], [2, 0.35], [3, 0.12]].forEach(([mult, amt]) => {
+    const o = actx.createOscillator();
+    o.type = "sine"; o.frequency.value = midiHz(midi) * mult;
+    const og = actx.createGain();
+    og.gain.value = amt;
+    o.connect(og); og.connect(g);
+    o.start(t); o.stop(t + decay + 0.05);
+  });
+}
+function startPiano(volume) {
+  // "piano" (alias "music"): broken Am7-F-C-G chords with a sparse
+  // pentatonic melody, every note a decaying piano-style voice.
+  const master = makeMaster(volume, 1.8);
+  const piano = { gain: master, levelScale: 1.8, oscs: [], lfo: null, timers: [], pad: null, step: 0, chord: 0 };
+  const playBar = () => {
+    const t = actx.currentTime + 0.05;
+    const chord = MUSIC_CHORDS[piano.chord % MUSIC_CHORDS.length];
+    piano.chord += 1;
+    pianoNote(master, t, chord[0] - 12, 0.20, 3.2);
+    chord.forEach((midi, i) => pianoNote(master, t + 0.15 * i, midi, 0.12, 2.4));
+    pianoNote(master, t + 1.6, MUSIC_SCALE[(piano.chord * 2) % MUSIC_SCALE.length], 0.10, 1.8);
+    pianoNote(master, t + 2.9, MUSIC_SCALE[(piano.chord * 2 + 3) % MUSIC_SCALE.length], 0.09, 1.8);
+  };
+  playBar();
+  piano.timers.push(setInterval(playBar, 4800));
+  bed = piano;
+}
+const DANCE_ROOTS = [45, 41, 48, 43]; // A F C G
+const DANCE_CHORDS = [[57, 60, 64, 67], [53, 57, 60, 64], [48, 52, 55, 59], [55, 59, 62, 65]];
+function startDance(volume) {
+  // "dance": 124 BPM house — four-floor kick, offbeat hats + bass, claps.
+  startSteps(volume, 2.0, 124, 64, (step, t, master) => {
+    const bar = Math.floor(step / 16), s = step % 16;
+    if (s % 4 === 0) kickHit(master, t, 0.9);
+    if (s % 4 === 2) noiseHit(master, t, 0.10, 0.08, 7000);
+    if (s === 4 || s === 12) noiseHit(master, t, 0.14, 0.12, 1800, "bandpass");
+    if (s % 4 === 2) blip(master, t, DANCE_ROOTS[bar], { type: "sawtooth", peak: 0.20, decay: 0.22, lp: 600 });
+    if (s === 0 || s === 8) DANCE_CHORDS[bar].forEach((midi) => blip(master, t, midi, { type: "sawtooth", peak: 0.04, decay: 0.35, lp: 2400 }));
+  });
+}
+function startSynthwave(volume) {
+  // "synthwave": 102 BPM — driving eighth bass, snare, slow detuned pads.
+  startSteps(volume, 1.8, 102, 64, (step, t, master) => {
+    const bar = Math.floor(step / 16), s = step % 16;
+    if (s % 4 === 0) kickHit(master, t, 0.75);
+    if (s === 4 || s === 12) noiseHit(master, t, 0.16, 0.14, 1800, "bandpass");
+    if (s % 2 === 0) blip(master, t, DANCE_ROOTS[bar], { type: "sawtooth", peak: 0.16, decay: 0.24, lp: 500 });
+    if (s === 0) EURO_CHORDS[bar].forEach((midi) => blip(master, t, midi + 12, { type: "sawtooth", peak: 0.025, decay: 3.6, lp: 1100 }));
+    blip(master, t, EURO_CHORDS[bar][[0, 1, 2, 1][s % 4]] + 12, { type: "square", peak: 0.035, decay: 0.14 });
+  });
+}
+const EURO_ROOTS = [45, 41, 48, 43]; // A F C G (MIDI, bass register)
+const EURO_CHORDS = [[57, 60, 64], [53, 57, 60], [48, 52, 55], [55, 59, 62]];
+const EURO_LEAD = [69, 72, 76, 79, 76, 72, 74, 76];
+function startEurobeat(volume) {
+  // "eurobeat": 150 BPM A-minor driver — four-on-the-floor kick, offbeat
+  // hats, pulsing octave bass, chord stabs, and a cycling lead riff.
+  const master = actx.createGain();
+  master.gain.value = 0.0;
+  const comp = actx.createDynamicsCompressor();
+  master.connect(comp); comp.connect(actx.destination);
+  master.gain.linearRampToValueAtTime(bedLevel(volume) * 2.0, actx.currentTime + 1);
+  const beat = { gain: master, levelScale: 2.0, oscs: [], lfo: null, timers: [], pad: null, step: 0 };
+  const noise = actx.createBuffer(1, actx.sampleRate * 0.5, actx.sampleRate);
+  const data = noise.getChannelData(0);
+  for (let i = 0; i < data.length; i++) data[i] = Math.random() * 2 - 1;
+  const env = (t, peak, decay) => {
+    const g = actx.createGain();
+    g.gain.setValueAtTime(peak, t);
+    g.gain.exponentialRampToValueAtTime(0.001, t + decay);
+    g.connect(master);
+    return g;
+  };
+  const kick = (t) => {
+    const o = actx.createOscillator();
+    o.type = "sine";
+    o.frequency.setValueAtTime(120, t);
+    o.frequency.exponentialRampToValueAtTime(40, t + 0.12);
+    o.connect(env(t, 0.9, 0.24)); o.start(t); o.stop(t + 0.26);
+  };
+  const hat = (t) => {
+    const src = actx.createBufferSource();
+    src.buffer = noise;
+    const hp = actx.createBiquadFilter();
+    hp.type = "highpass"; hp.frequency.value = 7000;
+    src.connect(hp); hp.connect(env(t, 0.12, 0.05)); src.start(t); src.stop(t + 0.06);
+  };
+  const bass = (t, midi) => {
+    const o = actx.createOscillator();
+    o.type = "sawtooth"; o.frequency.value = midiHz(midi);
+    const lp = actx.createBiquadFilter();
+    lp.type = "lowpass"; lp.frequency.value = 700;
+    o.connect(lp); lp.connect(env(t, 0.22, 0.20)); o.start(t); o.stop(t + 0.22);
+  };
+  const stab = (t, chord) => {
+    chord.forEach((midi) => {
+      [-6, 6].forEach((cents) => {
+        const o = actx.createOscillator();
+        o.type = "sawtooth"; o.frequency.value = midiHz(midi); o.detune.value = cents;
+        const lp = actx.createBiquadFilter();
+        lp.type = "lowpass"; lp.frequency.value = 2600;
+        o.connect(lp); lp.connect(env(t, 0.05, 0.28)); o.start(t); o.stop(t + 0.3);
+      });
+    });
+  };
+  const lead = (t, midi) => {
+    const o = actx.createOscillator();
+    o.type = "square"; o.frequency.value = midiHz(midi);
+    o.connect(env(t, 0.045, 0.16)); o.start(t); o.stop(t + 0.18);
+  };
+  const stepDur = 60 / 150 / 4; // 150 BPM, 16th notes
+  const tickStep = () => {
+    const t = actx.currentTime + 0.03;
+    const step = beat.step % 64;
+    const bar = Math.floor(step / 16);
+    const s16 = step % 16;
+    if (s16 % 4 === 0) kick(t);
+    if (s16 % 4 === 2) hat(t);
+    if (s16 % 2 === 0) bass(t, EURO_ROOTS[bar] + (s16 % 8 === 6 ? 12 : 0));
+    if (s16 === 0 || s16 === 7 || s16 === 10) stab(t, EURO_CHORDS[bar]);
+    lead(t, EURO_LEAD[step % EURO_LEAD.length] + (bar === 3 ? 0 : 0));
+    beat.step += 1;
+  };
+  tickStep();
+  beat.timers.push(setInterval(tickStep, stepDur * 1000));
+  bed = beat;
+}
 function startBed(track, volume) {
   if (!actx || bedPlaying()) return;
   try {
+    // "tone" is the audio-path check: a single clear 880 Hz sine that
+    // small screen speakers can actually reproduce (the 110 Hz bed hum
+    // mostly cannot be heard through them even when everything works).
+    if (track === "tone") {
+      const gain = actx.createGain();
+      gain.gain.value = 0.0;
+      const osc = actx.createOscillator();
+      osc.type = "sine"; osc.frequency.value = 880;
+      osc.connect(gain); gain.connect(actx.destination); osc.start();
+      gain.gain.linearRampToValueAtTime(bedLevel(volume) * 0.5, actx.currentTime + 0.5);
+      bed = { oscs: [osc], lfo: null, gain };
+      return;
+    }
+    if (track === "music" || track === "piano") { startPiano(volume); return; }
+    if (track === "eurobeat") { startEurobeat(volume); return; }
+    if (track === "dance") { startDance(volume); return; }
+    if (track === "synthwave") { startSynthwave(volume); return; }
     const base = 110 * trackShift(track);
     const gain = actx.createGain(), filter = actx.createBiquadFilter();
     gain.gain.value = 0.0;
@@ -67,17 +463,22 @@ function startBed(track, volume) {
 }
 function setBedLevel(volume) {
   if (!bedPlaying()) return;
-  try { bed.gain.gain.linearRampToValueAtTime(bedLevel(volume), actx.currentTime + 0.5); }
+  try { bed.gain.gain.linearRampToValueAtTime(bedLevel(volume) * (bed.levelScale || 1), actx.currentTime + 0.5); }
   catch (e) { /* already quiet */ }
 }
 function stopBed() {
   if (!bedPlaying()) return;
-  try {
-    const { oscs, lfo, gain } = bed;
-    gain.gain.linearRampToValueAtTime(0.0, actx.currentTime + 0.5);
-    setTimeout(() => { oscs.forEach((o) => { try { o.stop(); } catch (e) {} }); try { lfo.stop(); } catch (e) {} }, 700);
-  } catch (e) { /* already quiet */ }
+  const current = bed;
   bed = null;
+  try {
+    (current.timers || []).forEach((t) => clearInterval(t));
+    current.gain.gain.linearRampToValueAtTime(0.0, actx.currentTime + 0.5);
+    const oscs = [...(current.oscs || []), ...((current.pad && current.pad.oscs) || [])];
+    setTimeout(() => {
+      oscs.forEach((o) => { try { o.stop(); } catch (e) {} });
+      if (current.lfo) { try { current.lfo.stop(); } catch (e) {} }
+    }, 700);
+  } catch (e) { /* already quiet */ }
 }
 async function tick() {
   try {
@@ -92,16 +493,23 @@ async function tick() {
     const armed = actx && actx.state === "running";
     document.getElementById("audio").textContent =
       s.audio === "play" ? "♪ " + (s.track || "bed") + " " + vol + "%" + (armed ? "" : " (click for sound)") : "";
-    document.body.style.background = s.theme === "work" ? "#1a2a1a" : s.theme === "live" ? "#2a1a1a" : "#111";
+    document.body.style.background = THEME_BG[s.theme] || "#111";
     const wash = document.getElementById("wash");
-    if (s.wash && s.wash.color) {
+    if (s.theme === "candle") {
+      wash.style.background = "#3a2408";
+      wash.style.opacity = 0.55;
+      wash.className = "candle";
+    } else if (s.wash && s.wash.color) {
       wash.style.background = s.wash.color;
       wash.style.opacity = s.wash.opacity == null ? 0.5 : s.wash.opacity;
+      wash.className = "";
     } else {
       wash.style.opacity = 0;
+      wash.className = "";
     }
-    wash.className = s.theme === "candle" ? "candle" : "";
+    if (s.animation) startAnim(s.animation); else stopAnim();
     if (s.audio === "play") {
+      ensureAudio();
       if (bedPlaying()) setBedLevel(vol); else startBed(s.track, vol);
     } else stopBed();
   } catch (e) { document.getElementById("text").textContent = "hub unreachable"; }

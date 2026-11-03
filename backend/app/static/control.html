@@ -77,11 +77,13 @@ async function loadDevices() {
   renderCard();
 }
 
-function sliderRow(id, label, min, max, step, val, unit) {
+function sliderRow(id, label, min, max, step, val, unit, liveFn) {
+  const live = liveFn ? ";" + liveFn : "";
   return '<div class="row"><label class="field" for="' + id + '">' + label + '</label>' +
     '<input type="range" id="' + id + '" min="' + min + '" max="' + max + '" step="' + step + '" value="' + val + '" ' +
-    'oninput="document.getElementById(\'' + id + '-n\').value = this.value">' +
-    '<label class="field"><input type="number" id="' + id + '-n" min="' + min + '" max="' + max + '" step="' + step + '" value="' + val + '" style="width:5em"> ' + (unit || "") + "</label></div>";
+    'oninput="document.getElementById(\'' + id + '-n\').value = this.value' + live + '">' +
+    '<label class="field"><input type="number" id="' + id + '-n" min="' + min + '" max="' + max + '" step="' + step + '" value="' + val + '" style="width:5em" ' +
+    'onchange="document.getElementById(\'' + id + '\').value = this.value' + live + '"> ' + (unit || "") + "</label></div>";
 }
 
 function renderCard() {
@@ -97,10 +99,13 @@ function renderCard() {
   let h = '<div class="card"><h2>' + esc(d.name || d.id) + '</h2><p class="hint">' +
     [d.type, d.zone, d.role, d.driver].filter(Boolean).map(esc).join(" · ") + "</p>";
   if (d.type === "screen") {
-    h += '<div class="row"><label class="field" for="c-theme">Theme</label><input type="text" id="c-theme" placeholder="stream_starting"></div>' +
+    h += '<div class="row"><label class="field" for="c-theme">Theme</label><select id="c-theme"><option value="">Default</option><option value="live">Live</option><option value="work">Work</option><option value="focus">Focus</option><option value="warm">Warm</option><option value="candle">Candle</option><option value="sunset">Sunset</option><option value="ocean">Ocean</option><option value="slate">Slate</option><option value="rose">Rose</option></select></div>' +
+      '<div class="row"><label class="field" for="c-anim">Animation</label><select id="c-anim"><option value="">None</option><option value="fireplace">Fireplace</option><option value="fishtank">Fish tank</option></select></div>' +
       '<div class="row"><label class="field" for="c-text">Text</label><input type="text" id="c-text" placeholder="Tonight: co-op night"></div>' +
-      '<div class="row"><button onclick="screenPush()">Push to screen</button></div>' +
-      sliderRow("c-vol", "Audio bed volume", 0, 100, 1, 20, "%") +
+      '<div class="row"><label class="field" for="c-ttl">Show s</label><input type="number" id="c-ttl" value="0" min="0" max="3600"></div>' +
+      '<div class="row"><button onclick="screenPush()">Push to screen</button><button onclick="screenClear()">Clear</button></div>' +
+      '<div class="row"><label class="field" for="c-track">Track</label><select id="c-track"><option value="bed">Bed (hum)</option><option value="piano">Piano</option><option value="eurobeat">Eurobeat</option><option value="dance">Dance</option><option value="synthwave">Synthwave</option><option value="tone">Test tone</option></select></div>' +
+      sliderRow("c-vol", "Audio volume", 0, 100, 1, 100, "%", "screenVolume()") +
       '<div class="row"><button onclick="screenAudio(\'play\')">Play bed</button><button onclick="screenAudio(\'stop\')">Stop bed</button></div>';
   } else if (d.driver === "ir") {
     h += '<div class="row"><button onclick="irSend(\'on\')">On</button><button onclick="irSend(\'off\')">Off</button></div>' +
@@ -201,19 +206,42 @@ async function irSend(label) {
 
 async function screenPush() {
   try {
-    out(await jpost("/api/testbench/screen/push", JSON.stringify({
+    const ttl = parseInt(document.getElementById("c-ttl").value, 10);
+    const body = {
       screen: deviceId(),
-      theme: document.getElementById("c-theme").value || null,
-      text: document.getElementById("c-text").value || null})), true, "Pushed to " + (current().name || deviceId()));
+      theme: document.getElementById("c-theme").value,
+      text: document.getElementById("c-text").value || null,
+      animation: document.getElementById("c-anim").value};
+    if (body.text && ttl > 0) body.text_ttl_s = ttl;
+    out(await jpost("/api/testbench/screen/push", JSON.stringify(body)), true, "Pushed to " + (current().name || deviceId()));
   } catch (e) { out({error: String(e)}, false); }
 }
 
-async function screenAudio(action) {
+async function screenClear() {
+  try {
+    out(await jpost("/api/testbench/screen/push", JSON.stringify({
+      screen: deviceId(), theme: "", text: "", animation: ""})), true, "Cleared " + (current().name || deviceId()));
+  } catch (e) { out({error: String(e)}, false); }
+}
+
+let screenPlaying = false, screenVolTimer = null;
+async function screenAudio(action, quiet) {
   try {
     const body = {screen: deviceId(), action: action};
-    if (action === "play") body.volume = parseInt(document.getElementById("c-vol-n").value, 10);
-    out(await jpost("/api/testbench/screen/audio", JSON.stringify(body)), true, "Bed " + action);
+    if (action === "play") {
+      body.track = document.getElementById("c-track").value;
+      body.volume = parseInt(document.getElementById("c-vol-n").value, 10);
+    }
+    const r = await jpost("/api/testbench/screen/audio", JSON.stringify(body));
+    screenPlaying = action === "play" && r.ok;
+    if (!quiet || !r.ok) out(r, r.ok, "Bed " + action);
   } catch (e) { out({error: String(e)}, false); }
+}
+
+function screenVolume() {
+  if (!screenPlaying) return;
+  clearTimeout(screenVolTimer);
+  screenVolTimer = setTimeout(() => screenAudio("play", true), 150);
 }
 
 loadStudios();

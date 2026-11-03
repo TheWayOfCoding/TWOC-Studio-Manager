@@ -332,6 +332,13 @@ class WinRtAdvertiser(Advertiser):
     _heal_pending = False
     _monitor_started = False
     _MONITOR_INTERVAL_S = 10.0
+    # The wedge can also form mid-run with no adapter event at all (field
+    # finding: sends Started, fixture dark, service restart cured it).
+    # The only signal then is an idle gap, so the first publish after one
+    # heals before sending; rapid-fire sends during a show never do.
+    _last_publish_at = None
+    _idle_heal_pending = False
+    _IDLE_HEAL_AFTER_S = 900.0
 
     @classmethod
     def _observe_adapter(cls, address):
@@ -373,6 +380,37 @@ class WinRtAdvertiser(Advertiser):
         return True
 
     @classmethod
+    def _consume_idle_heal(cls):
+        """Restart the BT service when the last publish is long past.
+
+        True when a restart actually ran. A failed restart leaves the
+        idle mark untouched, so the next publish retries (same contract
+        as the adapter heal). No publish yet (hub just started, pre-serve
+        already restarted the service) never heals.
+        """
+        now = time.monotonic()
+        with cls._heal_lock:
+            last = cls._last_publish_at
+            due = cls._idle_heal_pending or (
+                last is not None and now - last >= cls._IDLE_HEAL_AFTER_S
+            )
+            if due:
+                cls._idle_heal_pending = True
+        if not due:
+            return False
+        if not _restart_bluetooth_service():
+            return False
+        with cls._heal_lock:
+            cls._idle_heal_pending = False
+            cls._last_publish_at = now
+        return True
+
+    @classmethod
+    def _note_publish(cls):
+        with cls._heal_lock:
+            cls._last_publish_at = time.monotonic()
+
+    @classmethod
     def start_adapter_monitor(cls):
         """Start the daemon thread watching for adapter re-enumeration.
 
@@ -407,6 +445,10 @@ class WinRtAdvertiser(Advertiser):
         if address is not None:
             WinRtAdvertiser._observe_adapter(address)
         restarted = WinRtAdvertiser._consume_adapter_heal()
+        heal_reason = "adapter" if restarted else None
+        if not restarted and WinRtAdvertiser._consume_idle_heal():
+            restarted = True
+            heal_reason = "idle"
         adv = self._build_adv(payload)
         try:
             result = self._attempt(adv, payload, hold_s, self.extended, self.anonymous)
@@ -418,8 +460,10 @@ class WinRtAdvertiser(Advertiser):
             except NinjaError as second:
                 raise NinjaError(f"{first} (legacy retry also failed: {second})") from second
             result["fallback"] = str(first)
+        WinRtAdvertiser._note_publish()
         if restarted:
             result["bt_service_restarted"] = True
+            result["bt_heal_reason"] = heal_reason
         return result
 
 

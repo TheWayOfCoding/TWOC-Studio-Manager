@@ -146,6 +146,53 @@ def test_link_card_present():
 
 
 @pytest.mark.unit
+def test_screen_theme_select_ttl_and_clear_present():
+    """Theme is a curated dropdown; text can be timed and cleared."""
+    html = _bench_html()
+    for marker in (
+        '<select id="scr-theme">',
+        '<option value="live"',
+        '<option value="work"',
+        '<option value="focus"',
+        '<option value="warm"',
+        '<option value="candle"',
+        '<option value="sunset"',
+        '<option value="ocean"',
+        '<option value="slate"',
+        '<option value="rose"',
+        'id="scr-ttl"',
+        '<select id="scr-anim">',
+        '<option value="fireplace"',
+        '<option value="fishtank"',
+        "scrClear()",
+        "text_ttl_s",
+    ):
+        assert marker in html
+    assert 'type="text" id="scr-theme"' not in html
+
+
+@pytest.mark.unit
+def test_screen_track_select_and_live_volume_present():
+    """Track is a picker (not a text box); volume adjusts while playing."""
+    html = _bench_html()
+    for marker in (
+        '<select id="scr-track">',
+        '<option value="bed"',
+        '<option value="piano"',
+        '<option value="eurobeat"',
+        '<option value="dance"',
+        '<option value="synthwave"',
+        '<option value="tone"',
+        'id="scr-vol-n"',
+        "scrVolume()",
+        "scrPlaying",
+        'id="scr-vol" min="0" max="100" value="100"',
+    ):
+        assert marker in html
+    assert 'type="text" id="scr-track"' not in html
+
+
+@pytest.mark.unit
 def test_screen_audio_volume_controls_present():
     """Screen card drives bed volume (uncapped: the synth runs quiet)."""
     html = _bench_html()
