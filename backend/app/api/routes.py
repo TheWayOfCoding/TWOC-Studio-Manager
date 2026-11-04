@@ -1,6 +1,8 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later
 """REST routes: health, studios, and the Test Bench surface."""
 
+import os
+import subprocess
 from dataclasses import asdict
 
 from fastapi import APIRouter, HTTPException, Request
@@ -31,6 +33,63 @@ def health(request: Request):
     status = request.app.state.health
     log.debug("health check", extra={"fields": {"status": status["status"]}})
     return {"version": __version__, **status}
+
+
+MAIN_TASK = "StudioHub"
+HELPER_TASK = "StudioHubRestartOnce"
+
+
+class RestartBody(BaseModel):
+    confirm: bool = False
+
+
+def _launch_hub_restart(runner=subprocess.run):
+    """Arm a one-shot helper task that restarts the main hub task.
+
+    The restart must be driven from OUTSIDE this process (ending the
+    StudioHub task kills us mid-request), so the helper is its own
+    scheduled task: it waits, ends the main task, starts it again,
+    then deletes itself. Raises RuntimeError on any failed step.
+    """
+    helper_cmd = (
+        "cmd /c ping -n 4 127.0.0.1 >nul & schtasks /End /TN " + MAIN_TASK
+        + " & ping -n 6 127.0.0.1 >nul & schtasks /Run /TN " + MAIN_TASK
+        + " & schtasks /Delete /TN " + HELPER_TASK + " /F"
+    )
+    create = runner(
+        ["schtasks", "/Create", "/TN", HELPER_TASK, "/TR", helper_cmd,
+         "/SC", "DAILY", "/ST", "00:00", "/RU", "SYSTEM", "/RL", "HIGHEST", "/F"],
+        capture_output=True, timeout=30, check=False,
+    )
+    if create.returncode != 0:
+        raise RuntimeError("could not create the restart helper task")
+    run = runner(
+        ["schtasks", "/Run", "/TN", HELPER_TASK],
+        capture_output=True, timeout=30, check=False,
+    )
+    if run.returncode != 0:
+        raise RuntimeError("could not start the restart helper task")
+    return True
+
+
+@router.post("/api/hub/restart")
+def hub_restart(body: RestartBody):
+    """Restart the hub program (website + Bluetooth) via its task.
+
+    The site drops for ~30 s and in-memory kiosk state clears. This is
+    the recovery for a wedged Bluetooth stack: fresh process, fresh
+    radio. Needs an explicit confirm so it never fires by accident.
+    """
+    if body.confirm is not True:
+        raise HTTPException(status_code=422, detail="tick confirm first (confirm: true)")
+    if os.name != "nt":
+        raise HTTPException(status_code=503, detail="hub restart is Windows-only")
+    try:
+        _launch_hub_restart()
+    except Exception as exc:  # noqa: BLE001 - reported honestly, never faked
+        raise HTTPException(status_code=503, detail=f"restart not started: {exc}") from exc
+    log.warning("hub restart requested via API")
+    return {"ok": True, "restarting": True, "note": "hub restarts now; site returns in ~30s"}
 
 
 @router.get("/api/studios")

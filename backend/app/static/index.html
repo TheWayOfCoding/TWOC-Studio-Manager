@@ -33,6 +33,10 @@
 <div class="row"><button id="all-off" class="danger" onclick="powerAllOff()">All Off</button>
 <label class="field"><input type="checkbox" id="all-off-manual"> also switch devices normally left on</label></div>
 <div id="power-out"></div></div>
+<div class="card"><h2>Hub program</h2>
+<p class="hint">Website and Bluetooth are one program. Restart fixes a wedged Bluetooth radio. Site drops ~30s; kiosk screen text clears.</p>
+<div class="row"><label class="field"><input type="checkbox" id="hub-confirm"> confirm restart</label><button class="danger" onclick="hubRestart()">Restart hub program</button></div>
+<div id="hub-out"></div></div>
 <div class="card"><h2>Presets</h2><div class="row" id="presets">loading…</div>
 <div class="row"><input type="text" id="snap-id" placeholder="preset id"><button onclick="snapHardware()">Snapshot hardware</button></div>
 <div id="preset-out"></div></div>
@@ -167,6 +171,17 @@ async function obsStream(action) {
   try { const r = await jpost("/api/studios/" + studio() + "/obs/stream", JSON.stringify({action, confirmed: true}));
     out("obs-out", r, r.ok, r.ok ? ("Stream " + (action === "start" ? "started" : "stopped")) : ("Stream " + action + " failed: " + (r.error || "?"))); loadStatus(); }
   catch (e) { out("obs-out", {error: String(e)}, false); }
+}
+async function hubRestart() {
+  if (!document.getElementById("hub-confirm").checked) { out("hub-out", {error: "tick confirm first"}, false); return; }
+  try { const r = await jpost("/api/hub/restart", JSON.stringify({confirm: true}));
+    out("hub-out", r, true, "Restarting… the site drops for ~30s, then reloads itself."); }
+  catch (e) { out("hub-out", {error: String(e)}, false); return; }
+  for (let i = 0; i < 25; i++) {
+    await new Promise((res) => setTimeout(res, 3000));
+    try { await jget("/api/health"); location.reload(); return; } catch (e) { /* still down */ }
+  }
+  out("hub-out", {error: "hub did not come back in ~75s — check the hub PC"}, false);
 }
 async function applyPreset(id) {
   out("preset-out", {status: "applying " + id + "…"}, true);

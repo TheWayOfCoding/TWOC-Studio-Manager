@@ -230,11 +230,20 @@ def _heal_rig(monkeypatch, addresses, restart_ok=True):
     monkeypatch.setattr(WinRtAdvertiser, "_heal_pending", False)
     monkeypatch.setattr(WinRtAdvertiser, "_last_publish_at", None)
     monkeypatch.setattr(WinRtAdvertiser, "_idle_heal_pending", False)
+    monkeypatch.setattr(WinRtAdvertiser, "_started_heal_done", True)
+    monkeypatch.setattr(WinRtAdvertiser, "_legacy_only", False)
+    monkeypatch.setattr(WinRtAdvertiser, "_START_HEAL_WAIT_S", 0)
     adv = WinRtAdvertiser()
     monkeypatch.setattr(adv, "_build_adv", lambda payload: None)
     monkeypatch.setattr(adv, "_attempt", lambda a, p, h, e, n: {"mode": "legacy"})
-    queue = iter(addresses)
-    monkeypatch.setattr(ninja_ble, "_default_adapter_address", lambda: next(queue))
+    index = [0]
+
+    def _scripted_address():
+        value = addresses[min(index[0], len(addresses) - 1)]
+        index[0] += 1
+        return value
+
+    monkeypatch.setattr(ninja_ble, "_default_adapter_address", _scripted_address)
     restarts = []
     monkeypatch.setattr(
         ninja_ble, "_restart_bluetooth_service", lambda: restarts.append(1) or restart_ok
@@ -293,6 +302,45 @@ def test_publish_skips_heal_when_adapter_unknown(monkeypatch):
     assert restarts == []
 
 
+def test_publish_heals_on_first_publish_after_start(monkeypatch):
+    """Cold boot: the FIRST publish restarts the BT service, once.
+
+    Regression for the field failure (full power-off, first bench send
+    minutes later, light dead): the pre-serve restart can fire before
+    the dongle enumerates, and the first publish used to heal never.
+    """
+    adv, restarts = _heal_rig(monkeypatch, [111, 111, 111])
+    monkeypatch.setattr(WinRtAdvertiser, "_started_heal_done", False)
+    first = adv.publish(b"x" * 27, 0)
+    second = adv.publish(b"x" * 27, 0)
+    assert restarts == [1]
+    assert first["bt_service_restarted"] is True
+    assert first["bt_heal_reason"] == "start"
+    assert "bt_service_restarted" not in second
+
+
+def test_start_heal_retries_after_failed_restart(monkeypatch):
+    """A failed start restart stays pending: next publish retries."""
+    adv, restarts = _heal_rig(monkeypatch, [111, 111], restart_ok=False)
+    monkeypatch.setattr(WinRtAdvertiser, "_started_heal_done", False)
+    first = adv.publish(b"x" * 27, 0)
+    adv.publish(b"x" * 27, 0)
+    assert restarts == [1, 1]
+    assert "bt_service_restarted" not in first
+
+
+def test_start_heal_waits_for_late_adapter(monkeypatch):
+    """Dongle enumerating late: the start heal waits, then restarts."""
+    adv, restarts = _heal_rig(monkeypatch, [None, 111, 111, 111])
+    monkeypatch.setattr(WinRtAdvertiser, "_started_heal_done", False)
+    monkeypatch.setattr(WinRtAdvertiser, "_START_HEAL_WAIT_S", 5)
+    monkeypatch.setattr(WinRtAdvertiser, "_START_HEAL_POLL_S", 0.01)
+    result = adv.publish(b"x" * 27, 0)
+    assert restarts == [1]
+    assert result["bt_service_restarted"] is True
+    assert result["bt_heal_reason"] == "start"
+
+
 def test_publish_heals_after_long_idle(monkeypatch):
     """First send after a long idle restarts the BT service once, flagged.
 
@@ -349,11 +397,39 @@ def test_publish_falls_back_to_legacy(monkeypatch):
     assert calls == [(True, True), (False, False)]
 
 
+def test_publish_caches_legacy_after_fallback(monkeypatch):
+    """After one extended rejection, later publishes skip the failing
+    start entirely (less publisher churn against a wedged stack)."""
+    import app.drivers.ninja_ble as ninja_ble
+
+    adv = WinRtAdvertiser()
+    monkeypatch.setattr(ninja_ble, "winrt_available", lambda: None)
+    monkeypatch.setattr(ninja_ble, "_default_adapter_address", lambda: 111)
+    monkeypatch.setattr(WinRtAdvertiser, "_started_heal_done", True)
+    monkeypatch.setattr(WinRtAdvertiser, "_legacy_only", False)
+    monkeypatch.setattr(adv, "_build_adv", lambda payload: None)
+    calls = []
+
+    def fake_attempt(adv_obj, payload, hold_s, extended, anonymous):
+        calls.append((extended, anonymous))
+        if extended or anonymous:
+            raise NinjaError("advertiser failed to start: not supported")
+        return {"mode": "legacy"}
+
+    monkeypatch.setattr(adv, "_attempt", fake_attempt)
+    first = adv.publish(b"x" * 27, 0)
+    second = adv.publish(b"x" * 27, 0)
+    assert calls == [(True, True), (False, False), (False, False)]
+    assert "fallback" in first
+    assert "fallback" not in second
+
+
 def test_publish_reports_double_failure(monkeypatch):
     import app.drivers.ninja_ble as ninja_ble
 
     adv = WinRtAdvertiser()
     monkeypatch.setattr(ninja_ble, "winrt_available", lambda: None)
+    monkeypatch.setattr(WinRtAdvertiser, "_legacy_only", False)
     monkeypatch.setattr(adv, "_build_adv", lambda payload: None)
     monkeypatch.setattr(
         adv, "_attempt",

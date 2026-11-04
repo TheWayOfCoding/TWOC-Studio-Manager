@@ -54,6 +54,67 @@ class FakeGvm:
 
 
 @pytest.mark.unit
+def test_hub_restart_needs_confirm(monkeypatch):
+    """Restart is destructive (site drops): no confirm, no launch."""
+    from app.api import routes
+
+    launches = []
+    monkeypatch.setattr(routes, "_launch_hub_restart", lambda: launches.append(1))
+    assert client.post("/api/hub/restart", json={}).status_code == 422
+    assert client.post("/api/hub/restart", json={"confirm": False}).status_code == 422
+    assert launches == []
+
+
+@pytest.mark.unit
+def test_hub_restart_launches_helper(monkeypatch):
+    from app.api import routes
+
+    launches = []
+    monkeypatch.setattr(routes, "_launch_hub_restart", lambda: launches.append(1) or True)
+    response = client.post("/api/hub/restart", json={"confirm": True})
+    assert response.status_code == 200
+    assert response.json()["restarting"] is True
+    assert launches == [1]
+
+
+@pytest.mark.unit
+def test_hub_restart_launch_failure_is_honest(monkeypatch):
+    from app.api import routes
+
+    def boom():
+        raise RuntimeError("schtasks said no")
+
+    monkeypatch.setattr(routes, "_launch_hub_restart", boom)
+    response = client.post("/api/hub/restart", json={"confirm": True})
+    assert response.status_code == 503
+    assert "restart not started" in response.json()["detail"]
+
+
+@pytest.mark.unit
+def test_hub_restart_helper_task_shape():
+    """The helper restarts the main task from outside, then self-deletes."""
+    from types import SimpleNamespace
+
+    from app.api import routes
+
+    calls = []
+
+    def fake_runner(argv, **kwargs):
+        calls.append(argv)
+        return SimpleNamespace(returncode=0)
+
+    assert routes._launch_hub_restart(runner=fake_runner) is True
+    create, run = calls
+    assert create[:3] == ["schtasks", "/Create", "/TN"]
+    assert routes.HELPER_TASK in create
+    helper_cmd = create[create.index("/TR") + 1]
+    assert "/End /TN " + routes.MAIN_TASK in helper_cmd
+    assert "/Run /TN " + routes.MAIN_TASK in helper_cmd
+    assert "/Delete /TN " + routes.HELPER_TASK in helper_cmd
+    assert run == ["schtasks", "/Run", "/TN", routes.HELPER_TASK]
+
+
+@pytest.mark.unit
 def test_health_ok():
     response = client.get("/api/health")
     assert response.status_code == 200

@@ -48,6 +48,20 @@ def test_obs_screen_cards_present():
 
 
 @pytest.mark.unit
+def test_hub_restart_card_present():
+    """Hub-program restart: confirm-gated button calling /api/hub/restart."""
+    html = _bench_html()
+    for marker in (
+        'id="hub-confirm"',
+        'id="hub"',
+        "hubRestart(",
+        "/api/hub/restart",
+        "Restart hub program",
+    ):
+        assert marker in html
+
+
+@pytest.mark.unit
 def test_shows_card_present():
     """Presentations card lists, runs (with scene confirm), stops, polls."""
     html = _bench_html()

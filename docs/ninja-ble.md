@@ -140,11 +140,24 @@ real fixture. No separate power byte observed.
   trigger-based heal above is the substitute.
 - Idle heal (added after a mid-run wedge with no adapter event): the
   advertiser tracks its last publish, and the first publish after
-  15 minutes idle restarts `bthserv` before sending, flagged
+  2 minutes idle restarts `bthserv` before sending, flagged
   `bt_heal_reason: "idle"` (`"adapter"` for the swap/reseat heal). A
   failed restart stays pending and retries on the next publish. Rapid
-  sends during a show never trigger it, and the first send after hub
-  start relies on the pre-serve restart instead.
+  sends during a show never trigger it. (Was 15 minutes; field
+  retries minutes apart kept missing the window while the wedge
+  re-formed inside one long-running hub process.)
+- Legacy caching: both field dongles reject extended advertising, so
+  after the first fallback the advertiser goes straight to legacy.
+  Repeating the failing extended start on every publish was pure
+  publisher churn — itself a listed wedge trigger. An adapter change
+  re-probes extended once.
+- Start heal (added after a cold-boot failure): full power-off, first
+  bench send minutes later, light dead — the pre-serve restart had
+  fired before the USB dongle enumerated, and the first publish never
+  healed. Now the first publish of each hub process waits for the
+  adapter (up to 30 s), restarts `bthserv`, then sends, flagged
+  `bt_heal_reason: "start"`. Exactly once per process; a failed
+  restart stays pending and retries on the next publish.
 - Eyeball contamination warning: the phone app leaves its last
   advertising set ENABLED after the last tap (the final frame repeats
   indefinitely), so a "hub sent it and the light moved" observation is

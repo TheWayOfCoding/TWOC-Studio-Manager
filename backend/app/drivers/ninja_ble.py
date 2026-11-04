@@ -338,7 +338,11 @@ class WinRtAdvertiser(Advertiser):
     # heals before sending; rapid-fire sends during a show never do.
     _last_publish_at = None
     _idle_heal_pending = False
-    _IDLE_HEAL_AFTER_S = 900.0
+    _IDLE_HEAL_AFTER_S = 120.0
+    _legacy_only = False
+    _started_heal_done = False
+    _START_HEAL_WAIT_S = 30.0
+    _START_HEAL_POLL_S = 0.5
 
     @classmethod
     def _observe_adapter(cls, address):
@@ -360,6 +364,7 @@ class WinRtAdvertiser(Advertiser):
                 return
             if cls._adapter_absent or address != cls._last_adapter_address:
                 cls._heal_pending = True
+                cls._legacy_only = False  # new radio: re-probe extended once
             cls._adapter_absent = False
             cls._last_adapter_address = address
 
@@ -377,6 +382,52 @@ class WinRtAdvertiser(Advertiser):
             return False
         with cls._heal_lock:
             cls._heal_pending = False
+        return True
+
+    @classmethod
+    def _wait_for_adapter(cls, address):
+        """Poll until the default adapter answers, up to the boot wait.
+
+        Cold-boot race: hub-serve can start before the USB dongle has
+        enumerated, so the first observation can be None even though the
+        radio arrives seconds later. Returns the address seen, or None
+        when the wait expires (the publish then fails honestly instead
+        of hanging forever).
+        """
+        if address is not None or cls._START_HEAL_WAIT_S <= 0:
+            return address
+        deadline = time.monotonic() + cls._START_HEAL_WAIT_S
+        while time.monotonic() < deadline:
+            time.sleep(min(cls._START_HEAL_POLL_S, max(deadline - time.monotonic(), 0)))
+            address = _default_adapter_address()
+            if address is not None:
+                return address
+        return None
+
+    @classmethod
+    def _consume_start_heal(cls, address):
+        """Restart the BT service before this process's first publish.
+
+        The hub-serve pre-serve restart fires before the dongle may
+        exist, and until now the first publish after a hub start never
+        healed at all (field failure: full power-off, first bench send
+        minutes later, light dead). So the first publish waits for the
+        adapter, restarts the service, and only then sends. Exactly one
+        start heal runs per process; a failed restart stays pending
+        and retries on the next publish.
+        """
+        with cls._heal_lock:
+            if cls._started_heal_done:
+                return False
+        address = cls._wait_for_adapter(address)
+        if address is None:
+            return False
+        cls._observe_adapter(address)
+        if not _restart_bluetooth_service():
+            return False
+        cls._wait_for_adapter(_default_adapter_address())
+        with cls._heal_lock:
+            cls._started_heal_done = True
         return True
 
     @classmethod
@@ -446,20 +497,30 @@ class WinRtAdvertiser(Advertiser):
             WinRtAdvertiser._observe_adapter(address)
         restarted = WinRtAdvertiser._consume_adapter_heal()
         heal_reason = "adapter" if restarted else None
+        if not restarted and WinRtAdvertiser._consume_start_heal(address):
+            restarted = True
+            heal_reason = "start"
         if not restarted and WinRtAdvertiser._consume_idle_heal():
             restarted = True
             heal_reason = "idle"
         adv = self._build_adv(payload)
-        try:
-            result = self._attempt(adv, payload, hold_s, self.extended, self.anonymous)
-        except NinjaError as first:
-            if not self.extended and not self.anonymous:
-                raise
+        if WinRtAdvertiser._legacy_only:
+            # This radio already rejected extended once: go straight to
+            # legacy. Repeating the failing start on every publish is
+            # pure publisher churn (a wedge trigger) for zero benefit.
+            result = self._attempt(adv, payload, hold_s, False, False)
+        else:
             try:
-                result = self._attempt(adv, payload, hold_s, False, False)
-            except NinjaError as second:
-                raise NinjaError(f"{first} (legacy retry also failed: {second})") from second
-            result["fallback"] = str(first)
+                result = self._attempt(adv, payload, hold_s, self.extended, self.anonymous)
+            except NinjaError as first:
+                if not self.extended and not self.anonymous:
+                    raise
+                try:
+                    result = self._attempt(adv, payload, hold_s, False, False)
+                except NinjaError as second:
+                    raise NinjaError(f"{first} (legacy retry also failed: {second})") from second
+                result["fallback"] = str(first)
+                WinRtAdvertiser._legacy_only = True
         WinRtAdvertiser._note_publish()
         if restarted:
             result["bt_service_restarted"] = True

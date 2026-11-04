@@ -190,6 +190,11 @@ bring-up only; prefer the light panels above.</p>
 <button onclick="showStop()">Stop</button>
 <button onclick="showStatus()">Status</button></div>
 <div id="show"></div></div>
+<div class="card"><h2>Hub program</h2>
+<p class="hint">Website and Bluetooth are one program. Restart fixes a wedged Bluetooth radio. Site drops ~30s; kiosk screen text clears.</p>
+<div class="row"><label class="field"><input type="checkbox" id="hub-confirm"> confirm restart</label>
+<button class="danger" onclick="hubRestart()">Restart hub program</button></div>
+<div id="hub"></div></div>
 <div id="drivers">loading…</div>
 </div>
 <script>
@@ -224,6 +229,17 @@ function out(id, obj, ok, summary) {
     '<div class="result ' + (ok === false ? "bad" : "ok") + '"><div class="result-line"><span class="dot">●</span><span>' +
     esc(line) + '</span></div><details class="result-json"><summary>Details</summary><pre>' +
     esc(JSON.stringify(obj, null, 2)) + "</pre></details></div>";
+}
+async function hubRestart() {
+  if (!document.getElementById("hub-confirm").checked) { out("hub", {error: "tick confirm first"}, false); return; }
+  try { const r = await jpost("/api/hub/restart", JSON.stringify({confirm: true}));
+    out("hub", r, true, "Restarting… the site drops for ~30s, then reloads itself."); }
+  catch (e) { out("hub", {error: String(e)}, false); return; }
+  for (let i = 0; i < 25; i++) {
+    await new Promise((res) => setTimeout(res, 3000));
+    try { await jget("/api/health"); location.reload(); return; } catch (e) { /* still down */ }
+  }
+  out("hub", {error: "hub did not come back in ~75s — check the hub PC"}, false);
 }
 function showStudio() { return document.getElementById("show-studio").value || "home-studio"; }
 function showSel() { return document.getElementById("show-sel").value; }

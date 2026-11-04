@@ -84,6 +84,10 @@ def test_dashboard_structure():
         'id="snap-id"',
         "snapHardware(",
         "/presets/from-hardware",
+        'id="hub-confirm"',
+        'id="hub-out"',
+        "hubRestart(",
+        "/api/hub/restart",
     ):
         assert marker in html
 
