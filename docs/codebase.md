@@ -14,8 +14,9 @@ change must honor.
   fixture specs), `studios/` (tracked fictional examples),
   `studios.local/` (real studios, git-ignored). Loader merges both
   roots; duplicate studio ids are an error.
-- `backend/app/registry.py` — validated in-memory view (devices,
-  zones, modes, presets, effective device = instance + profile).
+- `backend/app/registry/` — validated in-memory view (devices,
+  zones, modes, presets in configured order, effective device =
+  instance + profile).
 - `backend/app/drivers/` — leaf hardware adapters, one transport
   each. No modes, UI, or AI.
 - `backend/app/modules/` — capability composers over drivers. No raw
@@ -23,8 +24,13 @@ change must honor.
 - `backend/app/api/` — REST surface: bench bring-up endpoints per
   driver family plus studio/mode/preset/AI/show routes.
 - `backend/app/static/` — dashboard (`index.html`), Test Bench
-  (`bench.html`), kiosk page (`screen.html`), equipment editor.
+  (`bench.html`), control (`control.html`), kiosk page (`screen.html`),
+  equipment editor, ordering admin (`ordering.html`).
+- `backend/app/config/ordering.py` — per-studio custom list order
+  (`ordering.json` id arrays, loaded once, atomically saved; see
+  `config/README.md`). Registry id lists honor it everywhere.
 - `backend/requirements*.txt` — runtime vs dev (+pytest, httpx) deps.
+- `pyproject.toml` — the ruff lint gate (`ruff check backend tools tests`).
 - `tools/` — bootstraps, deploy scripts (`deploy-win.ps1` for the
   hub), watchdog, TLS, kiosk helper, dual-listener runner
   (`hub-serve.py`), Pi/systemd files.
@@ -74,7 +80,8 @@ change must honor.
   `tests/unit/` (capture vectors for protocol code). Full suite
   green before deploy; a red test covering your change blocks it.
   Known-red unrelated failures ship only disclosed, never silent.
-- No CI: the gates are pytest + the deploy health check.
+- No CI: the gates are pytest + `ruff check` (pyproject config) +
+  the deploy health check.
 
 ## Deploy pipeline
 

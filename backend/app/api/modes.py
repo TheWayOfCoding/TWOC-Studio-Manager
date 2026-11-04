@@ -99,7 +99,9 @@ def _light_drivers(registry, config_root):
     universe = None
     for device_id in registry.device_ids:
         device = registry.get_device(device_id)
-        family = device.get("driver")
+        from ..modules.modes import effective_family
+
+        family = effective_family(device)
         if family == "gvm":
             address = (device.get("driverAddress") or {}).get("ble")
             if not address:

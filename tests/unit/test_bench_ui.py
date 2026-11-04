@@ -191,12 +191,11 @@ def test_screen_track_select_and_live_volume_present():
     html = _bench_html()
     for marker in (
         '<select id="scr-track">',
-        '<option value="bed"',
         '<option value="piano"',
         '<option value="eurobeat"',
         '<option value="dance"',
         '<option value="synthwave"',
-        '<option value="tone"',
+        '<option value="ocean"',
         'id="scr-vol-n"',
         "scrVolume()",
         "scrPlaying",

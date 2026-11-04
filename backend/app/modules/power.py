@@ -8,7 +8,7 @@ caution, pausing between steps only.
 
 import time
 
-from ..core.safety import SafetyViolation, check_power
+from ..core.safety import check_power
 from .base import Module
 
 DEFAULT_ORDER = 100
@@ -144,8 +144,20 @@ class PowerModule(Module):
         return plan
 
     def set_zone_power(self, zone_id, on, sleep=time.sleep, delay_s=0):
-        """Execute a zone plan step by step. Returns per-step results."""
-        return self._execute(self.plan_zone_power(zone_id, on), sleep, delay_s)
+        """Execute a zone plan step by step. Returns per-step results.
+
+        A zone may declare `dependsOn` (its plug strip is itself fed by
+        another zone's plug — e.g. the hands-on-screens strip hangs off
+        the hands-on strip). Power-on brings the parent zone up first;
+        power-off leaves the parent alone (its own switch governs it).
+        """
+        results = []
+        if on:
+            parent = self.registry.get_zone(zone_id).get("dependsOn")
+            if parent:
+                results.extend(self._execute(self.plan_zone_power(parent, on), sleep, delay_s))
+        results.extend(self._execute(self.plan_zone_power(zone_id, on), sleep, delay_s))
+        return results
 
     def set_group_power(self, group_id, on, sleep=time.sleep, delay_s=0, include_manual=False):
         """Execute a power-group plan step by step. Returns per-step results."""

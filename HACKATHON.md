@@ -86,11 +86,15 @@ name every skipped device. Nothing in the room ever fails silent.
 
 ## What it controls
 
-**Power (Kasa plugs, alias-based).** Plugs found by alias with cached
-discovery — DHCP drift can't strand a zone. First-contact handshake
-flakiness gets a silent heal. Manual-only protection marks the plugs a
-power cut would endanger; All Off skips them by name unless explicitly
-overridden.
+**Power (Kasa plugs, alias-based).** Six official plugs (Studio Plug
+1–6) in zone-importance order: Workstation Computer, Content Creation,
+Background, Hands-On, Hands-On Screens, Ambient Mood — plus a Hub
+Manager zone on its own PC (no plug) and a Room zone of fixed lights.
+Plugs found by alias with cached discovery — DHCP drift can't strand a
+zone — and every page primes discovery on load so switches answer
+fast. First-contact handshake flakiness gets a silent heal.
+Manual-only protection marks the plugs a power cut would endanger;
+All Off skips them by name unless explicitly overridden.
 
 **Lights — four families, one language.** GVM panels over BLE
 (brightness/CCT/HSI/scenes, protocol reverse-engineered from app
@@ -114,9 +118,20 @@ wash, stop-to-final behavior, and per-step result reporting.
 **AI director.** Prompt + target + scope over mock or live providers,
 per-fixture baselines and power caps, critique pass, voice input,
 save-as-preset, snapshot-from-hardware. Live-proven on the real rig.
+Fixed Room lighting (no smart plugs) rides along as context the AI
+factors in and may suggest switching by hand — never claims to move.
 
 **Undo + action log.** Every apply is recorded; one button replays the
 previous room state through the validated path.
+
+**Ordering.** Every list (zones, devices, modes, presets, plugs)
+follows a custom order set on a drag/drop admin page with one-click
+A–Z sorts, saved as one small per-studio JSON file — no database.
+
+**Hub power.** The Hub Manager zone restarts the hub program or shuts
+the hub PC down completely, optionally turning everything off first
+and DTMF-shutting-down the workstation down the audio wire (one of
+196 codes on that wire), always behind a final confirmation.
 
 ## Architecture
 
@@ -135,7 +150,7 @@ previous room state through the validated path.
                                       strip, screens, main PC
 ```
 
-One Python service, JSON-configured studios, ~480-test suite with
+One Python service, JSON-configured studios, 527-test suite with
 hardware and socket-free tiers, dual HTTPS/HTTP serving, watchdog task,
 self-signed TLS. Deploys over the LAN with clobber guards on local
 config. Only fictional example data is committed; real studio details
@@ -145,6 +160,8 @@ stay git-ignored and local.
 
 Live on the hub host, demo-ready. Every light family drives through
 bench, modes, presets, and AI; OBS boot-over-audio runs in ~10s; shows,
-undo, and snapshot all land. Remaining threads: zone/plug detail
-rework, presentation structure, and the show-account transition — all
-queued, none blocking the demo.
+undo, and snapshot all land. The zone/plug structure now matches the
+room (seven plug-ordered zones plus fixed Room lighting), list
+ordering is admin-configurable, and the hub can shut the whole room
+down in order. Remaining thread: the show-account transition on the
+workstation — queued, not blocking the demo.

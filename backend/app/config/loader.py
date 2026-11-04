@@ -90,6 +90,19 @@ def load_studio(config_root, studio_id):
             loaded[name] = validate(data, "studio", f"{studio_dir}/studio.json")
     if loaded["studio"]["id"] != studio_id:
         raise ConfigError(f"studio id mismatch in {studio_dir}/studio.json")
+    from .ordering import load_ordering
+
+    loaded["ordering"] = load_ordering(config_root, studio_id)
+    modalities_path = studio_dir / "modalities.json"
+    if modalities_path.exists():
+        raw = _read_json(modalities_path)
+        if not isinstance(raw, dict):
+            raise ConfigError(f"modalities.json in {studio_dir} must be an object")
+        for modality_id, modality in raw.items():
+            validate(modality, "modality", f"{studio_dir}/modalities.json#{modality_id}")
+        loaded["modalities"] = raw
+    else:
+        loaded["modalities"] = {}
     return loaded
 
 

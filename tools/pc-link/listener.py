@@ -90,6 +90,31 @@ def run_action(command, spec):
     print(f"[{command}] launched: {spec['launch']}" + (f" (cwd {cwd})" if cwd else ""), flush=True)
 
 
+def run_shutdown(spec):
+    """Power this PC down (the DTMF 'shutdown' command). Windows only.
+
+    Enabled per-machine in local.json: {"actions": {"shutdown":
+    {"shutdown": true, "delay_s": 20}}}. The delay gives OBS/apps a
+    moment to close; `shutdown /a` on the PC aborts inside the window.
+    """
+    import os
+
+    if os.name != "nt":
+        print("[shutdown] refused: listener shutdown is Windows-only", flush=True)
+        return False
+    if not isinstance(spec, dict) or spec.get("shutdown") is not True:
+        print("[shutdown] not enabled in local.json actions.shutdown; ignoring", flush=True)
+        return False
+    try:
+        delay = int(spec.get("delay_s", 20))
+    except (TypeError, ValueError):
+        delay = 20
+    delay = max(0, min(delay, 120))
+    subprocess.Popen(["shutdown", "/s", "/t", str(delay), "/c", "Studio Hub shutdown"])  # noqa: S603 - allow-listed local config only
+    print(f"[shutdown] OS shutdown scheduled in {delay}s (shutdown /a aborts)", flush=True)
+    return True
+
+
 def resolve_output(name):
     import sounddevice as sd
 
@@ -280,7 +305,9 @@ def main():
                     print(f"heard command: {heard}", flush=True)
                     if heard in actions:
                         spec = actions[heard]
-                        if obs_already_up(spec, obs_watch):
+                        if heard == "shutdown":
+                            run_shutdown(spec)
+                        elif obs_already_up(spec, obs_watch):
                             print(f"[{heard}] OBS already up; skipping launch", flush=True)
                         else:
                             run_action(heard, spec)

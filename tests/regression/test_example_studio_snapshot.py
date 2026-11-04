@@ -30,3 +30,17 @@ def test_example_studio_snapshot():
     assert [m["id"] for m in loaded["modes"]] == ["demo_work", "demo_stream"]
     assert sorted(loaded["presets"]) == ["default"]
     assert loaded["studio"]["defaultMode"] == "demo_work"
+
+
+@pytest.mark.regression
+def test_example_studio_registry_order_is_alphabetical_without_custom_order():
+    """No ordering.json: registry lists fall back to id order (golden)."""
+    from app.registry import Registry
+
+    data = load_all(CONFIG_ROOT)
+    registry = Registry.from_loaded(data["studios"]["example-studio"], data["profiles"])
+    assert registry.ordering == {}
+    assert registry.device_ids == ["demo-cam", "demo-key", "demo-rgb", "demo-screen"]
+    assert registry.zone_ids == ["bench", "desk"]
+    assert registry.mode_ids == ["demo_stream", "demo_work"]
+    assert [d["id"] for d in registry.devices_in_zone("bench")] == ["demo-cam", "demo-key", "demo-rgb"]

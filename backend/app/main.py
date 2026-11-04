@@ -5,7 +5,7 @@ import os
 import uuid
 from pathlib import Path
 
-from fastapi import FastAPI, Request
+from fastapi import FastAPI
 from fastapi.responses import FileResponse
 
 from . import __version__
@@ -30,6 +30,8 @@ from .api.ai import router as ai_router  # noqa: E402
 from .api.presets import router as presets_router  # noqa: E402
 from .api.shows import router as shows_router  # noqa: E402
 from .api.link import router as link_router  # noqa: E402
+from .api.ordering import router as ordering_router  # noqa: E402
+from .api.modality import router as modality_router  # noqa: E402
 from .config.loader import ConfigError, list_studios, load_all  # noqa: E402
 from .registry import Registry  # noqa: E402
 
@@ -73,6 +75,7 @@ def create_app():
         app.state.health = {"status": "degraded", "studios": [], "error": str(exc)}
         log.error("config load failed: %s", exc)
     app.state.show_runs = {}
+    app.state.modality_runs = {}  # studio_id -> running modality slot
     app.state.action_log = {}  # studio_id -> [mode/preset/AI applies], undo replays the tail
 
     # Specific bench routers first: the generic /api/testbench/{driver_id}/
@@ -91,6 +94,8 @@ def create_app():
     app.include_router(presets_router)
     app.include_router(shows_router)
     app.include_router(link_router)
+    app.include_router(ordering_router)
+    app.include_router(modality_router)
     app.include_router(router)
 
     @app.get("/", include_in_schema=False)
@@ -108,6 +113,14 @@ def create_app():
     @app.get("/equipment", include_in_schema=False)
     def equipment():
         return FileResponse(STATIC_DIR / "equipment.html")
+
+    @app.get("/ordering", include_in_schema=False)
+    def ordering():
+        return FileResponse(STATIC_DIR / "ordering.html")
+
+    @app.get("/modality", include_in_schema=False)
+    def modality():
+        return FileResponse(STATIC_DIR / "modality.html")
 
     @app.get("/screen/{screen_id}", include_in_schema=False)
     def screen_page(screen_id: str):

@@ -14,7 +14,21 @@ SCREEN_STATE = {}
 
 DEFAULT_VOLUME = 10  # bed level when play omits volume
 MAX_TEXT_TTL_S = 3600  # timed text auto-clears after at most an hour
-ANIMATIONS = ("fireplace", "fishtank")  # looping kiosk scenes (own layer)
+# One-shot synthesized sound effects (live-stream / gaming vocabulary),
+# played by the kiosk page on top of whatever bed is running.
+FX = (
+    "stinger", "ding", "pop", "coin", "levelup", "powerup", "whoosh",
+    "error", "success", "applause", "laser", "unlock", "alert", "blip",
+)
+
+ANIMATIONS = (
+    "fireplace", "fishtank",  # originals
+    "underwater",  # deep reef, many unique fish
+    "starfield", "nebula", "galaxy",  # Scotty Photon space set (Hubble/JWST/Spitzer vibes)
+    "code", "arcade", "gears", "dice",  # task scenes: programming, gaming, crafting/gunpla, D&D
+    "puzzle", "bistro", "tailor", "unbox", "aperture", "circuit",  # puzzle, food, sewing/cosplay, unboxing, camera, tech news
+    "photons",  # Scotty Photon signature: particle/wave stream
+)  # looping kiosk scenes (own layer)
 
 
 def screen_state(screen_id):
@@ -67,13 +81,24 @@ class ScreenDriver(Driver):
         if not isinstance(command, dict):
             return DriverResult(ok=False, error="command must be an object")
         state = screen_state(self.screen)
+        if "fx" in command:
+            name = command["fx"]
+            if name not in FX:
+                return DriverResult(ok=False, error=f"fx must be one of {list(FX)}: {name!r}")
+            volume = command.get("volume", state.get("volume", DEFAULT_VOLUME))
+            if isinstance(volume, bool) or not isinstance(volume, int) or not 0 <= volume <= 100:
+                return DriverResult(ok=False, error=f"fx volume must be a whole number 0..100: {volume!r}")
+            seq = (state.get("fx") or {}).get("seq", 0) + 1
+            state["fx"] = {"name": name, "seq": seq, "volume": volume}
+            SCREEN_STATE[self.screen] = state
+            return DriverResult(ok=True, state={"screen": self.screen, **state})
         if "audio" in command:
             action = command["audio"]
             if action not in ("play", "stop"):
                 return DriverResult(ok=False, error='audio needs "play"|"stop"')
             state["audio"] = action
             if action == "play":
-                state["track"] = command.get("track", state.get("track", "bed"))
+                state["track"] = command.get("track", state.get("track", "piano"))
                 volume = command.get("volume", state.get("volume", DEFAULT_VOLUME))
                 if (
                     isinstance(volume, bool)

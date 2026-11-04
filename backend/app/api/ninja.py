@@ -14,10 +14,6 @@ from pydantic import BaseModel
 from ..core.logging import get_logger
 from ..drivers.ninja_ble import (
     GENTLE_PERCENT_MAX,
-    MAX_CHANNEL,
-    MAX_SCENE,
-    MIN_CHANNEL,
-    MIN_SCENE,
     NinjaBleDriver,
     NinjaError,
     address_byte,

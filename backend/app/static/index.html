@@ -9,7 +9,7 @@
 <body>
 <header class="topbar">
 <span class="brand">Studio Hub</span>
-<nav><a href="/" aria-current="page">Dashboard</a><a href="/bench">Test Bench</a><a href="/control">Control</a><a href="/equipment">Equipment</a><a href="/docs">API docs</a></nav>
+<nav><a href="/" aria-current="page">Dashboard</a><a href="/control">Control</a><a href="/equipment">Equipment</a><span class="navgroup">Administration</span><a href="/modality">Modality Manager</a><a href="/ordering">Ordering</a><a href="/bench">Test Bench</a><a href="/docs">API docs</a></nav>
 <span class="spacer"></span>
 <span class="context"><span class="pill" id="health">loading…</span><label>Studio <select id="studio"></select></label></span>
 </header>
@@ -17,38 +17,41 @@
 <h1>Dashboard</h1>
 <p class="lede">Run the room: modes, OBS, zones, power, looks. Every action answers in plain words; the raw reply hides under Details.</p>
 <div class="grid">
-<div class="card span"><h2>Modes</h2>
+<div class="card span" data-panel="modes"><h2>Modes</h2>
 <div class="row"><label class="field"><input type="checkbox" id="pwr-delay-on"> stagger power</label><span class="field"><input type="number" id="pwr-delay-s" value="1" min="0" max="5" step="0.1"> s</span><label class="field"><input type="checkbox" id="mode-include-protected"> also cut protected zones</label></div>
 <div class="row" id="modes">loading…</div>
 <div class="row"><span class="hint" id="actions">no actions yet</span><button id="undo-btn" onclick="undoLast()">Undo</button></div>
 <div id="mode-out"></div></div>
-<div class="card"><h2>OBS</h2>
-<div class="row" id="status">loading…</div>
+<div class="card" data-panel="obs"><h2>OBS</h2>
+<div class="row"><span id="status">loading…</span><button onclick="loadStatus()">Refresh</button></div>
 <div class="row" id="obs"></div>
 <div class="row"><label class="field">collection <select id="obs-collection"></select></label><button onclick="obsCollection()">Switch collection</button></div>
 <div class="row"><label class="field"><input type="checkbox" id="obs-confirm"> confirm stream start/stop</label><button onclick="obsStream('start')">Start stream</button><button onclick="obsStream('stop')">Stop stream</button></div>
 <div id="obs-out"></div></div>
-<div class="card"><h2>Zones</h2><div id="zones">loading…</div><div id="zone-out"></div></div>
-<div class="card" id="power"><h2>Power</h2>
+<div class="card" data-panel="zones"><h2>Zones</h2><div id="zones">loading…</div><div id="zone-out"></div></div>
+<div class="card" id="power" data-panel="power"><h2>Power</h2>
 <div class="row"><button id="all-off" class="danger" onclick="powerAllOff()">All Off</button>
 <label class="field"><input type="checkbox" id="all-off-manual"> also switch devices normally left on</label></div>
 <div id="power-out"></div></div>
-<div class="card"><h2>Hub program</h2>
-<p class="hint">Website and Bluetooth are one program. Restart fixes a wedged Bluetooth radio. Site drops ~30s; kiosk screen text clears.</p>
+<div class="card" data-panel="hub"><h2>Hub Manager</h2>
+<p class="hint">Website and Bluetooth are one program on the hub PC (no Kasa plug). Restart fixes a wedged Bluetooth radio. Site drops ~30s; kiosk screen text clears.</p>
 <div class="row"><label class="field"><input type="checkbox" id="hub-confirm"> confirm restart</label><button class="danger" onclick="hubRestart()">Restart hub program</button></div>
+<p class="hint">Power down shuts the hub computer off (power button to return). Optionally switch everything off first and DTMF-shutdown the 9900x workstation.</p>
+<div class="row"><label class="field"><input type="checkbox" id="hub-sd-everything"> turn everything off first</label><label class="field"><input type="checkbox" id="hub-sd-workstation"> also shut down 9900x (DTMF)</label></div>
+<div class="row"><label class="field"><input type="checkbox" id="hub-sd-confirm"> I understand the hub will power down</label><button class="danger" onclick="hubShutdown()">Power down hub</button></div>
 <div id="hub-out"></div></div>
-<div class="card"><h2>Presets</h2><div class="row" id="presets">loading…</div>
+<div class="card" data-panel="presets"><h2>Presets</h2><div class="row" id="presets">loading…</div>
 <div class="row"><input type="text" id="snap-id" placeholder="preset id"><button onclick="snapHardware()">Snapshot hardware</button></div>
 <div id="preset-out"></div></div>
-<div class="card"><h2>Presentations</h2>
+<div class="card" data-panel="presentations"><h2>Presentations</h2>
 <div class="row"><label class="field"><input type="checkbox" id="show-confirm"> confirm scene steps</label>
 <button onclick="showStop()">Stop</button></div>
 <div class="row" id="shows">loading…</div><div id="show-out"></div></div>
-<div class="card span"><h2>AI look</h2>
+<div class="card span" data-panel="ai"><h2>AI look</h2>
 <div><textarea id="ai-prompt" rows="6" placeholder="cozy interview"></textarea></div>
 <div class="row"><select id="ai-targets"><option value="both">lights+screen</option>
 <option value="lights">lights</option><option value="screens">screen</option></select>
-<select id="ai-provider"><option value="mock">mock</option><option value="meta">meta</option></select>
+<select id="ai-provider"><option value="meta" selected>meta</option></select>
 <button class="primary" onclick="aiLook()">Direct</button> <button id="ai-mic" onclick="aiMic()">Mic</button>
 <label class="field"><input type="checkbox" id="ai-mic-auto"> auto-direct on hear</label></div>
 <p class="hint" id="ai-mic-hint">Voice needs Chrome or Edge over https. Chrome uses its own selected
@@ -113,6 +116,17 @@ function renderApply(id, r) {
     '<div class="result-line"><span>' + esc(subsLead(subs) || "nothing applied") + "</span></div>" +
     '<details class="result-json"><summary>Details</summary><pre>' +
     esc(JSON.stringify(subs, null, 2)) + "</pre></details></div>";
+}
+async function applyPanelOrder() {
+  try {
+    const o = await jget("/api/studios/" + studio() + "/ordering");
+    const order = (o.collections.panels || []).map((p) => p.id);
+    const grid = document.querySelector(".grid");
+    if (!grid || !order.length) return;
+    const cards = {};
+    grid.querySelectorAll("[data-panel]").forEach((c) => { cards[c.dataset.panel] = c; });
+    order.forEach((id) => { if (cards[id]) grid.appendChild(cards[id]); });
+  } catch (e) { /* default page order stands */ }
 }
 let STUDIO = null;
 function studio() { return STUDIO || document.getElementById("studio").value; }
@@ -183,6 +197,16 @@ async function hubRestart() {
   }
   out("hub-out", {error: "hub did not come back in ~75s — check the hub PC"}, false);
 }
+async function hubShutdown() {
+  if (!document.getElementById("hub-sd-confirm").checked) { out("hub-out", {error: "tick the final confirmation first"}, false); return; }
+  if (!window.confirm("Shut the hub computer down now? It stays off until its power button is pressed.")) return;
+  const body = JSON.stringify({confirm: true, studio: studio(),
+    everything_off: document.getElementById("hub-sd-everything").checked,
+    workstation_off: document.getElementById("hub-sd-workstation").checked});
+  try { const r = await jpost("/api/hub/shutdown", body);
+    out("hub-out", r, true, "Hub shutting down — press its power button to bring it back."); }
+  catch (e) { out("hub-out", {error: String(e)}, false); }
+}
 async function applyPreset(id) {
   out("preset-out", {status: "applying " + id + "…"}, true);
   try { renderApply("preset-out", await jpost("/api/studios/" + studio() + "/presets/" + id + "/apply", "{}")); loadActions(); }
@@ -215,11 +239,12 @@ async function loadZones() {
     const z = await jget("/api/studios/" + studio() + "/zones");
     document.getElementById("zones").innerHTML = z.zones.map((x) =>
       '<div class="namerow"><span class="name">' + esc(x.label) + "</span>" +
-      '<button onclick="zonePower(\'' + x.id + "',true)\">On</button>" +
-      '<button onclick="zonePower(\'' + x.id + "',false)\">Off</button>" +
-      ' <label class="field"><input type="checkbox" ' + (x.autoStartObs ? "checked" : "") +
-      ' onchange="zoneObsAuto(\'' + x.id + '\',this.checked)"> Start OBS automatically after boot?</label>' +
-      ' <span class="meta">' + esc(x.plugs.join(", ")) + "</span></div>").join("");
+      (x.plugs.length ? '<button class="zone-pwr" onclick="zonePower(\'' + x.id + "',true)\">On</button>" +
+      '<button class="zone-pwr" onclick="zonePower(\'' + x.id + "',false)\">Off</button>" : '<span class="meta">no plug</span>') +
+      (x.id === "workstation-computer" ? ' <label class="field"><input type="checkbox" ' + (x.autoStartObs ? "checked" : "") +
+      ' onchange="zoneObsAuto(\'' + x.id + '\',this.checked)"> Start OBS automatically after boot?</label>' : '') +
+      ' <span class="meta">' + esc(x.plugs.join(", ")) +
+      ((x.devices || []).length ? " · " + x.devices.map((d) => esc(d.name)).join(", ") : "") + "</span></div>").join("");
   } catch (e) { document.getElementById("zones").textContent = "zones unavailable"; }
 }
 function zoneSummary(id, on, r) {
@@ -319,10 +344,10 @@ async function loadScope() {
     const devs = await jget("/api/studios/" + studio() + "/devices");
     const zones = [...new Set(devs.map((d) => d.zone).filter(Boolean))];
     document.getElementById("ai-scope-zones").innerHTML = zones.map((z) =>
-      '<label class="field"><input type="checkbox" class="scope-zone" value="' + esc(z) + '" checked> ' + esc(z) + "</label> ").join("");
+      '<label class="field"><input type="checkbox" class="scope-zone" value="' + esc(z) + '"> ' + esc(z) + "</label> ").join("");
     document.getElementById("ai-scope-lights").innerHTML = devs
       .filter((d) => (d.type === "light" || d.type === "lightstrip") && d.controllable !== false).map((d) =>
-      '<label class="field"><input type="checkbox" class="scope-light" value="' + d.id + '" checked> ' +
+      '<label class="field"><input type="checkbox" class="scope-light" value="' + d.id + '"> ' +
       esc(d.name || d.id) + "</label> ").join("");
     scopeRefresh();
   } catch (e) { /* scope stays empty = all */ }
@@ -415,6 +440,8 @@ async function aiSave() {
     sel.onchange = () => { STUDIO = sel.value; loadModes(); loadPresets(); loadShows(); loadActions(); loadScope(); loadZones(); loadStatus(); };
     STUDIO = (s.find(x => x.id === "home-studio") || s[0] || {}).id || null;
     if (STUDIO) { sel.value = STUDIO; loadModes(); loadPresets(); loadShows(); loadActions(); loadScope(); loadZones(); loadStatus(); }
+    fetch("/api/testbench/kasa/prime", {method: "POST", headers: {"Content-Type": "application/json"}, body: "{}"}).catch(() => {});
+    applyPanelOrder();
     if (!(window.SpeechRecognition || window.webkitSpeechRecognition)) {
       const mic = document.getElementById("ai-mic");
       if (mic) { mic.disabled = true; mic.title = "voice input needs Chrome or Edge"; }

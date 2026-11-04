@@ -154,6 +154,36 @@ def resolve_host(alias, username=None, password=None, discovery_timeout=4, fallb
     return asyncio.run(aresolve_host(alias, username, password, discovery_timeout, fallback))
 
 
+PRIME_DEBOUNCE_S = 30
+_prime_state = {"at": 0.0, "plugs": []}
+
+
+def prime_plugs(username=None, password=None, discovery_timeout=4, force=False):
+    """Warm the alias->host cache with one broadcast (page-load priming).
+
+    One discovery refreshes every plug at once, so the first real command
+    skips the broadcast and goes straight to its plug. Debounced: repeat
+    page loads inside PRIME_DEBOUNCE_S reuse the last result instead of
+    re-flooding the LAN. Returns the discovered plug list.
+    """
+    now = time.monotonic()
+    if not force and now - _prime_state["at"] < PRIME_DEBOUNCE_S and _prime_state["plugs"]:
+        return list(_prime_state["plugs"])
+    plugs = discover_plugs(username, password, discovery_timeout)
+    for plug in plugs:
+        if plug.get("alias") and plug.get("host") and not plug.get("error"):
+            _alias_cache[plug["alias"]] = (plug["host"], now + ALIAS_CACHE_TTL_S)
+    _prime_state["at"] = now
+    _prime_state["plugs"] = list(plugs)
+    return plugs
+
+
+def cached_alias_hosts():
+    """Live alias->host map currently held in the cache (no network)."""
+    now = time.monotonic()
+    return {alias: host for alias, (host, exp) in _alias_cache.items() if exp > now}
+
+
 class KasaDriver(Driver):
     """One smart plug at a fixed host. Commands: {"power": "on"|"off"}."""
 

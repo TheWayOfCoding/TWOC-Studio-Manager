@@ -164,7 +164,6 @@ class _FakePublisher:
 
 
 def test_winrt_attempt_reports_mode(monkeypatch):
-    import app.drivers.ninja_ble as ninja_ble
 
     adv = WinRtAdvertiser()
     monkeypatch.setattr(adv, "_new_publisher", lambda a, e, n: _FakePublisher())

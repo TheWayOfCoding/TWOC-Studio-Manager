@@ -23,11 +23,14 @@ DATA_SYMBOLS = "0123456789ABCD"
 PREAMBLE = "#"
 
 # Command space (two data digits each; unknown-but-valid codes decode
-# fine and each end ignores what it doesn't recognize). Hub TX -> main RX:
-# ping (loop test), obs (launch OBS). Main TX -> hub RX (reverse acks,
-# heard via POST /api/link/listen): ack (command received), obs_ready
-# (OBS websocket up), obs_fail (launch attempted, websocket never came).
-COMMANDS = {"ping": "00", "obs": "01", "ack": "02", "obs_ready": "03", "obs_fail": "04"}
+# fine and each end ignores what it doesn't recognize). The alphabet is
+# 14 symbols, so the two-digit space holds 196 codes -- five used today
+# leaves ample room; new commands just take the next free code. Hub TX ->
+# main RX: ping (loop test), obs (launch OBS), shutdown (power the
+# workstation down). Main TX -> hub RX (reverse acks, heard via
+# POST /api/link/listen): ack (command received), obs_ready (OBS
+# websocket up), obs_fail (launch attempted, websocket never came).
+COMMANDS = {"ping": "00", "obs": "01", "ack": "02", "obs_ready": "03", "obs_fail": "04", "shutdown": "05"}
 
 PRE_MS, GAP_MS, TONE_MS, INTER_MS = 200, 100, 120, 80
 AMPLITUDE = 0.35

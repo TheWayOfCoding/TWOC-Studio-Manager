@@ -1,0 +1,14 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+# Project tooling. The hub itself is configured by JSON under config/;
+# this file only pins the developer lint gate so `ruff check` means the
+# same thing on every machine (see README Quickstart).
+[tool.ruff]
+target-version = "py311"
+line-length = 120
+
+[tool.ruff.lint]
+# Pyflakes (F: real bugs -- undefined names, unused imports) plus
+# pycodestyle errors (E). Style/formatting rules stay off: the codebase
+# predates them and a mass reformat would bury real history.
+select = ["E", "F"]
+ignore = ["E501"]  # long doc/comment lines are reviewed by eye, not the gate

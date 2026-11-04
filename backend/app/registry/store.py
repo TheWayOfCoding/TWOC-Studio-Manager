@@ -24,13 +24,15 @@ class UnknownPresetError(RegistryError):
 class Registry:
     """Addressable view over one studio's configuration plus shared profiles."""
 
-    def __init__(self, studio, devices, zones, modes, presets, profiles):
+    def __init__(self, studio, devices, zones, modes, presets, profiles, ordering=None, modalities=None):
         self.studio = studio
         self._devices = {item["id"]: item for item in devices}
         self._zones = {item["id"]: item for item in zones}
         self._modes = {item["id"]: item for item in modes}
         self._presets = dict(presets)
         self._profiles = dict(profiles)
+        self.ordering = dict(ordering or {})
+        self._modalities = dict(modalities or {})
 
     @classmethod
     def from_loaded(cls, loaded, profiles):
@@ -42,23 +44,45 @@ class Registry:
             loaded["modes"],
             loaded["presets"],
             profiles,
+            ordering=loaded.get("ordering"),
+            modalities=loaded.get("modalities"),
         )
+
+    def _ordered(self, collection, ids, labels):
+        from ..config.ordering import ordered_ids
+
+        return ordered_ids(self.ordering.get(collection), ids, labels)
 
     @property
     def device_ids(self):
-        return sorted(self._devices)
+        labels = {k: v.get("name", k) for k, v in self._devices.items()}
+        return self._ordered("devices", list(self._devices), labels)
 
     @property
     def zone_ids(self):
-        return sorted(self._zones)
+        labels = {k: v.get("label", k) for k, v in self._zones.items()}
+        return self._ordered("zones", list(self._zones), labels)
 
     @property
     def mode_ids(self):
-        return sorted(self._modes)
+        labels = {k: v.get("label", k) for k, v in self._modes.items()}
+        return self._ordered("modes", list(self._modes), labels)
 
     @property
     def preset_ids(self):
-        return sorted(self._presets)
+        labels = {k: (v.get("label", k) if isinstance(v, dict) else k) for k, v in self._presets.items()}
+        return self._ordered("presets", list(self._presets), labels)
+
+    @property
+    def modality_ids(self):
+        labels = {k: (v.get("label", k) if isinstance(v, dict) else k) for k, v in self._modalities.items()}
+        return self._ordered("modalities", list(self._modalities), labels)
+
+    def get_modality(self, modality_id):
+        try:
+            return self._modalities[modality_id]
+        except KeyError as exc:
+            raise RegistryError(f"unknown modality: {modality_id}") from exc
 
     def get_device(self, device_id):
         try:
@@ -91,9 +115,9 @@ class Registry:
             raise RegistryError(f"unknown profile: {profile_id}") from exc
 
     def devices_in_zone(self, zone_id):
-        """Return device dicts in a zone. Raises UnknownZoneError if missing."""
+        """Return device dicts in a zone, in configured display order."""
         self.get_zone(zone_id)
-        return [item for item in self._devices.values() if item["zone"] == zone_id]
+        return [self._devices[device_id] for device_id in self.device_ids if self._devices[device_id]["zone"] == zone_id]
 
     def effective_device(self, device_id):
         """Merge instance with its profile spec, capabilities, and effects."""

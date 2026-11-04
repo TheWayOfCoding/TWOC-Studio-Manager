@@ -2,7 +2,8 @@
 
 What to install, plug in, and configure — hub host, dev PC, network,
 hardware adapters, accounts, and the one-off reverse-engineering kit.
-Facts below mirror the repo's scripts and requirements files.
+Facts below mirror the repo's scripts and requirements files. For the
+full package/driver/tool inventory, see `docs/dependencies.md`.
 
 ## Hub host (runs the show)
 
@@ -33,9 +34,10 @@ Facts below mirror the repo's scripts and requirements files.
 - TLS (optional but live): `C:\studio\tls\hub.key` + `hub.crt`,
   self-signed 10-year CA via `tools/hub-tls.ps1`. Never in the repo.
   Trust = one browser warning (or install the CA per device).
-- Kiosk (optional): Edge `--kiosk` to the local screen page, Startup
-  `.bat` written by `tools/hub-kiosk.py` (waits for hub health, reaps
-  stale instances). Speakers on the hub enable audio beds.
+- Kiosk: Tauri shell (`kiosk-shell/`, hub `C:\studio\kiosk`) on the
+  local screen page via the `StudioKiosk` task (`tools/hub-kiosk.py`
+  installs the launcher; waits for hub health). Speakers on the hub
+  enable audio beds.
 - Ports/URLs: 8000 = HTTPS dashboard/bench/API, 8001 = plain HTTP
   (kiosk + simple clients), 22 = SSH. Health: `/api/health`.
 
@@ -43,8 +45,9 @@ Facts below mirror the repo's scripts and requirements files.
 
 - Windows + Python 3.14 + git + SSH client + curl.exe (ships with
   Windows). `.venv` from `backend/requirements-dev.txt` (runtime
-  deps plus pytest and httpx). Full suite runs here unsandboxed
-  (sandboxed shells block the loopback sockets TestClient needs).
+  deps plus pytest, pytest-cov, httpx, ruff). Full suite runs here
+  unsandboxed (sandboxed shells block the loopback sockets TestClient
+  needs). Gates: `python -m pytest` + `ruff check backend tools tests`.
 - Android platform-tools (`adb`) for phone captures (see below).
 - Optional: Portable OBS (git-ignored) as the OBS WebSocket target;
   a camera for color calibration captures.
@@ -75,5 +78,5 @@ Facts below mirror the repo's scripts and requirements files.
 - Raspberry Pi service files (`tools/pi-bootstrap.sh`,
   `tools/studio-hub.service`, `tools/deploy.ps1`) still exist from
   before the hub migrated to Windows. Untested since the move.
-- Tauri kiosk shell (`kiosk-shell/`) builds but is not what the hub
-  runs today (Edge kiosk is).
+- Edge `--kiosk` was the earlier kiosk path; the hub runs the Tauri
+  shell today (see the kiosk bullet above).

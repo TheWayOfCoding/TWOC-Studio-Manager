@@ -1,0 +1,151 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Studio Hub — Modality Manager</title>
+<link rel="stylesheet" href="/hub.css">
+</head>
+<body>
+<header class="topbar">
+<span class="brand">Studio Hub</span>
+<nav><a href="/">Dashboard</a><a href="/control">Control</a><a href="/equipment">Equipment</a><span class="navgroup">Administration</span><a href="/modality" aria-current="page">Modality Manager</a><a href="/ordering">Ordering</a><a href="/bench">Test Bench</a><a href="/docs">API docs</a></nav>
+<span class="spacer"></span>
+<span class="context"><label>Studio <select id="studio"></select></label></span>
+</header>
+<div class="wrap">
+<h1>Modality Manager</h1>
+<p class="lede">Modes, presets, and presentations become one concept — a
+Modality: an ordered list of events (power, lights, kiosk, OBS) where the
+last event can stay active and earlier events are timed or combined.
+The full editor is being designed; this page lists what exists today.</p>
+<div class="card"><h2>Modalities</h2><div id="modes">loading…</div><div class="row"><button onclick="runSelected()">Run selected</button><button onclick="stopSelected()">Stop</button><button onclick="newModality()">New</button><button onclick="deleteSelected()">Delete</button><span class="hint" id="run-state"></span></div></div><div class="card"><h2>Editor (forms v1)</h2><div class="row"><label class="field">id <input type="text" id="ed-id"></label><label class="field">label <input type="text" id="ed-label"></label><label class="field">kind <select id="ed-kind"><option>custom</option><option>mode</option><option>preset</option><option>show</option></select></label></div><div id="beats"></div><div class="row"><button onclick="addBeat()">Add beat</button> <button class="primary" onclick="saveModality()">Save modality</button></div><p class="hint">Per beat: actions fire together, then hold. Only the last beat may stay. Lights/screen are JSON in the existing look shapes (see a migrated item for examples).</p></div>
+
+
+<div id="out"></div>
+</div>
+<script>
+async function jget(path) { const r = await fetch(path); if (!r.ok) throw new Error(path + ": " + r.status); return r.json(); }
+function esc(s) { return String(s === null || s === undefined ? "" : s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;"); }
+function studio() { return document.getElementById("studio").value; }
+let SELECTED = null;
+async function jput(path, body) { const r = await fetch(path, {method: "PUT", headers: {"Content-Type": "application/json"}, body}); const j = await r.json().catch(() => ({})); if (!r.ok) throw new Error(j.detail || JSON.stringify(j)); return j; }
+async function jpost(path, body) { const r = await fetch(path, {method: "POST", headers: {"Content-Type": "application/json"}, body: body || "{}"}); const j = await r.json().catch(() => ({})); if (!r.ok) throw new Error(j.detail || JSON.stringify(j)); return j; }
+async function loadAll() {
+  try {
+    const m = await jget("/api/studios/" + studio() + "/modalities");
+    document.getElementById("modes").innerHTML = m.modalities.map((x) =>
+      '<div class="namerow"><span class="name">' + esc(x.label) + '</span><span class="meta">' + esc(x.kind) + " · " + x.beats + " beats</span>" +
+      '<button onclick="selectModality(\'' + x.id + '\')">Edit</button></div>').join("") || "none";
+  } catch (e) { document.getElementById("out").textContent = String(e); }
+}
+async function selectModality(id) {
+  SELECTED = id;
+  const r = await jget("/api/studios/" + studio() + "/modalities/" + id);
+  const m = r.modality;
+  document.getElementById("ed-id").value = id;
+  document.getElementById("ed-label").value = m.label || id;
+  document.getElementById("ed-kind").value = m.kind || "custom";
+  document.getElementById("beats").innerHTML = "";
+  (m.beats || []).forEach((b) => addBeat(b));
+}
+function newModality() {
+  SELECTED = null;
+  document.getElementById("ed-id").value = "";
+  document.getElementById("ed-label").value = "";
+  document.getElementById("beats").innerHTML = "";
+  addBeat();
+}
+function addBeat(b) {
+  b = b || {hold_s: 0, actions: {}};
+  const a = b.actions || {};
+  const div = document.createElement("div");
+  div.className = "card beat";
+  div.innerHTML = '<div class="row"><label class="field">label <input type="text" class="b-label" value="' + esc(b.label || "").replace(/"/g, "&quot;") + '"></label>' +
+    '<label class="field">hold s <input type="number" class="b-hold" value="' + (b.hold_s || 0) + '" min="0" max="3600"></label>' +
+    '<label class="field"><input type="checkbox" class="b-stay"' + (b.stay ? " checked" : "") + '> stay (last beat)</label>' +
+    '<button onclick="this.closest(\'.beat\').remove()">Remove beat</button></div>' +
+    '<div class="row"><label class="field">powerOn <input type="text" class="b-on" placeholder="group, group" value="' + esc((a.powerOn || []).join(", ")).replace(/"/g, "&quot;") + '"></label>' +
+    '<label class="field">powerOff <input type="text" class="b-off" value="' + esc((a.powerOff || []).join(", ")).replace(/"/g, "&quot;") + '"></label>' +
+    '<label class="field">OBS scene <input type="text" class="b-obs" value="' + esc(a.obsScene || "").replace(/"/g, "&quot;") + '"></label></div>' +
+    '<div class="row"><span class="field">lights JSON</span><textarea class="b-lights" rows="3">' + esc(JSON.stringify(a.lights || {}, null, 1)) + '</textarea></div>' +
+    '<div class="row"><span class="field">zone lights JSON</span><textarea class="b-zlights" rows="2">' + esc(JSON.stringify(a.zoneLights || {}, null, 1)) + '</textarea></div>' +
+    '<div class="row"><span class="field">kiosk screen JSON</span><textarea class="b-screen" rows="2">' + esc(JSON.stringify(a.screen || {}, null, 1)) + '</textarea></div>';
+  document.getElementById("beats").appendChild(div);
+}
+function collectBeats() {
+  const beats = [];
+  document.querySelectorAll(".beat").forEach((div) => {
+    const csv = (cls) => div.querySelector(cls).value.split(",").map((s) => s.trim()).filter(Boolean);
+    const js = (cls) => { const v = div.querySelector(cls).value.trim(); return v ? JSON.parse(v) : {}; };
+    const actions = {};
+    const on = csv(".b-on"), off = csv(".b-off");
+    if (on.length) actions.powerOn = on;
+    if (off.length) actions.powerOff = off;
+    const lights = js(".b-lights"); if (Object.keys(lights).length) actions.lights = lights;
+    const zl = js(".b-zlights"); if (Object.keys(zl).length) actions.zoneLights = zl;
+    const screen = js(".b-screen"); if (Object.keys(screen).length) actions.screen = screen;
+    const obs = div.querySelector(".b-obs").value.trim(); if (obs) actions.obsScene = obs;
+    beats.push({label: div.querySelector(".b-label").value || "beat",
+      hold_s: Number(div.querySelector(".b-hold").value) || 0,
+      stay: div.querySelector(".b-stay").checked, actions});
+  });
+  return beats;
+}
+async function saveModality() {
+  const id = document.getElementById("ed-id").value.trim();
+  if (!id) { document.getElementById("out").textContent = "id required"; return; }
+  try {
+    await jput("/api/studios/" + studio() + "/modalities/" + id, JSON.stringify({
+      label: document.getElementById("ed-label").value || id,
+      kind: document.getElementById("ed-kind").value, beats: collectBeats()}));
+    SELECTED = id;
+    document.getElementById("out").textContent = "saved " + id;
+    loadAll();
+  } catch (e) { document.getElementById("out").textContent = String(e); }
+}
+async function deleteSelected() {
+  const id = document.getElementById("ed-id").value.trim();
+  if (!id) return;
+  const r = await fetch("/api/studios/" + studio() + "/modalities/" + id, {method: "DELETE"});
+  if (!r.ok) { document.getElementById("out").textContent = "delete failed " + r.status; return; }
+  newModality(); loadAll();
+}
+async function runSelected() {
+  const id = document.getElementById("ed-id").value.trim() || SELECTED;
+  if (!id) { document.getElementById("out").textContent = "pick a modality first"; return; }
+  try {
+    const r = await jpost("/api/studios/" + studio() + "/modalities/" + id + "/run");
+    document.getElementById("run-state").textContent = id + ": " + r.state;
+    pollRun(id);
+  } catch (e) { document.getElementById("out").textContent = String(e); }
+}
+async function pollRun(id) {
+  for (let i = 0; i < 600; i++) {
+    await new Promise((res) => setTimeout(res, 1000));
+    try {
+      const s = await jget("/api/studios/" + studio() + "/modalities/" + id + "/status");
+      document.getElementById("run-state").textContent = id + ": " + s.state;
+      if (s.state !== "running") return;
+    } catch (e) { return; }
+  }
+}
+async function stopSelected() {
+  const id = document.getElementById("ed-id").value.trim() || SELECTED;
+  if (!id) return;
+  try { const r = await jpost("/api/studios/" + studio() + "/modalities/" + id + "/stop");
+    document.getElementById("run-state").textContent = id + ": " + r.state; }
+  catch (e) { document.getElementById("out").textContent = String(e); }
+}
+(async () => {
+  const s = await jget("/api/studios");
+  const sel = document.getElementById("studio");
+  sel.innerHTML = s.map((x) => "<option value=\"" + x.id + "\">" + esc(x.label) + "</option>").join("");
+  sel.onchange = loadAll;
+  const home = s.find((x) => x.id === "home-studio") || s[0];
+  if (home) sel.value = home.id;
+  loadAll();
+})();
+</script>
+</body>
+</html>

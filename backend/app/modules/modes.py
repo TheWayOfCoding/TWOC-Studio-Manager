@@ -74,6 +74,21 @@ class ModesError(Exception):
     """Malformed mode/preset content (config error, fails the apply)."""
 
 
+def effective_family(device):
+    """Driver family after the dual-protocol transport selection.
+
+    Fixtures with both a BLE address and a DMX map (Ninja 400/20) carry
+    `transport: ble|dmx` in config; the dropdown flips it and every
+    surface (modes, AI, bench, control) follows. Default is the
+    device's declared driver family.
+    """
+    family = device.get("driver")
+    transport = device.get("transport")
+    if family in ("ninja", "dmx") and transport in ("ble", "dmx"):
+        return "ninja" if transport == "ble" else "dmx"
+    return family
+
+
 def _check_dwell(value, where):
     """Validate a fade dwell (seconds held per step). Raises ModesError."""
     if isinstance(value, bool) or not isinstance(value, (int, float)) or not 0 <= value <= DWELL_MAX_S:
@@ -297,7 +312,7 @@ class ModesModule(Module):
             if not device.get("controllable", True):
                 skipped.append({"target": device_id, "reason": f"{device_id} is not controllable"})
                 continue
-            family = device.get("driver")
+            family = effective_family(device)
             if family is None:
                 skipped.append({"target": device_id, "reason": f"{device_id} names no driver family"})
                 continue

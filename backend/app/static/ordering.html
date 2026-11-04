@@ -1,0 +1,135 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Studio Hub — Ordering</title>
+<link rel="stylesheet" href="/hub.css">
+<style>
+.order-list { list-style: none; margin: 0.4em 0; padding: 0; }
+.order-list li { display: flex; align-items: center; gap: 0.6em; padding: 0.45em 0.6em; border: 1px solid var(--line); border-radius: 8px; margin-bottom: 0.35em; background: #fff; cursor: grab; }
+.order-list li.dragging { opacity: 0.5; }
+.order-list .handle { color: var(--muted); cursor: grab; }
+.order-list .lbl { flex: 1; font-weight: 600; }
+.order-list .id { color: var(--muted); font-size: 0.85em; }
+</style>
+</head>
+<body>
+<header class="topbar">
+<span class="brand">Studio Hub</span>
+<nav><a href="/">Dashboard</a><a href="/control">Control</a><a href="/equipment">Equipment</a><span class="navgroup">Administration</span><a href="/modality">Modality Manager</a><a href="/ordering" aria-current="page">Ordering</a><a href="/bench">Test Bench</a><a href="/docs">API docs</a></nav>
+<span class="spacer"></span>
+<span class="context"><label>Studio <select id="studio"></select></label></span>
+</header>
+<div class="wrap">
+<h1>List ordering</h1>
+<p class="lede">Drag blocks to set the custom order for each collection, or use the
+one-click alphabetical sorts. Saving writes one small JSON file and every list
+updates at once. Items not yet in the custom order append alphabetically.</p>
+<div id="collections">loading…</div>
+<div class="row"><button class="primary" onclick="saveOrdering()">Save ordering</button>
+<button onclick="loadOrdering()">Reload</button></div>
+<div id="out"></div>
+</div>
+<script>
+async function jget(path) { const r = await fetch(path); if (!r.ok) throw new Error(path + ": " + r.status); return r.json(); }
+async function jput(path, body) {
+  const r = await fetch(path, {method: "PUT", headers: {"Content-Type": "application/json"}, body});
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(j.detail || JSON.stringify(j));
+  return j;
+}
+function esc(s) { return String(s === null || s === undefined ? "" : s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;"); }
+function out(obj, ok, line) {
+  document.getElementById("out").innerHTML =
+    '<div class="result ' + (ok === false ? "bad" : "ok") + '"><div class="result-line"><span>' +
+    esc(line || (ok === false ? "Failed" : "Done")) + '</span></div><details class="result-json"><summary>Details</summary><pre>' +
+    esc(JSON.stringify(obj, null, 2)) + "</pre></details></div>";
+}
+function studio() { return document.getElementById("studio").value; }
+let DATA = null;
+const TITLES = {zones: "Zones", devices: "Devices", modes: "Modes", presets: "Presets", plugs: "Kasa plugs", panels: "Dashboard panels", modalities: "Modalities"};
+
+function render() {
+  const el = document.getElementById("collections");
+  el.innerHTML = Object.keys(TITLES).map((name) => {
+    const items = (DATA.collections[name] || []);
+    return '<div class="card"><h2>' + TITLES[name] + '</h2>' +
+      '<div class="row"><button onclick="sortCollection(\'' + name + '\',false)">Sort A–Z</button>' +
+      '<button onclick="sortCollection(\'' + name + '\',true)">Sort Z–A</button></div>' +
+      '<ul class="order-list" data-collection="' + name + '">' +
+      items.map((item) =>
+        '<li draggable="true" data-id="' + esc(item.id) + '"><span class="handle">☰</span>' +
+        '<span class="lbl">' + esc(item.label) + '</span><span class="id">' + esc(item.id) + "</span></li>").join("") +
+      "</ul></div>";
+  }).join("");
+  wireDrag();
+}
+function wireDrag() {
+  document.querySelectorAll(".order-list").forEach((list) => {
+    let dragged = null;
+    list.querySelectorAll("li").forEach((li) => {
+      li.addEventListener("dragstart", () => { dragged = li; li.classList.add("dragging"); });
+      li.addEventListener("dragend", () => { li.classList.remove("dragging"); dragged = null; syncFromDom(); });
+      li.addEventListener("dragover", (e) => {
+        e.preventDefault();
+        if (!dragged || dragged === li) return;
+        const rect = li.getBoundingClientRect();
+        const after = (e.clientY - rect.top) > rect.height / 2;
+        list.insertBefore(dragged, after ? li.nextSibling : li);
+      });
+    });
+  });
+}
+function syncFromDom() {
+  document.querySelectorAll(".order-list").forEach((list) => {
+    const name = list.dataset.collection;
+    const byId = {};
+    (DATA.collections[name] || []).forEach((item) => { byId[item.id] = item; });
+    DATA.collections[name] = [...list.querySelectorAll("li")].map((li) => byId[li.dataset.id]).filter(Boolean);
+  });
+}
+function sortCollection(name, reverse) {
+  syncFromDom();
+  DATA.collections[name].sort((a, b) => {
+    const c = String(a.label).localeCompare(String(b.label));
+    return reverse ? -c : c;
+  });
+  render();
+}
+function collect() {
+  syncFromDom();
+  const ordering = {};
+  Object.keys(TITLES).forEach((name) => {
+    ordering[name] = (DATA.collections[name] || []).map((item) => item.id);
+  });
+  return ordering;
+}
+async function loadOrdering() {
+  try {
+    DATA = await jget("/api/studios/" + studio() + "/ordering");
+    render();
+  } catch (e) { out({error: String(e)}, false); }
+}
+async function saveOrdering() {
+  try {
+    const r = await jput("/api/studios/" + studio() + "/ordering", JSON.stringify({ordering: collect()}));
+    DATA = r;
+    render();
+    out(r, true, "Ordering saved — every list now uses it.");
+  } catch (e) { out({error: String(e)}, false); }
+}
+(async () => {
+  try {
+    const s = await jget("/api/studios");
+    const sel = document.getElementById("studio");
+    sel.innerHTML = s.map((x) => "<option value=\"" + x.id + "\">" + esc(x.label) + "</option>").join("");
+    sel.onchange = loadOrdering;
+    const home = s.find((x) => x.id === "home-studio") || s[0];
+    if (home) sel.value = home.id;
+    loadOrdering();
+  } catch (e) { out({error: String(e)}, false); }
+})();
+</script>
+</body>
+</html>

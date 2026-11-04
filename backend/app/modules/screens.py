@@ -33,6 +33,13 @@ class ScreensModule(Module):
             command["animation"] = animation
         return self._driver(screen_id).apply(command)
 
+    def fx(self, screen_id, name, volume=None):
+        """Fire one synthesized sound effect on a screen's speakers."""
+        command = {"fx": name}
+        if volume is not None:
+            command["volume"] = volume
+        return self._driver(screen_id).apply(command)
+
     def audio(self, screen_id, action, track=None, volume=None):
         """Play/stop the audio bed on one screen's speakers (volume 0..100)."""
         command = {"audio": action}
@@ -56,6 +63,24 @@ class ScreensModule(Module):
                 {key: spec[key] for key in ("theme", "text", "wash", "animation") if key in spec}
                 or {"theme": "default"}
             )
+            # A spec may also carry a song: {track, volume} starts the
+            # bed alongside the visual (paired scene+song beats in
+            # modalities/presentations); audio:"stop" silences it.
+            if results[screen_id].ok and spec.get("fx"):
+                driver.apply({"fx": spec["fx"], "volume": spec.get("volume", 30)})
+            if results[screen_id].ok and (spec.get("track") or spec.get("audio")):
+                audio_cmd = {"audio": spec.get("audio") or "play"}
+                if spec.get("track") is not None:
+                    audio_cmd["track"] = spec["track"]
+                if spec.get("volume") is not None:
+                    audio_cmd["volume"] = spec["volume"]
+                audio_result = driver.apply(audio_cmd)
+                if not audio_result.ok:
+                    results[screen_id] = audio_result
+                else:
+                    merged = dict(results[screen_id].state)
+                    merged.update(audio_result.state)
+                    results[screen_id] = DriverResult(ok=True, state=merged)
         return results
 
     def _driver(self, screen_id):

@@ -86,7 +86,8 @@ beyond the list above.
 Everything the show needs on this PC lives inside ONE user profile —
 the listener, its config, and portable OBS. Nothing is shared between
 accounts and nothing needs admin after Python is in. Substitute the
-account name for `USER` below (today that is the `studio` account).
+account name for `USER` below (today that is the `creative` account on
+the 9900x workstation, which autologins for the presentation).
 
 1. Log in as USER once, so Windows builds the profile. Until that
    first login there is nowhere to install to.
@@ -202,6 +203,12 @@ bursts play on the main PC's output while it listens on its input, so
 with the jacks separated there is no self-trigger loop.
 
 ## Actions
+
+`shutdown` (DTMF code 05) powers this PC down: enable it per machine
+with `"actions": {"shutdown": {"shutdown": true, "delay_s": 20}}`. The
+delay is an abort window (`shutdown /a` cancels). The hub's Hub Manager
+power-down can send it before shutting itself down. Without that exact
+opt-in the command is logged and ignored.
 
 `local.json` maps command names to `{launch, args, cwd}`. Commands the
 file doesn't name are decoded, logged, and ignored. Unknown codes are

@@ -66,8 +66,16 @@ def test_silence_and_empty_decode_none():
 
 @pytest.mark.unit
 def test_unknown_valid_code_has_no_name():
-    assert decode_samples(encode_samples("#055", 44100), 44100) == "05"
-    assert decode_command(encode_samples("#055", 44100), 44100) is None
+    assert decode_samples(encode_samples("#066", 44100), 44100) == "06"
+    assert decode_command(encode_samples("#066", 44100), 44100) is None
+
+
+@pytest.mark.unit
+def test_shutdown_code_pinned():
+    """DTMF shutdown of the workstation is code 05 (196-code space)."""
+    assert COMMANDS["shutdown"] == "05"
+    for rate in (44100, 48000):
+        assert decode_command(encode_samples(frame_for("shutdown"), rate), rate) == "shutdown"
 
 
 @pytest.mark.unit
@@ -104,8 +112,8 @@ def test_decode_all_drops_corrupt_keeps_unknown_digits():
     good = frame_for("ping")
     bad = good[:-1] + ("0" if good[-1] != "0" else "1")
     gap = [0.0] * int(rate * 0.4)  # real bursts land seconds apart, never glued
-    buf = encode_samples(bad, rate) + gap + encode_samples("#055", rate) + gap + encode_samples(good, rate)
-    assert decode_all_samples(buf, rate) == ["05", "00"]
+    buf = encode_samples(bad, rate) + gap + encode_samples("#066", rate) + gap + encode_samples(good, rate)
+    assert decode_all_samples(buf, rate) == ["06", "00"]
     assert decode_all_commands(buf, rate) == ["ping"]
 
 

@@ -12,11 +12,30 @@ from ..registry import RegistryError
 
 
 def build_manifest(registry):
-    """Per-target capability manifest generated from profiles + instances."""
+    """Per-target capability manifest generated from profiles + instances.
+
+    Also carries `room`: fixed room lighting the AI cannot switch (no
+    smart plugs) but must reason about -- it can suggest turning those
+    off by hand, never claim to have done it.
+    """
     lights = {}
     screens = []
+    room = []
     for device_id in registry.device_ids:
         device = registry.get_device(device_id)
+        if device.get("zone") == "room" and device.get("type") in ("light", "lightstrip"):
+            room.append({
+                "id": device_id,
+                "name": device.get("name", device_id),
+                "position": device.get("position"),
+                "role": device.get("role"),
+                "estWatts": device.get("estWatts"),
+                "usual": device.get("usual") or {},
+                "notes": device.get("notes"),
+                "details": device.get("details") or {},
+                "switchable": False,
+            })
+            continue
         if device.get("driver") == "screen":
             screens.append(device_id)
             continue
@@ -39,7 +58,7 @@ def build_manifest(registry):
             "estWatts": device.get("estWatts"),
             "details": device.get("details") or {},
         }
-    return {"lights": lights, "screens": sorted(screens)}
+    return {"lights": lights, "screens": sorted(screens), "room": room}
 
 
 def critique(directives, plan):
@@ -78,6 +97,7 @@ def apply_look(provider, modes_module, prompt, targets, allowed=None):
     manifest = {
         "lights": _scoped(raw_manifest["lights"], allowed)[0],
         "screens": [s for s in raw_manifest["screens"] if allowed is None or s in set(allowed)],
+        "room": raw_manifest.get("room", []),
     }
     directives = provider.direct(prompt, targets, manifest)
     if not isinstance(directives, dict):

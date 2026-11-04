@@ -10,7 +10,6 @@ from app.core.safety import SafetyViolation
 from app.registry import Registry
 from app.drivers.mock import MockDriver
 from app.modules.power import PowerError, PowerModule, UnknownPowerGroupError
-from app.registry import Registry
 
 CONFIG_ROOT = Path(__file__).resolve().parents[2] / "config"
 

@@ -31,14 +31,30 @@ controlled family, the touch-tone audio wire, and the war stories.
   self-reload across hub restarts.
 - **Presentations:** captioned multi-step shows with narration wash,
   stop-to-final, and per-step result reporting.
+- **Zones & plugs:** zones in plug order (Hub Manager, workstation,
+  hands-on, mood, room), each listing its device collection; the six
+  official Kasa plugs (Studio Plug 1–6) drive by name from bench and
+  control, with discovery primed on page load so switches answer fast.
+- **Ordering:** `/ordering` drag/drop page sets custom list order
+  (zones, devices, modes, presets, plugs) with one-click A–Z sorts,
+  persisted as one small JSON file per studio.
+- **Hub power:** Hub Manager restarts or fully shuts down the hub PC
+  (optionally everything-off first, plus a DTMF shutdown of the
+  workstation over the audio wire), always behind a final confirmation.
 
 ## Pages
 
 - `/` dashboard: health, modes, zones, power, presets, shows, OBS, AI look
-- `/control` one-asset remote (phone and OBS-dock friendly)
-- `/bench` hardware bring-up per driver family
+- `/control` one-asset remote (phone and OBS-dock friendly) + Kasa plugs
+- `/bench` hardware bring-up per driver family (incl. official Kasa plugs)
 - `/equipment` per-device facts editor
+- `/ordering` drag/drop list-ordering admin
 - `/screen/<id>` kiosk backdrop page
+
+**Implementing from source?** Follow `docs/runbook.md` — the full
+sequence from download to a working studio (config, plugs, hub,
+kiosk, workstation link, bring-up). Package/driver inventory:
+`docs/dependencies.md`.
 
 ## Quickstart (PC)
 
@@ -46,8 +62,14 @@ controlled family, the touch-tone audio wire, and the war stories.
 python -m venv .venv
 .venv\Scripts\pip install -r backend\requirements-dev.txt
 .venv\Scripts\python -m pytest
+.venv\Scripts\ruff check backend tools tests
 .venv\Scripts\python -m uvicorn app.main:app --app-dir backend --port 8000
 ```
+
+Tests: `tests/unit` (fast logic, mocked hardware), `tests/regression`
+(golden studio snapshots), `tests/hardware` (real devices, `STUDIO_HW=1`
+only). Lint gate is the `pyproject.toml` ruff config (pyflakes +
+pycodestyle errors); coverage via `pytest --cov=backend/app`.
 
 Then open http://127.0.0.1:8000 and http://127.0.0.1:8000/bench.
 

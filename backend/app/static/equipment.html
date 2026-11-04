@@ -9,11 +9,11 @@
 <body>
 <header class="topbar">
 <span class="brand">Studio Hub</span>
-<nav><a href="/">Dashboard</a><a href="/bench">Test Bench</a><a href="/control">Control</a><a href="/equipment" aria-current="page">Equipment</a><a href="/docs">API docs</a></nav>
+<nav><a href="/">Dashboard</a><a href="/control">Control</a><a href="/equipment" aria-current="page">Equipment</a><span class="navgroup">Administration</span><a href="/modality">Modality Manager</a><a href="/ordering">Ordering</a><a href="/bench">Test Bench</a><a href="/docs">API docs</a></nav>
 </header>
 <div class="wrap">
 <h1>Equipment datapoints</h1>
-<p class="lede">Freeform facts per device (modifiers, distances, diffusion — whole-phrase labels welcome). Saved to the local studio file and fed to the AI. Built-in fields below are read-only.</p>
+<p class="lede">Freeform facts per device (modifiers, distances, diffusion — whole-phrase labels welcome). Saved to the local studio file and fed to the AI. Name, position, role, notes and est. watts are editable below; identity fields (type, zone, plug, driver) stay read-only.</p>
 <div class="card"><h2>Device</h2>
 <div class="row"><select id="eq-studio"></select> <select id="eq-device"></select></div>
 <div id="eq-facts"></div></div>
@@ -89,10 +89,29 @@ async function loadDevice() {
       ["Usual", d.usual ? JSON.stringify(d.usual) : ""],
     ];
     document.getElementById("eq-facts").innerHTML = '<table class="grid-t">' +
-      facts.map(([k, v]) => "<tr><th>" + k + "</th><td>" + esc(v) + "</td></tr>").join("") + "</table>";
+      facts.map(([k, v]) => "<tr><th>" + k + "</th><td>" + esc(v) + "</td></tr>").join("") + "</table>" +
+      '<div class="row"><label class="field">Name <input type="text" id="eq-prop-name" value="' + esc(d.name || "").replace(/"/g, "&quot;") + '"></label>' +
+      '<label class="field">Position <input type="text" id="eq-prop-position" value="' + esc(d.position || "").replace(/"/g, "&quot;") + '"></label></div>' +
+      '<div class="row"><label class="field">Role <input type="text" id="eq-prop-role" value="' + esc(d.role || "").replace(/"/g, "&quot;") + '"></label>' +
+      '<label class="field">Est. watts <input type="number" id="eq-prop-watts" value="' + esc(d.estWatts === undefined ? "" : d.estWatts) + '"></label></div>' +
+      '<div class="row"><label class="field">Notes <input type="text" id="eq-prop-notes" value="' + esc(d.notes || "").replace(/"/g, "&quot;") + '"></label>' +
+      '<button onclick="eqSaveProps()">Save properties</button></div>';
     document.getElementById("eq-rows").innerHTML = "";
     Object.entries(r.details || {}).forEach(([k, v]) => eqAdd(k, v));
     document.getElementById("eq-out").innerHTML = "";
+  } catch (e) { out("eq-out", {error: String(e)}, false); }
+}
+async function eqSaveProps() {
+  const watts = document.getElementById("eq-prop-watts").value;
+  const body = {name: document.getElementById("eq-prop-name").value,
+    position: document.getElementById("eq-prop-position").value,
+    role: document.getElementById("eq-prop-role").value,
+    notes: document.getElementById("eq-prop-notes").value,
+    estWatts: watts === "" ? null : Number(watts)};
+  try {
+    const r = await jput("/api/studios/" + studio() + "/devices/" + device() + "/properties", JSON.stringify(body));
+    out("eq-out", {status: "properties saved on " + r.device}, true);
+    loadDevices();
   } catch (e) { out("eq-out", {error: String(e)}, false); }
 }
 async function eqSave() {

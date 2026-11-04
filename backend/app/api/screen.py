@@ -31,6 +31,12 @@ class AudioBody(BaseModel):
     volume: int | None = None
 
 
+class FxBody(BaseModel):
+    screen: str
+    fx: str
+    volume: int | None = None
+
+
 class StateBody(BaseModel):
     screen: str
 
@@ -65,6 +71,22 @@ def screen_audio(body: AudioBody):
     volume = _check_volume(body.volume) if body.action == "play" else None
     result = _module(body.screen).audio(body.screen, body.action, body.track, volume)
     return {"ok": result.ok, "state": result.state, "error": result.error}
+
+
+@router.post("/api/testbench/screen/fx")
+def screen_fx(body: FxBody):
+    """Fire one Audio FX one-shot on a screen (Bench trial)."""
+    volume = _check_volume(body.volume) if body.volume is not None else None
+    result = _module(body.screen).fx(body.screen, body.fx, volume)
+    return {"ok": result.ok, "state": result.state, "error": result.error}
+
+
+@router.get("/api/testbench/screen/fx")
+def screen_fx_list():
+    """The Audio FX vocabulary the kiosk can synthesize."""
+    from ..drivers.screen import FX
+
+    return {"fx": list(FX)}
 
 
 @router.post("/api/testbench/screen/state")

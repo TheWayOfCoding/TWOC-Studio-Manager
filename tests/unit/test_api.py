@@ -646,7 +646,7 @@ def test_modes_apply_power_delay_accepted_and_validated():
 
 @pytest.mark.unit
 def test_modes_apply_home_hands_on_drives_ninja_ble(monkeypatch):
-    """hands_on sets both Ninja fixtures over BLE (mock advertisers, no radio)."""
+    """hands_on: Ninja 20 over BLE, Ninja 400 over DMX (mock, no radio)."""
     from app.api import modes as modes_api
     from app.drivers.ninja_ble import NinjaBleDriver
 
@@ -667,22 +667,22 @@ def test_modes_apply_home_hands_on_drives_ninja_ble(monkeypatch):
     monkeypatch.setattr(modes_api, "_plug_drivers", lambda registry, root: {})
     monkeypatch.setattr(modes_api, "_obs_applier", lambda registry, root: None)
     monkeypatch.setattr(modes_api, "_screens_applier", lambda registry: None)
+    stub = StubUniverse()
+    monkeypatch.setattr(modes_api, "get_shared_driver", lambda port=None: stub)
     monkeypatch.setattr(modes_api, "GvmBleDriver", FakeGvm)
     monkeypatch.setattr(modes_api, "shared_driver", fake_shared)
     response = client.post("/api/studios/home-studio/modes/hands_on/apply")
     assert response.status_code == 200
     lights = response.json()["subsystems"]["lights"]
     assert lights["status"] == "ready"
-    assert mock_drivers[(3, "B")].look == {
-        "brightness": 2, "cct": 5600, "gm": 0, "preset": None, "scene": None,
-    }
+    assert (3, "B") not in mock_drivers  # Ninja 400 is DMX-only: no BLE driver
+    assert stub.channels == {1: 6, 2: 132}  # 400 over DMX: 2% + 5600K
     assert mock_drivers[(3, "C")].look["brightness"] == 2
     assert FakeGvm.instances["gvm-ho"].calls == [{"brightness": 5}, {"cct": 5000}]
     faded = client.post("/api/studios/home-studio/modes/hands_on/apply", json={"fade_s": 0.5})
     assert faded.status_code == 200
     faded_lights = faded.json()["subsystems"]["lights"]
     assert faded_lights["status"] == "ready"
-    assert any("ninja-400" in item["reason"] for item in faded_lights["notes"])
     assert any("ninja-20" in item["reason"] for item in faded_lights["notes"])
 
 
@@ -717,14 +717,13 @@ def test_build_modes_module_wires_home_ninja_without_http(monkeypatch):
     module = modes_api.build_modes_module(registry, CONFIG_ROOT)
     result = module.apply_mode("hands_on", sleep=lambda s: None)
     assert result["subsystems"]["lights"]["status"] == "ready"
-    assert stub.channels == {}  # DMX universe untouched: fixtures are BLE-primary
-    assert mock_drivers[(3, "B")].look["brightness"] == 2
-    assert mock_drivers[(3, "B")].look["cct"] == 5600
+    assert stub.channels == {1: 6, 2: 132}  # Ninja 400 over DMX (DMX-only)
+    assert (3, "B") not in mock_drivers
     assert mock_drivers[(3, "C")].look["brightness"] == 2
     assert FakeGvm.instances["gvm-ho"].calls == [{"brightness": 5}, {"cct": 5000}]
     faded = module.apply_mode("hands_on", sleep=lambda s: None, fade_s=0.5)
     assert faded["subsystems"]["lights"]["status"] == "ready"
-    assert any("ninja-400" in item["reason"] for item in faded["subsystems"]["lights"]["notes"])
+    assert any("ninja-20" in item["reason"] for item in faded["subsystems"]["lights"]["notes"])
 
 
 @pytest.mark.unit
@@ -918,9 +917,9 @@ def test_dmx_light_dwell_steps_power_then_color(monkeypatch):
     assert body["applied"]["sequence"] == ["power", "cct"]
     assert body["applied"]["channels"] == {"1": 13, "2": 132}
     assert body["state"]["frames"] == 8
-    solo = client.post("/api/testbench/dmx/light", json={"fixture": "ninja-20", "power": 3})
+    solo = client.post("/api/testbench/dmx/light", json={"fixture": "ninja-400", "power": 3})
     assert solo.status_code == 200
-    assert calls[-1] == ("apply", {"channels": {20: 8}})
+    assert calls[-1] == ("apply", {"channels": {1: 8}})
     bad = client.post(
         "/api/testbench/dmx/light", json={"fixture": "ninja-400", "power": 5, "dwell_s": 999}
     )
@@ -1118,9 +1117,8 @@ def test_dmx_blackout_and_fixtures(monkeypatch):
     assert fixtures["ninja-400"]["dimmer"] == 1
     assert fixtures["ninja-400"]["cct"] == 2
     assert fixtures["ninja-400"]["cct_range"] == [2500, 8500]
-    assert fixtures["ninja-20"]["dimmer"] == 20
-    assert fixtures["ninja-20"]["cct"] is None
-    assert fixtures["ninja-20"]["fixed_cct"] == 5600
+    assert "ninja-20" not in fixtures  # BLE-only now: its DMX wire is gone
+    assert set(fixtures) == {"ninja-400"}
     assert home.json()["skipped"] == []
     empty = client.get("/api/testbench/dmx/fixtures?studio=example-studio")
     assert empty.json() == {"fixtures": [], "skipped": []}
@@ -1670,7 +1668,6 @@ def test_obs_boot_lifecycle(monkeypatch):
 
 @pytest.mark.unit
 def test_obs_boot_stop_and_attach(monkeypatch):
-    import threading
     import time
 
     from types import SimpleNamespace

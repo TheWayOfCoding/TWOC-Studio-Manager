@@ -30,6 +30,9 @@ PROMPT_TEMPLATE = (
     "(hue/saturation): use the keys matching the requested look. "
     "intensity 0 means dark and is allowed when the request wants a light off "
     '(GVM panels also accept "power": "off"; DMX lights use 0). '
+    "The manifest room list is fixed room lighting with no smart switch: "
+    "factor it into the look and you may suggest switching it by hand, "
+    "but never emit directives for room ids. "
     "Request: %(prompt)s"
 )
 

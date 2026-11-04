@@ -12,7 +12,7 @@ from ..core.logging import get_logger
 from ..core.safety import SafetyViolation
 from ..drivers.obs_ws import DEFAULT_PORT, ObsWsDriver
 from ..modules.obsshow import ObsModuleError, ObsShowModule
-from ..modules.pcboot import DEFAULT_SCENE, RUNNING, new_job, run_boot
+from ..modules.pcboot import RUNNING, new_job, run_boot
 from ..registry import UnknownModeError
 
 log = get_logger("api")
@@ -51,7 +51,7 @@ def obs_scenes(body: ObsBody):
     """List scenes plus the current program scene."""
     try:
         result = _module(body).list_scenes()
-    except Exception as exc:  # noqa: BLE001 - Bench reports, never 500s on hardware
+    except Exception as exc:
         raise HTTPException(status_code=502, detail=str(exc)) from exc
     return {"ok": result.ok, "state": result.state, "error": result.error}
 
@@ -63,7 +63,7 @@ def obs_switch(body: SwitchBody):
         result = _module(body).switch_scene(body.scene)
     except ObsModuleError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
-    except Exception as exc:  # noqa: BLE001 - Bench reports, never 500s on hardware
+    except Exception as exc:
         raise HTTPException(status_code=502, detail=str(exc)) from exc
     return {"ok": result.ok, "state": result.state, "error": result.error}
 
@@ -75,7 +75,7 @@ def obs_stream(body: StreamBody):
         result = _module(body).set_streaming(body.action, body.confirmed)
     except (ObsModuleError, SafetyViolation) as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
-    except Exception as exc:  # noqa: BLE001 - Bench reports, never 500s on hardware
+    except Exception as exc:
         raise HTTPException(status_code=502, detail=str(exc)) from exc
     return {"ok": result.ok, "state": result.state, "error": result.error}
 
@@ -87,6 +87,10 @@ class StudioSwitchBody(BaseModel):
 class StudioStreamBody(BaseModel):
     action: str
     confirmed: bool = False
+
+
+class StudioCollectionBody(BaseModel):
+    collection: str
 
 
 def _registry_or_404(request, studio_id):
@@ -147,7 +151,7 @@ def obs_studio_status(studio_id: str, request: Request):
         # filtered port); the follow-ups only run when the socket answers.
         stream = module.stream_status() if scenes.ok else None
         collections = module.list_collections() if scenes.ok else None
-    except Exception as exc:  # noqa: BLE001 - report, never 500 on hardware
+    except Exception as exc:
         raise HTTPException(status_code=502, detail=str(exc)) from exc
     names = []
     current = None
@@ -188,7 +192,7 @@ def obs_studio_switch(studio_id: str, body: StudioSwitchBody, request: Request):
         result = module.switch_scene(body.scene, safe)
     except ObsModuleError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
-    except Exception as exc:  # noqa: BLE001 - report, never 500 on hardware
+    except Exception as exc:
         raise HTTPException(status_code=502, detail=str(exc)) from exc
     return {"ok": result.ok, "state": result.state, "error": result.error}
 
@@ -208,7 +212,7 @@ def obs_studio_collection(studio_id: str, body: StudioCollectionBody, request: R
         result = module.set_collection(body.collection)
     except ObsModuleError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
-    except Exception as exc:  # noqa: BLE001 - report, never 500 on hardware
+    except Exception as exc:
         raise HTTPException(status_code=502, detail=str(exc)) from exc
     return {"ok": result.ok, "state": result.state, "error": result.error}
 
@@ -228,7 +232,7 @@ def obs_studio_stream(studio_id: str, body: StudioStreamBody, request: Request):
         result = module.set_streaming(body.action, body.confirmed)
     except (ObsModuleError, SafetyViolation) as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
-    except Exception as exc:  # noqa: BLE001 - report, never 500 on hardware
+    except Exception as exc:
         raise HTTPException(status_code=502, detail=str(exc)) from exc
     return {"ok": result.ok, "state": result.state, "error": result.error}
 
@@ -236,10 +240,6 @@ def obs_studio_stream(studio_id: str, body: StudioStreamBody, request: Request):
 class BootBody(BaseModel):
     scene: str | None = None
     collection: str | None = None
-
-
-class StudioCollectionBody(BaseModel):
-    collection: str
 
 
 class _BootLink:

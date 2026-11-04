@@ -8,7 +8,7 @@ from pathlib import Path
 
 import pytest
 
-from app.core.logging import DatedFileHandler, JsonFormatter, bind_context, configure_logging, get_logger, reset_logging
+from app.core.logging import DatedFileHandler, bind_context, configure_logging, get_logger, reset_logging
 
 
 @pytest.fixture(autouse=True)

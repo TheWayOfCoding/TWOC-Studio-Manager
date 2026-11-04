@@ -18,7 +18,7 @@ from ..config.loader import (
 from ..core.logging import get_logger
 from ..core.safety import SafetyViolation
 from ..modules.power import PowerError, PowerModule, UnknownPowerGroupError
-from ..registry import Registry, RegistryError
+from ..registry import Registry
 from .modes import _plug_drivers, record_action
 from .obs import boot_try_start
 
@@ -101,12 +101,24 @@ def zones_list(studio_id: str, request: Request):
         plugs = sorted(
             {item["powerPlug"] for item in registry.devices_in_zone(zone_id) if item.get("powerPlug")}
         )
+        devices = [
+            {
+                "id": item["id"],
+                "name": item.get("name", item["id"]),
+                "type": item.get("type"),
+                "plug": item.get("powerPlug"),
+                "controllable": item.get("controllable", True),
+            }
+            for item in registry.devices_in_zone(zone_id)
+        ]
         zones.append(
             {
                 "id": zone_id,
                 "label": zone.get("label", zone_id),
+                "description": zone.get("description"),
                 "groups": zone.get("powerGroups", []),
                 "plugs": plugs,
+                "devices": devices,
                 "autoStartObs": bool(zone.get("autoStartObs")),
             }
         )

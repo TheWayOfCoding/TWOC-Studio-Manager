@@ -66,8 +66,8 @@ class LinkConfigBody(BaseModel):
 # Hub TX vocabulary for send-and-wait, with the reverse acks that confirm
 # each: ping wants the listener's auto-ack, obs wants the OBS watcher's
 # verdict (obs_ready/obs_fail) — a bare ack means "received, outcome unknown".
-EXPECTED_ACKS = {"ping": ["ack"], "obs": ["obs_ready", "obs_fail"]}
-DEFAULT_WAIT_S = {"ping": 8.0, "obs": 60.0}
+EXPECTED_ACKS = {"ping": ["ack"], "obs": ["obs_ready", "obs_fail"], "shutdown": ["ack"]}
+DEFAULT_WAIT_S = {"ping": 8.0, "obs": 60.0, "shutdown": 8.0}
 
 
 def _link_config(config_root):

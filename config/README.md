@@ -9,6 +9,18 @@
 The loader reads both studio roots; a duplicate studio id across roots is an
 error. Keep personal hardware details in `studios.local/` only.
 
+## ordering.json (per studio, studios.local/)
+
+`studios.local/<id>/ordering.json` holds custom list order as id arrays:
+`{"zones": [...], "devices": [...], "modes": [...], "presets": [...], "plugs": [...]}`.
+Edited on the `/ordering` page (drag/drop blocks, one-click A–Z / Z–A per
+collection). The file is tiny, loads once into the registry, and saves
+atomically (tmp + replace) — no database, no per-request disk reads. Ids
+missing from the file append alphabetically by id; unknown ids are ignored
+on read and refused on save. Only local studios are writable. Zones list
+their device collections from the same order (`devices` array per zone in
+`GET /api/studios/<id>/zones`).
+
 ## plug-map.json (studios.local/)
 
 `studios.local/plug-map.json` maps Kasa plug ids to aliases + fallback hosts

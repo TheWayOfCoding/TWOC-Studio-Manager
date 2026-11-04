@@ -34,6 +34,17 @@ class DetailsBody(BaseModel):
     details: dict
 
 
+class PropertiesBody(BaseModel):
+    name: str | None = None
+    position: str | None = None
+    role: str | None = None
+    notes: str | None = None
+    estWatts: float | None = None
+
+
+EDITABLE_PROPERTIES = ("name", "position", "role", "notes", "estWatts")
+
+
 class DetailsSaveError(Exception):
     """Unusable save request (non-local studio, bad shape, broken file)."""
 
@@ -103,6 +114,101 @@ def equipment_get(studio_id: str, device_id: str, request: Request):
     except RegistryError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     return {"device": effective, "details": effective.get("details") or {}}
+
+
+def save_properties(config_root, studio_id, device_id, updates):
+    """Persist editable built-in properties, reload registry (local only).
+
+    Only EDITABLE_PROPERTIES may change; identity fields (id, type, zone,
+    plug, driver) stay put so a save can never rewire the studio. Values
+    are validated against the device schema before anything is written.
+    """
+    devices_path = Path(config_root) / "studios.local" / studio_id / "devices.json"
+    if not devices_path.exists():
+        raise DetailsSaveError(f"property save only for local studios (no studios.local/{studio_id})")
+    try:
+        stored = json.loads(devices_path.read_text(encoding="utf-8"))
+    except (OSError, ValueError) as exc:
+        raise DetailsSaveError(f"cannot read {devices_path}: {exc}") from exc
+    if not isinstance(stored, list):
+        raise DetailsSaveError(f"{devices_path} must hold a device list")
+    matches = [item for item in stored if isinstance(item, dict) and item.get("id") == device_id]
+    if not matches:
+        raise DetailsSaveError(f"device {device_id} not in {devices_path}")
+    candidate = dict(matches[0])
+    for key, value in updates.items():
+        if value is None:
+            candidate.pop(key, None)
+        else:
+            candidate[key] = value
+    if not candidate.get("name"):
+        raise DetailsSaveError("name must not be empty")
+    try:
+        validate(candidate, "device", f"device {device_id}")
+    except ConfigError as exc:
+        raise DetailsSaveError(str(exc)) from exc
+    matches[0].update(candidate)
+    tmp_path = devices_path.with_suffix(".json.tmp")
+    tmp_path.write_text(json.dumps(stored, indent=2), encoding="utf-8")
+    os.replace(tmp_path, devices_path)
+    try:
+        loaded = load_studio(config_root, studio_id)
+        profiles = load_profiles(config_root)
+        check_references(loaded, profiles, studio_id)
+    except ConfigError as exc:
+        raise DetailsSaveError(f"saved properties broke studio references: {exc}") from exc
+    return Registry.from_loaded(loaded, profiles)
+
+
+@router.put("/api/studios/{studio_id}/devices/{device_id}/properties")
+def equipment_save_properties(studio_id: str, device_id: str, body: PropertiesBody, request: Request):
+    """Update a device's editable built-in properties (local studios only)."""
+    _registry_or_404(request, studio_id)
+    if device_id not in request.app.state.registries[studio_id].device_ids:
+        raise HTTPException(status_code=404, detail=f"unknown device: {device_id}")
+    updates = {k: v for k, v in body.model_dump().items() if k in EDITABLE_PROPERTIES and k in body.model_fields_set}
+    if not updates:
+        raise HTTPException(status_code=422, detail="no editable properties sent")
+    if "estWatts" in updates and updates["estWatts"] is not None and updates["estWatts"] < 0:
+        raise HTTPException(status_code=422, detail="estWatts must be >= 0")
+    log.info("equipment properties save", extra={"fields": {"studio": studio_id, "device": device_id}})
+    try:
+        reloaded = save_properties(request.app.state.config_root, studio_id, device_id, updates)
+    except DetailsSaveError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    request.app.state.registries[studio_id] = reloaded
+    return {"device": device_id, "properties": updates}
+
+
+class TransportBody(BaseModel):
+    transport: str
+
+
+@router.put("/api/studios/{studio_id}/devices/{device_id}/transport")
+def equipment_save_transport(studio_id: str, device_id: str, body: TransportBody, request: Request):
+    """Select BLE or DMX for a dual-protocol fixture (local studios only).
+
+    The device must actually carry both addresses; the selection is
+    stored as `transport` and every surface rewires from it.
+    """
+    registry = _registry_or_404(request, studio_id)
+    if device_id not in registry.device_ids:
+        raise HTTPException(status_code=404, detail=f"unknown device: {device_id}")
+    if body.transport not in ("ble", "dmx"):
+        raise HTTPException(status_code=422, detail='transport must be "ble"|"dmx"')
+    device = registry.get_device(device_id)
+    address = device.get("driverAddress") or {}
+    has_ble = bool(address.get("channel") and address.get("group"))
+    has_dmx = bool((address.get("dmx") or {}).get("dimmer"))
+    if not (has_ble and has_dmx):
+        raise HTTPException(status_code=422, detail=f"{device_id} is not a dual-protocol fixture")
+    try:
+        reloaded = save_properties(request.app.state.config_root, studio_id, device_id,
+                                   {"transport": body.transport})
+    except DetailsSaveError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    request.app.state.registries[studio_id] = reloaded
+    return {"device": device_id, "transport": body.transport}
 
 
 @router.put("/api/studios/{studio_id}/devices/{device_id}/details")

@@ -9,9 +9,8 @@ from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel
 
 from .. import __version__
-from ..core.logging import bind_context, get_logger
+from ..core.logging import get_logger
 from ..drivers.mock import MockDriver
-from ..registry import Registry, RegistryError
 
 log = get_logger("api")
 router = APIRouter()
@@ -90,6 +89,102 @@ def hub_restart(body: RestartBody):
         raise HTTPException(status_code=503, detail=f"restart not started: {exc}") from exc
     log.warning("hub restart requested via API")
     return {"ok": True, "restarting": True, "note": "hub restarts now; site returns in ~30s"}
+
+
+SHUTDOWN_HELPER_TASK = "StudioHubShutdownOnce"
+
+
+class ShutdownBody(BaseModel):
+    confirm: bool = False
+    everything_off: bool = False
+    workstation_off: bool = False
+    studio: str | None = None
+
+
+def _launch_hub_shutdown(runner=subprocess.run):
+    """Arm a one-shot helper that shuts the hub PC down from outside us.
+
+    Same pattern as restart: ending our own task cannot be the last step,
+    so a helper scheduled task waits, then calls the OS shutdown. A person
+    must press the hub PC's power button to bring it back. Raises
+    RuntimeError on any failed step.
+    """
+    helper_cmd = (
+        "cmd /c ping -n 6 127.0.0.1 >nul & shutdown /s /t 5 /c \"Studio Hub shutdown\""
+        " & schtasks /Delete /TN " + SHUTDOWN_HELPER_TASK + " /F"
+    )
+    create = runner(
+        ["schtasks", "/Create", "/TN", SHUTDOWN_HELPER_TASK, "/TR", helper_cmd,
+         "/SC", "DAILY", "/ST", "00:00", "/RU", "SYSTEM", "/RL", "HIGHEST", "/F"],
+        capture_output=True, timeout=30, check=False,
+    )
+    if create.returncode != 0:
+        raise RuntimeError("could not create the shutdown helper task")
+    run = runner(
+        ["schtasks", "/Run", "/TN", SHUTDOWN_HELPER_TASK],
+        capture_output=True, timeout=30, check=False,
+    )
+    if run.returncode != 0:
+        raise RuntimeError("could not start the shutdown helper task")
+    return True
+
+
+@router.post("/api/hub/shutdown")
+def hub_shutdown(body: ShutdownBody, request: Request):
+    """Shut the hub PC down (full OS shutdown; power button to return).
+
+    Options, in order: DTMF-shutdown the workstation PC (best effort,
+    needs its listener enabled), switch every plug off (All Off rules:
+    protected devices hold unless the mode flag already covers them --
+    this endpoint never forces manual-only devices), then the hub
+    itself. Needs an explicit confirm so it never fires by accident.
+    """
+    if body.confirm is not True:
+        raise HTTPException(status_code=422, detail="tick confirm first (confirm: true)")
+    if os.name != "nt":
+        raise HTTPException(status_code=503, detail="hub shutdown is Windows-only")
+    steps = []
+    if body.workstation_off:
+        try:
+            from ..drivers.link_audio import send_tones
+            from ..linkproto import frame_for
+
+            cfg = {}
+            try:
+                import json as _json
+                from pathlib import Path as _Path
+
+                cfg = _json.loads((_Path(request.app.state.config_root) / "studios.local" / "link.json").read_text(encoding="utf-8"))
+            except Exception:  # noqa: BLE001 - no link config: note it, continue
+                cfg = {}
+            send_tones(frame_for("shutdown"), device=cfg.get("audio_out"))
+            steps.append({"step": "workstation shutdown tones sent", "ok": True})
+        except Exception as exc:  # noqa: BLE001 - best effort; hub shutdown still proceeds
+            steps.append({"step": "workstation shutdown tones sent", "ok": False, "error": str(exc)})
+    if body.everything_off:
+        try:
+            from .modes import _plug_drivers
+            from ..modules.power import PowerModule
+
+            registries = request.app.state.registries
+            studio_id = body.studio or ("home-studio" if "home-studio" in registries else next(iter(registries), None))
+            if studio_id is None:
+                steps.append({"step": "everything off", "ok": False, "error": "no studio loaded"})
+            else:
+                registry = registries[studio_id]
+                module = PowerModule("power", registry, _plug_drivers(registry, request.app.state.config_root))
+                results, skipped = module.set_all_power(False, include_manual=False, sleep=lambda s: None)
+                steps.append({"step": "everything off", "ok": all(r["ok"] for r in results),
+                              "applied": len(results), "held": [s["device"] for s in skipped]})
+        except Exception as exc:  # noqa: BLE001 - reported, hub shutdown still proceeds by user confirm
+            steps.append({"step": "everything off", "ok": False, "error": str(exc)})
+    try:
+        _launch_hub_shutdown()
+    except Exception as exc:  # noqa: BLE001 - reported honestly, never faked
+        raise HTTPException(status_code=503, detail=f"shutdown not started: {exc}") from exc
+    log.warning("hub shutdown requested via API", extra={"fields": {"steps": steps}})
+    return {"ok": True, "shutting_down": True, "steps": steps,
+            "note": "hub PC shuts down now; press its power button to bring it back"}
 
 
 @router.get("/api/studios")

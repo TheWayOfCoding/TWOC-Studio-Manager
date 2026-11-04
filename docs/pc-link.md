@@ -24,9 +24,12 @@ so prefer a dedicated link output on each end.
   one check digit, 80-100ms gaps. ~0.8s per command.
 - Alphabet: standard DTMF; data digits are `0-9ABCD` (14 symbols, 196
   codes); check = index sum mod 14. Corrupt frames decode to nothing.
-- Commands: `ping` (no-op loop test), `obs` (launch OBS), `ack`
-  (command received), `obs_ready` (OBS websocket up), `obs_fail`
-  (launch attempted, websocket never came).
+- Commands: `ping` (no-op loop test), `obs` (launch OBS), `shutdown`
+  (code 05: power the workstation down; listener runs it only when
+  `actions.shutdown.shutdown` is true in its local.json, with an abort
+  window via `shutdown /a`), `ack` (command received), `obs_ready`
+  (OBS websocket up), `obs_fail` (launch attempted, websocket never
+  came). Six of 196 codes used — no capacity concern.
 - Multi-frame windows: long captures can hold several bursts (ack then
   obs_ready); the decoder finds each preamble-delimited frame in order.
 

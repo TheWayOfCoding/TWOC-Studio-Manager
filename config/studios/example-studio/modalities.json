@@ -1,0 +1,337 @@
+{
+  "demo_work": {
+    "label": "Demo Work",
+    "kind": "mode",
+    "beats": [
+      {
+        "label": "Demo Work",
+        "hold_s": 0,
+        "stay": true,
+        "actions": {
+          "powerOn": [
+            "desk-power"
+          ],
+          "lights": {
+            "demo-screen": {
+              "power": "on"
+            }
+          },
+          "screen": {
+            "demo-screen": {
+              "theme": "work"
+            }
+          }
+        }
+      }
+    ]
+  },
+  "demo_stream": {
+    "label": "Demo Stream",
+    "kind": "mode",
+    "beats": [
+      {
+        "label": "Demo Stream",
+        "hold_s": 0,
+        "stay": true,
+        "actions": {
+          "powerOn": [
+            "bench-power",
+            "desk-power"
+          ],
+          "lights": {
+            "demo-key": {
+              "intensity": 50,
+              "cct": 4600
+            },
+            "demo-rgb": {
+              "intensity": 25,
+              "hue": 220
+            }
+          },
+          "screen": {
+            "demo-screen": {
+              "theme": "stream_starting"
+            }
+          },
+          "obsScene": "Demo - Main"
+        }
+      }
+    ]
+  },
+  "default": {
+    "label": "Default",
+    "kind": "preset",
+    "beats": [
+      {
+        "label": "Default",
+        "hold_s": 0,
+        "stay": true,
+        "actions": {
+          "lights": {
+            "demo-key": {
+              "intensity": 50,
+              "cct": 4600
+            },
+            "demo-rgb": {
+              "intensity": 25,
+              "hue": 220,
+              "saturation": 60
+            }
+          }
+        }
+      }
+    ]
+  },
+  "task-cowork": {
+    "label": "Co-working",
+    "kind": "custom",
+    "notes": "Co-working \u2014 deep field, lo-fi focus",
+    "beats": [
+      {
+        "label": "Co-working \u2014 deep field, lo-fi focus",
+        "hold_s": 0,
+        "stay": true,
+        "actions": {
+          "screen": {
+            "demo-screen": {
+              "animation": "starfield",
+              "track": "lofi",
+              "volume": 12
+            }
+          }
+        }
+      }
+    ]
+  },
+  "task-gaming": {
+    "label": "Gaming",
+    "kind": "custom",
+    "notes": "Gaming \u2014 arcade sprite, chiptune",
+    "beats": [
+      {
+        "label": "Gaming \u2014 arcade sprite, chiptune",
+        "hold_s": 0,
+        "stay": true,
+        "actions": {
+          "screen": {
+            "demo-screen": {
+              "animation": "arcade",
+              "track": "chiptune",
+              "volume": 12
+            }
+          }
+        }
+      }
+    ]
+  },
+  "task-programming": {
+    "label": "Programming",
+    "kind": "custom",
+    "notes": "Software development \u2014 code rain, deep-field pads",
+    "beats": [
+      {
+        "label": "Software development \u2014 code rain, deep-field pads",
+        "hold_s": 0,
+        "stay": true,
+        "actions": {
+          "screen": {
+            "demo-screen": {
+              "animation": "code",
+              "track": "space",
+              "volume": 12
+            }
+          }
+        }
+      }
+    ]
+  },
+  "task-reading": {
+    "label": "Live Reading",
+    "kind": "custom",
+    "notes": "Live reading \u2014 fireplace, piano",
+    "beats": [
+      {
+        "label": "Live reading \u2014 fireplace, piano",
+        "hold_s": 0,
+        "stay": true,
+        "actions": {
+          "screen": {
+            "demo-screen": {
+              "animation": "fireplace",
+              "track": "piano",
+              "volume": 12
+            }
+          }
+        }
+      }
+    ]
+  },
+  "task-puzzle": {
+    "label": "Puzzle",
+    "kind": "custom",
+    "notes": "Puzzle \u2014 pieces settle in, lo-fi",
+    "beats": [
+      {
+        "label": "Puzzle \u2014 pieces settle in, lo-fi",
+        "hold_s": 0,
+        "stay": true,
+        "actions": {
+          "screen": {
+            "demo-screen": {
+              "animation": "puzzle",
+              "track": "lofi",
+              "volume": 12
+            }
+          }
+        }
+      }
+    ]
+  },
+  "task-food": {
+    "label": "Food / Drink Reviews",
+    "kind": "custom",
+    "notes": "Food/drink reviews \u2014 steaming cloche, piano",
+    "beats": [
+      {
+        "label": "Food/drink reviews \u2014 steaming cloche, piano",
+        "hold_s": 0,
+        "stay": true,
+        "actions": {
+          "screen": {
+            "demo-screen": {
+              "animation": "bistro",
+              "track": "piano",
+              "volume": 12
+            }
+          }
+        }
+      }
+    ]
+  },
+  "task-cosplay": {
+    "label": "Cosplay / Sewing",
+    "kind": "custom",
+    "notes": "Cosplay/crafting/sewing \u2014 needle and thread, lo-fi",
+    "beats": [
+      {
+        "label": "Cosplay/crafting/sewing \u2014 needle and thread, lo-fi",
+        "hold_s": 0,
+        "stay": true,
+        "actions": {
+          "screen": {
+            "demo-screen": {
+              "animation": "tailor",
+              "track": "lofi",
+              "volume": 12
+            }
+          }
+        }
+      }
+    ]
+  },
+  "task-tech-unbox": {
+    "label": "Tech Unboxing",
+    "kind": "custom",
+    "notes": "Tech unboxings \u2014 box opens, chiptune",
+    "beats": [
+      {
+        "label": "Tech unboxings \u2014 box opens, chiptune",
+        "hold_s": 0,
+        "stay": true,
+        "actions": {
+          "screen": {
+            "demo-screen": {
+              "animation": "unbox",
+              "track": "chiptune",
+              "volume": 12
+            }
+          }
+        }
+      }
+    ]
+  },
+  "task-camera-unbox": {
+    "label": "Camera Unboxing",
+    "kind": "custom",
+    "notes": "Camera unboxings \u2014 aperture blades, space pads",
+    "beats": [
+      {
+        "label": "Camera unboxings \u2014 aperture blades, space pads",
+        "hold_s": 0,
+        "stay": true,
+        "actions": {
+          "screen": {
+            "demo-screen": {
+              "animation": "aperture",
+              "track": "space",
+              "volume": 12
+            }
+          }
+        }
+      }
+    ]
+  },
+  "task-camera-news": {
+    "label": "Camera News",
+    "kind": "custom",
+    "notes": "Browsing camera news \u2014 aperture, lo-fi",
+    "beats": [
+      {
+        "label": "Browsing camera news \u2014 aperture, lo-fi",
+        "hold_s": 0,
+        "stay": true,
+        "actions": {
+          "screen": {
+            "demo-screen": {
+              "animation": "aperture",
+              "track": "lofi",
+              "volume": 12
+            }
+          }
+        }
+      }
+    ]
+  },
+  "task-tech-news": {
+    "label": "Tech News",
+    "kind": "custom",
+    "notes": "Browsing tech news \u2014 circuit pulses, synthwave",
+    "beats": [
+      {
+        "label": "Browsing tech news \u2014 circuit pulses, synthwave",
+        "hold_s": 0,
+        "stay": true,
+        "actions": {
+          "screen": {
+            "demo-screen": {
+              "animation": "circuit",
+              "track": "synthwave",
+              "volume": 12
+            }
+          }
+        }
+      }
+    ]
+  },
+  "task-photons": {
+    "label": "Scotty Photon",
+    "kind": "custom",
+    "notes": "Signature \u2014 photon particles resolving into a wave",
+    "beats": [
+      {
+        "label": "Signature \u2014 photon particles resolving into a wave",
+        "hold_s": 0,
+        "stay": true,
+        "actions": {
+          "screen": {
+            "demo-screen": {
+              "animation": "photons",
+              "track": "space",
+              "volume": 12
+            }
+          }
+        }
+      }
+    ]
+  }
+}

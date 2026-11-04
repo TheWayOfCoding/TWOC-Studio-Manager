@@ -4,7 +4,6 @@
 import pytest
 
 from app.core.safety import SafetyViolation
-from app.drivers.base import DriverResult
 from app.drivers.obs_ws import ObsWsDriver
 from app.modules.obsshow import ObsModuleError, ObsShowModule
 

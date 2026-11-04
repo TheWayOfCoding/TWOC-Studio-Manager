@@ -9,13 +9,19 @@
 <body>
 <header class="topbar">
 <span class="brand">Studio Hub</span>
-<nav><a href="/">Dashboard</a><a href="/bench" aria-current="page">Test Bench</a><a href="/control">Control</a><a href="/equipment">Equipment</a><a href="/docs">API docs</a></nav>
+<nav><a href="/">Dashboard</a><a href="/control">Control</a><a href="/equipment">Equipment</a><span class="navgroup">Administration</span><a href="/modality">Modality Manager</a><a href="/ordering">Ordering</a><a href="/bench" aria-current="page">Test Bench</a><a href="/docs">API docs</a></nav>
 </header>
 <div class="wrap">
 <h1>Test Bench</h1>
 <p class="lede">Interactive bring-up surface: real hardware drivers (DMX lights, Kasa plugs,
 IR capture, GVM panels, Ninja BLE, OBS, backdrop screens) next to mock-driver trials.
 Every action answers in plain words; the raw reply hides under Details.</p>
+<div class="card"><h2>Kasa smart plugs — official names</h2>
+<p class="hint">The six named plugs in plug order (Studio Plug 1–6), each with its zone.
+State reads the live plug by alias; On/Off switches it directly. Analysis
+(discovery, raw hosts) stays in the bring-up card below.</p>
+<div id="kasa-official">loading…</div>
+<div id="kasa-official-out"></div></div>
 <div class="card"><h2>Kasa plugs (real hardware)</h2>
 <div class="row"><label class="field">user <input type="text" id="k-user" autocomplete="username" placeholder="(only if plugs need auth)"></label>
 <label class="field">pass <input type="password" id="k-pass" autocomplete="current-password"></label>
@@ -170,17 +176,18 @@ bring-up only; prefer the light panels above.</p>
 <div class="card"><h2>Backdrop screens</h2>
 <div class="row"><label class="field">screen <input type="text" id="scr-id" value="kqc-screen" style="width:8em"></label>
 <label class="field">theme <select id="scr-theme"><option value="">Default</option><option value="live" selected>Live</option><option value="work">Work</option><option value="focus">Focus</option><option value="warm">Warm</option><option value="candle">Candle</option><option value="sunset">Sunset</option><option value="ocean">Ocean</option><option value="slate">Slate</option><option value="rose">Rose</option></select></label>
-<label class="field">animation <select id="scr-anim"><option value="">None</option><option value="fireplace">Fireplace</option><option value="fishtank">Fish tank</option></select></label>
+<label class="field">animation <select id="scr-anim"><option value="">None</option><option value="fireplace">Fireplace</option><option value="fishtank">Fish tank</option><option value="underwater">Underwater reef</option><option value="starfield">Starfield</option><option value="nebula">Nebula (JWST infrared)</option><option value="galaxy">Galaxy (Hubble spiral)</option><option value="code">Code rain (programming)</option><option value="arcade">Arcade (gaming)</option><option value="gears">Gears (crafting / Gunpla)</option><option value="dice">Dice (D&amp;D)</option><option value="puzzle">Puzzle</option><option value="bistro">Bistro (food / drink)</option><option value="tailor">Tailor (cosplay / sewing)</option><option value="unbox">Unboxing</option><option value="aperture">Aperture (camera)</option><option value="circuit">Circuit (tech news)</option><option value="photons">Photons (Scotty Photon)</option></select></label>
 <label class="field">text <input type="text" id="scr-text" placeholder="topic"></label>
 <label class="field">show s <input type="number" id="scr-ttl" value="0" min="0" max="3600" style="width:5em"></label>
 <button onclick="scrPush()">Push</button>
 <button onclick="scrClear()">Clear</button>
 <button onclick="scrState()">State</button></div>
-<div class="row"><label class="field">track <select id="scr-track"><option value="bed" selected>Bed (hum)</option><option value="piano">Piano</option><option value="eurobeat">Eurobeat</option><option value="dance">Dance</option><option value="synthwave">Synthwave</option><option value="tone">Test tone</option></select></label>
+<div class="row"><label class="field">track <select id="scr-track"><option value="piano">Piano</option><option value="eurobeat">Eurobeat</option><option value="dance">Dance</option><option value="synthwave">Synthwave</option><option value="ocean">Ocean</option><option value="space">Space</option><option value="lofi">Lo-fi (co-working)</option><option value="chiptune">Chiptune (gaming)</option></select></label>
 <label class="field">vol <input type="range" id="scr-vol" min="0" max="100" value="100" oninput="document.getElementById('scr-vol-n').value=this.value; scrVolume()"><input type="number" id="scr-vol-n" min="0" max="100" value="100" style="width:4em" onchange="document.getElementById('scr-vol').value=this.value; scrVolume()"> %</label>
 <button onclick="scrAudio('play')">Play bed</button>
 <button onclick="scrAudio('stop')">Stop bed</button>
 <a id="scr-link" href="/screen/kqc-screen" target="_blank">open kiosk</a></div>
+<div class="row"><label class="field">Audio FX <select id="scr-fx"><option value="stinger">stinger</option><option value="ding">ding</option><option value="pop">pop</option><option value="coin">coin</option><option value="levelup">levelup</option><option value="powerup">powerup</option><option value="whoosh">whoosh</option><option value="error">error</option><option value="success">success</option><option value="applause">applause</option><option value="laser">laser</option><option value="unlock">unlock</option><option value="alert">alert</option><option value="blip">blip</option></select></label><button onclick="scrFx()">Play FX</button><span class="hint">one-shots over the bed</span></div>
 <div id="scr"></div></div>
 <div class="card"><h2>Presentations</h2>
 <div class="row"><label class="field">studio <input type="text" id="show-studio" value="home-studio" style="width:10em"></label>
@@ -287,6 +294,34 @@ async function applyCmd(id) {
 async function safeStop(id) {
   try { const r = await jpost("/api/testbench/" + id + "/safe-stop", "{}"); out("o-" + id, r, r.ok); }
   catch (e) { out("o-" + id, {error: String(e)}, false); }
+}
+async function kOfficialLoad() {
+  try {
+    const r = await jget("/api/kasa/plugs");
+    document.getElementById("kasa-official").innerHTML = r.plugs.map((p) =>
+      '<div class="namerow"><span class="name">' + esc(p.alias || p.plug) + "</span>" +
+      '<span class="state" id="ko-state-' + p.plug + '">?</span>' +
+      "<button onclick=\"kOfficialSet('" + p.plug + "',true)\">On</button>" +
+      "<button onclick=\"kOfficialSet('" + p.plug + "',false)\">Off</button>" +
+      "<button onclick=\"kOfficialState('" + p.plug + "')\">State</button>" +
+      ' <span class="meta">' + esc(p.plug) + " · " + esc(p.zone || "") + " · " + esc(p.model || "") + "</span></div>").join("") || "no plugs in plug-map";
+  } catch (e) { document.getElementById("kasa-official").textContent = "official plugs unavailable"; }
+}
+async function kOfficialState(plug) {
+  try {
+    const r = await jget("/api/kasa/plugs/" + plug + "/state");
+    const el = document.getElementById("ko-state-" + plug);
+    if (el) el.textContent = r.ok ? (r.state.power || "?") : "error";
+    out("kasa-official-out", r, r.ok, plug + (r.ok ? " is " + (r.state.power || "?") : " failed: " + (r.error || "?")));
+  } catch (e) { out("kasa-official-out", {error: String(e)}, false); }
+}
+async function kOfficialSet(plug, on) {
+  try {
+    const r = await jpost("/api/kasa/plugs/" + plug + "/set", JSON.stringify({on: on}));
+    const el = document.getElementById("ko-state-" + plug);
+    if (el && r.ok) el.textContent = r.state.power || (on ? "on" : "off");
+    out("kasa-official-out", r, r.ok, plug + (r.ok ? " → " + (r.state.power || "?") : " failed: " + (r.error || "?")));
+  } catch (e) { out("kasa-official-out", {error: String(e)}, false); }
 }
 let kasaPlugs = [];
 function kCreds() {
@@ -762,6 +797,10 @@ async function dmxSweep() {
     out("dmx", r, r.ok, r.ok ? "Sweep done" : ("Sweep failed: " + (r.error || "?"))); }
   catch (e) { out("dmx", {error: String(e)}, false); }
 }
+async function scrFx() {
+  try { const r = await jpost("/api/testbench/screen/fx", JSON.stringify({screen: scrId(), fx: document.getElementById("scr-fx").value, volume: 40}));
+    out("scr", r, r.ok, "FX " + document.getElementById("scr-fx").value); } catch (e) { out("scr", {error: String(e)}, false); }
+}
 function scrId() { return document.getElementById("scr-id").value || "kqc-screen"; }
 async function scrPush() {
   document.getElementById("scr-link").href = "/screen/" + encodeURIComponent(scrId());
@@ -819,6 +858,8 @@ function scrVolume() {
     jget("/api/testbench/gvm/panels").then(fillGvmPanels).catch(() => {});
     jget("/api/testbench/ninja/lights").then(fillNinjaLights).catch(() => {});
     jget("/api/testbench/ninja/scenes").then(fillNinjaScenes).catch(() => {});
+    kOfficialLoad();
+    fetch("/api/testbench/kasa/prime", {method: "POST", headers: {"Content-Type": "application/json"}, body: "{}"}).catch(() => {});
     dmxLightsLoad();
   } catch (e) {
     document.getElementById("drivers").innerHTML = '<span class="bad">unreachable: ' + esc(String(e)) + "</span>";

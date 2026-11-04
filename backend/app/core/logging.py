@@ -11,7 +11,6 @@ import logging
 import threading
 from datetime import date
 from pathlib import Path
-from typing import Callable
 
 _request_id: contextvars.ContextVar[str] = contextvars.ContextVar("request_id", default="-")
 _studio: contextvars.ContextVar[str] = contextvars.ContextVar("studio", default="-")

@@ -135,6 +135,34 @@ def test_animation_set_clear_and_validate(module):
 
 
 @pytest.mark.unit
+def test_new_animations_and_paired_song(module):
+    """Space/reef/task scenes validate; a mapping track starts the bed."""
+    for name in ("underwater", "starfield", "nebula", "galaxy", "code", "arcade", "gears", "dice",
+                 "puzzle", "bistro", "tailor", "unbox", "aperture", "circuit", "photons"):
+        result = module.push("back", animation=name)
+        assert result.ok is True, name
+        assert result.state["animation"] == name
+    paired = module.apply_mapping({"back": {"animation": "nebula", "track": "space", "volume": 12}})
+    assert paired["back"].ok is True
+    assert paired["back"].state["audio"] == "play"
+    assert paired["back"].state["track"] == "space"
+
+
+@pytest.mark.unit
+def test_audio_fx_one_shots(module):
+    """FX stamp name+seq into state; unknown names and bad volumes fail."""
+    first = module.fx("back", "coin", volume=40)
+    assert first.ok is True
+    assert first.state["fx"] == {"name": "coin", "seq": 1, "volume": 40}
+    second = module.fx("back", "levelup")
+    assert second.state["fx"]["seq"] == 2
+    assert module.fx("back", "airhorn").ok is False
+    assert module.fx("back", "coin", volume=101).ok is False
+    via_map = module.apply_mapping({"back": {"animation": "galaxy", "fx": "stinger", "volume": 25}})
+    assert via_map["back"].ok is True
+
+
+@pytest.mark.unit
 def test_animation_via_module_push_and_mapping(module):
     pushed = module.push("back", animation="fishtank")
     assert pushed.ok is True
