@@ -6,7 +6,8 @@ change must honor.
 ## Layout
 
 - `backend/app/main.py` — FastAPI assembly. Owns `app.state`
-  (registries, config root, health, boot id, action log, show runs).
+  (registries, config root, health, boot id, action log, show runs,
+  modality runs).
   Degraded health on broken config, never a crash. Routers: specific
   bench routers first, generic `/{driver_id}` mock routes last.
 - `backend/app/core/` — logging (configure-first), safety gates.
@@ -25,7 +26,8 @@ change must honor.
   driver family plus studio/mode/preset/AI/show routes.
 - `backend/app/static/` — dashboard (`index.html`), Test Bench
   (`bench.html`), control (`control.html`), kiosk page (`screen.html`),
-  equipment editor, ordering admin (`ordering.html`).
+  equipment editor, ordering admin (`ordering.html`), modality manager
+  (`modality.html`), shared design system (`hub.css`).
 - `backend/app/config/ordering.py` — per-studio custom list order
   (`ordering.json` id arrays, loaded once, atomically saved; see
   `config/README.md`). Registry id lists honor it everywhere.
@@ -93,4 +95,5 @@ change must honor.
   installs deps). Task/firewall/port changes need explicit remote
   steps — the deploy only restarts the existing task.
 - Commits and pushes happen only on explicit ask; uncommitted work
-  stays reviewable in the tree.
+  stays reviewable in the tree. The `pi` remote is retired (hardware
+  dead) — push `origin` only; never `git push pi`.

@@ -12,14 +12,16 @@ error. Keep personal hardware details in `studios.local/` only.
 ## ordering.json (per studio, studios.local/)
 
 `studios.local/<id>/ordering.json` holds custom list order as id arrays:
-`{"zones": [...], "devices": [...], "modes": [...], "presets": [...], "plugs": [...]}`.
+`{"zones": [...], "devices": [...], "modes": [...], "presets": [...],
+"plugs": [...], "panels": [...], "modalities": [...]}`.
 Edited on the `/ordering` page (drag/drop blocks, one-click A–Z / Z–A per
 collection). The file is tiny, loads once into the registry, and saves
 atomically (tmp + replace) — no database, no per-request disk reads. Ids
 missing from the file append alphabetically by id; unknown ids are ignored
 on read and refused on save. Only local studios are writable. Zones list
 their device collections from the same order (`devices` array per zone in
-`GET /api/studios/<id>/zones`).
+`GET /api/studios/<id>/zones`); `panels` orders the dashboard cards
+client-side by `data-panel` id.
 
 ## plug-map.json (studios.local/)
 
@@ -89,6 +91,19 @@ applies through the modes gate, narrates the applied result to the studio
 screens (caption + color wash derived from what actually applied), then holds.
 `scenes` steps need one run-time confirmation; stop jumps to the final step so
 a show always lands somewhere sane. Power/OBS stay out of shows for now.
+
+## modalities.json (per studio)
+
+`<studio>/modalities.json` holds the smart collections the dashboard runs:
+`{"<id>": {"label", "kind", "beats": [...]}}`. `kind` is one of
+`mode` / `preset` / `show` / `custom` (default `custom`); each beat carries
+`label`, `hold_s`, `stay`, and an `actions` object using the same keys as a
+mode (`powerOn`, `lights`, `screen`, `obsScene`, ...). Single-beat
+`mode`/`preset` modalities behave like one-click looks; multi-beat `show`
+modalities step through with holds; `stop-to-final` always lands somewhere
+sane. Edited on the `/modality` page (forms-first, JSON look fields) with
+run/stop/status API beside the modes endpoints. The modes/presets/shows
+engine underneath is unchanged — modalities are the demo-facing layer.
 
 ## Per-light baselines: usual + aiCap
 

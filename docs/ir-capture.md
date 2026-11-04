@@ -58,7 +58,7 @@ names describe the calibrated appearance, not the remote printing.
 
 ## Modes / AI control (automation)
 
-The strip is a `lightstrip` device, addressable from modes, presets, shows,
+The strip is a `lightstrip` device, addressable from modes, modalities,
 and the AI director through the IR translator:
 
 - `power` on/off and `intensity` (0 = off, anything above = on) flip the

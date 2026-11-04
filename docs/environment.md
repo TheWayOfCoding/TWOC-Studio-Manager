@@ -17,8 +17,12 @@ full package/driver/tool inventory, see `docs/dependencies.md`.
   (Windows-only marker — Pi installs skip it). Deploy ships code, not
   deps: after a requirements change, run pip install on the hub once.
 - Bluetooth: a BLE-capable radio with the `bthserv` service running
-  (current hub: USB BT5 adapter). Used by GVM (GATT client) and
-  Ninja (advertisement publisher). No pairing is ever done on the OS.
+  (presentation dongle: CSR BT4 USB; Insignia BT5 kept as spare — both
+  control GVM + Ninja when the stack is healthy). Used by GVM (GATT
+  client) and Ninja (advertisement publisher). No pairing is ever done
+  on the OS. After any dongle swap or hub reboot, restart `bthserv`
+  (or the hub program — its heals do it), then verify with one bench
+  send; see `docs/ninja-ble.md`.
 - USB-DMX adapter (current: DSD SH-RS09B, FTDI chip) on a known COM
   port, XLR→RJ45 wiring per `docs/dmx-wiring.md`, 120-ohm terminator
   on the last fixture.
@@ -77,6 +81,7 @@ full package/driver/tool inventory, see `docs/dependencies.md`.
 
 - Raspberry Pi service files (`tools/pi-bootstrap.sh`,
   `tools/studio-hub.service`, `tools/deploy.ps1`) still exist from
-  before the hub migrated to Windows. Untested since the move.
+  before the hub migrated to Windows. The Pi hardware is dead and its
+  git remote is retired — reference only, never a deploy target.
 - Edge `--kiosk` was the earlier kiosk path; the hub runs the Tauri
   shell today (see the kiosk bullet above).

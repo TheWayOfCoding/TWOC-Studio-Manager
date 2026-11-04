@@ -58,8 +58,9 @@ end to compensate — the fixture end must always land on 1/2/7.
 
 ## Fixture addresses and calibration (verified live)
 
-- Ninja 400 (bi-color 2500–8500K): dimmer = DMX ch 1, CCT = ch 2.
-- Ninja 20 (fixed 5600K): dimmer = DMX ch 20.
+- Ninja 400 (bi-color 2500–8500K, DMX-only): dimmer = DMX ch 1, CCT = ch 2.
+- Ninja 20 (fixed 5600K): BLE-only today — its DMX wire is removed, so it
+  has no DMX map (was dimmer = ch 20; kept here for a future rewire).
 - CCT encoding: 0 = 2500K, 255 = 8500K, 128 ≈ 5500K verified; midpoints
   between those three points are UNCALIBRATED (on-screen readout is known
   inaccurate away from them). Treat the map as three anchored points, not a

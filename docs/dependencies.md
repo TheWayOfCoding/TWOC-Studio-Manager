@@ -33,8 +33,8 @@ workstation needs no project package installed).
 |---|---|---|---|
 | `kasa.py` | Kasa HS103 plugs x6 | LAN broadcast + TCP | python-kasa |
 | `gvm_ble.py` | GVM 1500D panels x2 | BLE GATT write | bleak |
-| `ninja_ble.py` | Viltrox Ninja 10/20/400 | BLE broadcast advertising | winsdk (WinRT) |
-| `dmx_usb.py` + `dmx_light.py` | Ninja fixtures (bench path) | USB-DMX (FTDI) | pyserial |
+| `ninja_ble.py` | Viltrox Ninja 10/20 | BLE broadcast advertising | winsdk (WinRT) |
+| `dmx_usb.py` + `dmx_light.py` | Ninja 400 (DMX-only) | USB-DMX (FTDI) | pyserial |
 | `ir_usb_serial.py` | LED strip via YS-IRTM | USB serial NEC replay | pyserial |
 | `obs_ws.py` | OBS Studio | WebSocket v5 | websocket-client |
 | `link_audio.py` + `wol.py` | 9900x workstation | 3.5mm DTMF + UDP magic packet | sounddevice + stdlib socket |
@@ -78,7 +78,7 @@ workstation needs no project package installed).
 | httpx | >=0.27 | FastAPI TestClient transport. |
 | ruff | >=0.6 | lint gate, config in `pyproject.toml` (`ruff check backend tools tests`). |
 | node | any recent | `node --check` over extracted page scripts (no JS build step anywhere). |
-| git | — | only committed backup path while the Pi remote is down. |
+| git | — | the public remote is the only backup (Pi hardware dead, `pi` remote retired — push `origin` only). |
 
 ## Reverse-engineering kit (one-off, per protocol)
 

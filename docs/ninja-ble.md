@@ -3,8 +3,10 @@
 Source: HCI snoop of the Weeylite Pro Android app
 (`com.ruitianzhixin.weeylite2`), captured via live `btsnoop_net` stream
 (port 8872 over `adb forward`) with scripted taps
-(`captures/ninja10/`, git-ignored). Lights: Ninja 10 (CH3-A),
-Ninja 400 (CH3-B), Ninja 20 (CH3-C).
+(`captures/ninja10/`, git-ignored). App-side groups: Ninja 10 (CH3-A),
+Ninja 400 (CH3-B), Ninja 20 (CH3-C). The hub drives the 10/20 over BLE
+today; the 400 is DMX-only on the hub (its BLE map below stays valid
+for the vendor app).
 
 Unlike GVM (paired GATT writes), this protocol is **connectionless
 broadcast**: the app carries no connection, pairs with nothing, and
@@ -117,7 +119,7 @@ real fixture. No separate power byte observed.
   once, so hub counter resets after a restart are harmless.
 - SILENT-STACK FAILURE (Nov 3, cost hours): the hub's Bluetooth stack
   wedged in a state where every WinRT publisher reported Started while
-  nothing reached the air (cross-PC watcher heard zero hub frames;
+  nothing reached the air (cross-PC watcher `tools/ninja-watch.py` heard zero hub frames;
   fixtures ignored everything; app fine). Triggers: hub boot, adapter
   hot-swap (dongle change with no service restart wedged it again,
   verified with both dongles), and heavy churn of throwaway probe

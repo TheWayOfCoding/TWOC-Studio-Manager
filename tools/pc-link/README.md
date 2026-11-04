@@ -228,9 +228,10 @@ file doesn't name are decoded, logged, and ignored. Unknown codes are
 ignored silently. After each accepted command the listener enforces a
 cooldown plus a quiet period, so one burst never fires twice. `cwd`
 (optional) sets the child's working directory — portable OBS requires
-its own `bin/64bit`, or it dies on missing locale files. Pin the
-presentation with launch args (`--collection`, `--scene`) so the boot
-never lands on whatever collection was last open.
+its own `bin/64bit`, or it dies on missing locale files. Keep launch
+args to `--portable`: the hub boot job cuts collection + scene after
+launch, so local pinning is redundant (harmless if you keep it for
+hand-launched runs).
 
 ## Packaging
 

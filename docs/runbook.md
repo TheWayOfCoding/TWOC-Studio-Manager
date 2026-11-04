@@ -41,9 +41,10 @@ example-studio`, fictional) drives every page against mock drivers.
    `config/studios.local/<your-studio-id>/` (git-ignored; real data
    never commits).
 2. Edit `studio.json` (id must match the folder), `zones.json`,
-   `devices.json`, `modes.json`, `presets.json`. Schemas are enforced
-   at load (`backend/app/config/schemas/`); field reference:
-   `config/README.md`.
+   `devices.json`, `modes.json`, `presets.json`, `modalities.json`.
+   Schemas are enforced at load (`backend/app/config/schemas/`); field
+   reference: `config/README.md`. `/ordering` writes `ordering.json` for
+   you; `/equipment` moves assets between zones (power wiring untouched).
 3. Zone/plug layout used by the reference rig (adapt freely):
    Hub Manager (no plug) → workstation zones on Plugs 1–3 →
    hands-on on Plug 4 → hands-on screens Plug 5 → mood Plug 6 →
@@ -95,9 +96,12 @@ example-studio`, fictional) drives every page against mock drivers.
 ## 8. Workstation link (OBS boot + DTMF shutdown)
 
 1. Per user account that runs the show (reference rig: autologin
-   `creative` on the 9900x): follow the per-user install in
+   show account on the workstation): follow the per-user install in
    `tools/pc-link/README.md` — listener + fresh `local.json` +
    Portable OBS copy in that profile, calibrated, then Startup entry.
+   Each seat allow-lists only its own launch tone (`obs` on the show
+   seat, `obs_bench` on the test-bench seat); the dashboard PC-link
+   card starts either, with Stop halting a running boot job.
 2. Enable Wake-on-LAN there (BIOS + NIC checklist in the same README).
 3. Hub side `config/studios.local/link.json`: `wol_mac` (never in
    chat/repo), `audio_out`, `audio_in` (pick via bench PC-link card).
@@ -133,7 +137,8 @@ honestly degraded-by-name — fix wiring, never silence).
 
 ## 11. Polish and go-live checks
 
-- `/ordering`: drag/drop your list order (A–Z buttons per collection).
+- `/ordering`: drag/drop your list order (A–Z buttons per collection;
+  lists plus dashboard panels).
 - Dashboard zones list each zone's device collection — eyeball against
   the room.
 - Hub Manager card: test Restart, then Power down (final confirmation)

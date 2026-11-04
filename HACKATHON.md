@@ -46,8 +46,9 @@ guards and drawer-reopen handling) walked every screen. Out came the
 presets, per-broadcast counters, ten FX scenes. The hub replays
 byte-exact frames through the Windows BLE advertiser — and the fixtures
 accepted them, proving no scan-response placement was needed. All three
-fixtures moved to Bluetooth control, gaining soft power the DMX path
-never had.
+fixtures moved to Bluetooth control first, gaining soft power the DMX
+path never had; the Ninja 400 later returned to its wire-verified DMX
+path (DMX-only today) while the 10/20 stayed on Bluetooth.
 
 **Calibrating the IR strip with a camera.** The shelf strip's 24-button
 remote was captured in full over a USB-serial IR blaster — then a fixed-
@@ -84,6 +85,12 @@ honest: offline plugs, unwired lights, and missing scenes degrade by
 name; dead providers return 502s with the upstream message; snapshots
 name every skipped device. Nothing in the room ever fails silent.
 
+**Deadline day.** The last session shipped per-seat OBS start (one audio
+wire addressing the show seat and the test-bench seat independently),
+a zone-move editor on the Equipment page, and the last hardening pass —
+then every plug went live with its real equipment attached and the suite
+closed at 546 passed, 8 skipped.
+
 ## What it controls
 
 **Power (Kasa plugs, alias-based).** Six official plugs (Studio Plug
@@ -98,22 +105,27 @@ All Off skips them by name unless explicitly overridden.
 
 **Lights — four families, one language.** GVM panels over BLE
 (brightness/CCT/HSI/scenes, protocol reverse-engineered from app
-captures); Viltrox Ninja fixtures over BLE broadcast (byte-exact
-replayed frames, soft power); USB-DMX faders with wall-clock pacing and
-buffer-preserving blackout; IR shelf strip with a camera-measured color
-table. Every family on the bench, in modes, and under AI.
+captures); Ninja 400 over USB-DMX (dimmer + CCT, wall-clock pacing,
+buffer-preserving blackout); Ninja 10/20 over BLE broadcast (byte-exact
+replayed frames, soft power); IR shelf strip with a camera-measured
+color table. Every family on the bench, in modes and modalities, and
+under AI.
 
 **OBS.** Full websocket control: status, scenes, scene collections,
 safe-fallback switching, guarded streaming. The dashboard carries a live
-OBS card with a collection picker, and the audio wire cold-boots
-portable OBS into the right collection and scene in ~10 seconds.
+OBS card with a collection picker plus a per-seat start card, and the
+audio wire cold-boots portable OBS into the right collection and scene
+in ~10 seconds — show seat and test-bench seat independently, one wire.
 
 **Backdrop screens.** Kiosk pages with pushed themes and text, a
 synthesized audio bed, self-reload across hub restarts, fullscreen shell
 with double-ESC exit.
 
-**Presentations (shows).** Captioned multi-step sequences with narration
-wash, stop-to-final behavior, and per-step result reporting.
+**Modalities + presentations.** Smart collections (kind mode, preset,
+show, or custom) run from the dashboard and the Modality Manager with
+run/stop/undo/snapshot — the one-click demo surface over the modes
+engine. Multi-step shows carry captions with narration wash,
+stop-to-final behavior, and per-step result reporting.
 
 **AI director.** Prompt + target + scope over mock or live providers,
 per-fixture baselines and power caps, critique pass, voice input,
@@ -124,9 +136,10 @@ factors in and may suggest switching by hand — never claims to move.
 **Undo + action log.** Every apply is recorded; one button replays the
 previous room state through the validated path.
 
-**Ordering.** Every list (zones, devices, modes, presets, plugs)
-follows a custom order set on a drag/drop admin page with one-click
-A–Z sorts, saved as one small per-studio JSON file — no database.
+**Ordering.** Every list (zones, devices, modes, presets, plugs,
+panels, modalities) follows a custom order set on a drag/drop admin
+page with one-click A–Z sorts, saved as one small per-studio JSON
+file — no database.
 
 **Hub power.** The Hub Manager zone restarts the hub program or shuts
 the hub PC down completely, optionally turning everything off first
@@ -150,7 +163,7 @@ and DTMF-shutting-down the workstation down the audio wire (one of
                                       strip, screens, main PC
 ```
 
-One Python service, JSON-configured studios, 527-test suite with
+One Python service, JSON-configured studios, 546-test suite with
 hardware and socket-free tiers, dual HTTPS/HTTP serving, watchdog task,
 self-signed TLS. Deploys over the LAN with clobber guards on local
 config. Only fictional example data is committed; real studio details
@@ -159,9 +172,11 @@ stay git-ignored and local.
 ## Status
 
 Live on the hub host, demo-ready. Every light family drives through
-bench, modes, presets, and AI; OBS boot-over-audio runs in ~10s; shows,
-undo, and snapshot all land. The zone/plug structure now matches the
-room (seven plug-ordered zones plus fixed Room lighting), list
-ordering is admin-configurable, and the hub can shut the whole room
-down in order. Remaining thread: the show-account transition on the
-workstation — queued, not blocking the demo.
+bench, modes, modalities, and AI; OBS boot-over-audio runs in ~10s per
+seat; shows, undo, and snapshot all land. The zone/plug structure now
+matches the room (eight zones in plug order including fixed Room
+lighting), list ordering is admin-configurable, assets move between
+zones on the Equipment page, and the hub can shut the whole room down
+in order. All plugs are live with their real equipment attached; the
+show-account listener is installed with its first-login run still to be
+witnessed — not blocking the demo.

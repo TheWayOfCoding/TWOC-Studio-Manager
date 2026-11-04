@@ -9,6 +9,12 @@ Windows uses the system WebView2 engine; Linux builds use WebKitGTK.
   Plain browsers ignore the handler and keep native ESC behavior.
 - The kiosk page itself retries until the hub answers, so logon races
   with the hub task are harmless.
+- Remote audio needs no click: the window passes
+  `--autoplay-policy=no-user-gesture-required`, and the page
+  creates/resumes its AudioContext on every play tick.
+- Double-ESC close requires the capability's `remote.urls` scope to
+  cover the served page origin (`capabilities/main.json`) — without it
+  Tauri v2 denies `plugin:window|close` silently and ESC appears dead.
 
 ## Build (needs the Rust toolchain)
 
