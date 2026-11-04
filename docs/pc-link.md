@@ -24,12 +24,21 @@ so prefer a dedicated link output on each end.
   one check digit, 80-100ms gaps. ~0.8s per command.
 - Alphabet: standard DTMF; data digits are `0-9ABCD` (14 symbols, 196
   codes); check = index sum mod 14. Corrupt frames decode to nothing.
-- Commands: `ping` (no-op loop test), `obs` (launch OBS), `shutdown`
-  (code 05: power the workstation down; listener runs it only when
-  `actions.shutdown.shutdown` is true in its local.json, with an abort
-  window via `shutdown /a`), `ack` (command received), `obs_ready`
-  (OBS websocket up), `obs_fail` (launch attempted, websocket never
-  came). Six of 196 codes used — no capacity concern.
+- Commands: `ping` (no-op loop test), `obs` (launch the show seat's
+  OBS), `obs_bench` (code 06: launch the test-bench seat's OBS),
+  `shutdown` (code 05: power the workstation down; listener runs it
+  only when `actions.shutdown.shutdown` is true in its local.json,
+  with an abort window via `shutdown /a`), `ack` (command received),
+  `obs_ready` (OBS websocket up), `obs_fail` (launch attempted,
+  websocket never came). Seven of 196 codes used — no capacity concern.
+- One wire, two seats: both listeners on a shared PC hear every burst,
+  but each `local.json` allow-lists only its own launch command (`obs`
+  on the show seat, `obs_bench` on the test-bench seat), so a launch
+  tone fires exactly one session — never a double launch. `ping` stays
+  shared: an ack from either seat proves the wire path is live, while
+  `obs_ready` proves the ADDRESSED seat launched. The boot job's
+  `target` (`workstation`/`testbench`) picks the tone; the dashboard
+  PC-link card and the bench boot card expose both.
 - Multi-frame windows: long captures can hold several bursts (ack then
   obs_ready); the decoder finds each preamble-delimited frame in order.
 

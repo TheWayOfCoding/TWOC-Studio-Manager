@@ -1684,6 +1684,33 @@ def test_obs_boot_lifecycle(monkeypatch):
 
 
 @pytest.mark.unit
+def test_obs_boot_target_selects_command(monkeypatch):
+    import time
+
+    from app.api import obs as obs_api
+
+    def fake_run(job, link, obs_set, sleep=None, stop=None, cfg=None, collect_set=None):
+        job["state"] = "ready"
+        return job
+
+    def settled(base):
+        deadline = time.monotonic() + 10
+        while client.get(base + "/status").json()["job"]["running"] and time.monotonic() < deadline:
+            time.sleep(0.05)
+
+    monkeypatch.setattr(obs_api, "run_boot", fake_run)
+    base = "/api/studios/example-studio/obs/boot"
+    with _clean_boot_state():
+        default = client.post(base, json={}).json()["job"]
+        assert default["target"] == "workstation" and default["obs_command"] == "obs"
+        settled(base)
+        bench = client.post(base, json={"target": "testbench"}).json()["job"]
+        assert bench["target"] == "testbench" and bench["obs_command"] == "obs_bench"
+        settled(base)
+        assert client.post(base, json={"target": "nope"}).status_code == 422
+
+
+@pytest.mark.unit
 def test_obs_boot_stop_and_attach(monkeypatch):
     import time
 

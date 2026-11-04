@@ -43,7 +43,7 @@ def test_ordering_api_and_zone_devices():
     ordering = client.get("/api/studios/example-studio/ordering").json()
     assert set(ordering["collections"]) == {"zones", "devices", "modes", "presets", "plugs", "panels", "modalities"}
     assert [p["id"] for p in ordering["collections"]["panels"]] == [
-        "modalities", "obs", "zones", "power", "hub", "ai"]
+        "modalities", "obs", "pcobs", "zones", "power", "hub", "ai"]
     # Tracked example studio refuses saves (local-only rule).
     save = client.put("/api/studios/example-studio/ordering", json={"ordering": {"zones": ["desk", "bench"]}})
     assert save.status_code == 422

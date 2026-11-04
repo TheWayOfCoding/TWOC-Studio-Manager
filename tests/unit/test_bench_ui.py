@@ -148,6 +148,8 @@ def test_link_card_present():
         'id="link-studio"',
         'id="link-scene"',
         'id="link-collection"',
+        'id="link-target"',
+        'value="obs_bench"',
         'id="link-boot-human"',
         "linkBoot()",
         "linkBootStatus()",

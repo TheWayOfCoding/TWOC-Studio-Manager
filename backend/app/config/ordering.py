@@ -26,6 +26,7 @@ COLLECTIONS = ("zones", "devices", "modes", "presets", "plugs", "panels", "modal
 PANELS = [
     ("modalities", "Modalities"),
     ("obs", "OBS"),
+    ("pcobs", "PC link OBS"),
     ("zones", "Zones"),
     ("power", "Power"),
     ("hub", "Hub Manager"),

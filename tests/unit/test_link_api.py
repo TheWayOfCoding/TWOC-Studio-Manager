@@ -246,6 +246,28 @@ def test_link_config_set_maps_errors(monkeypatch):
 
 
 @pytest.mark.unit
+def test_link_send_and_wait_supports_testbench_obs(monkeypatch):
+    from app.api import link as link_api
+
+    seen = {}
+    monkeypatch.setattr(link_api, "_link_config", lambda root: {})
+    monkeypatch.setattr(
+        link_api, "send_tones", lambda frame, device=None: seen.update(tx=frame) or {"digits": frame}
+    )
+    monkeypatch.setattr(
+        link_api,
+        "listen_all",
+        lambda seconds, device=None: seen.update(wait=seconds) or {"commands": ["obs_ready"], "seconds": seconds},
+    )
+    body = client.post("/api/link/send-and-wait", json={"command": "obs_bench"}).json()
+    assert body["ok"] is True
+    assert body["state"]["confirmed"] is True
+    assert body["state"]["heard"] == "obs_ready"
+    assert body["state"]["expected"] == ["obs_ready", "obs_fail"]
+    assert seen["wait"] == 60.0
+
+
+@pytest.mark.unit
 def test_link_wol_needs_config_then_sends(monkeypatch):
     from app.api import link as link_api
 

@@ -237,9 +237,16 @@ def obs_studio_stream(studio_id: str, body: StudioStreamBody, request: Request):
     return {"ok": result.ok, "state": result.state, "error": result.error}
 
 
+# Boot targets: which seat's listener should answer the launch tone.
+# The ping phase is shared (any seat's ack proves the wire is live);
+# the addressed launch tone fires exactly one seat's allow-list.
+OBS_TARGETS = {"workstation": "obs", "testbench": "obs_bench"}
+
+
 class BootBody(BaseModel):
     scene: str | None = None
     collection: str | None = None
+    target: str = "workstation"
 
 
 class _BootLink:
@@ -329,18 +336,24 @@ def _run_boot_thread(request, studio_id):
     log.info("obs boot job ended", extra={"fields": {"studio": studio_id, "job": job["id"], "state": job["state"]}})
 
 
-def boot_try_start(request, studio_id, scene=None, collection=None):
+def boot_try_start(request, studio_id, scene=None, collection=None, target="workstation"):
     """Start the studio's boot job, or return the running one.
 
     Shared by the boot endpoint (which 409s on a running job), zone-On,
     and mode auto-OBS: those attach to the running job instead of failing.
-    Returns (job snapshot, started_this_call).
+    Returns (job snapshot, started_this_call). Unknown targets raise
+    ValueError (the endpoint maps it to 422).
     """
+    try:
+        command = OBS_TARGETS[target]
+    except (KeyError, TypeError):
+        raise ValueError(f"unknown obs boot target {target!r} (want one of {sorted(OBS_TARGETS)})") from None
     jobs, stops = _boot_jobs(request), _boot_stops(request)
     current = jobs.get(studio_id)
     if current is not None and current["state"] in RUNNING:
         return _job_snapshot(current), False
-    job = new_job(studio_id, scene, collection)
+    job = new_job(studio_id, scene, collection, obs_command=command)
+    job["target"] = target
     stop = threading.Event()
     jobs[studio_id] = job
     stops[studio_id] = stop
@@ -353,12 +366,16 @@ def boot_try_start(request, studio_id, scene=None, collection=None):
 def obs_boot_start(studio_id: str, body: BootBody, request: Request):
     """Boot the main PC's OBS over the audio wire (async job, poll status).
 
-    Pings until the listener answers, sends the obs launch, waits for
+    Pings until the listener answers, sends the seat's launch tone
+    ("obs" for workstation, "obs_bench" for testbench), waits for
     obs_ready, then cuts to collection (when named) and scene (default
     Face Full View). One job per studio; 409 while one runs.
     """
     _registry_or_404(request, studio_id)
-    job, started = boot_try_start(request, studio_id, body.scene, body.collection)
+    try:
+        job, started = boot_try_start(request, studio_id, body.scene, body.collection, body.target)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
     if not started:
         raise HTTPException(status_code=409, detail=f"obs boot already running (job {job['id']})")
     return {"ok": True, "job": job}

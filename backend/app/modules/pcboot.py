@@ -24,14 +24,19 @@ RUNNING = ("pinging", "launching", "setting_collection", "setting_scene")
 TERMINAL = ("ready", "timeout", "obs_failed", "collection_failed", "scene_failed", "link_error", "error", "stopped")
 
 
-def new_job(studio_id, scene=None, collection=None):
-    """Fresh job record. Empty collection skips the collection cut."""
+def new_job(studio_id, scene=None, collection=None, obs_command="obs"):
+    """Fresh job record. Empty collection skips the collection cut.
+
+    obs_command selects which seat's listener answers the launch tone
+    ("obs" for the show seat, "obs_bench" for the test-bench seat).
+    """
     now = datetime.now(timezone.utc).isoformat()
     return {
         "id": uuid4().hex[:8],
         "studio": studio_id,
         "scene": scene if scene is not None else DEFAULT_SCENE,
         "collection": collection or None,
+        "obs_command": obs_command,
         "state": "pinging",
         "phases": [],
         "started_at": now,
@@ -96,15 +101,16 @@ def run_boot(job, link, obs_set, sleep=time.sleep, stop=None, cfg=None, collect_
         else:
             return _finish(job, "timeout", f"no listener ack after {ping_attempts} pings")
 
+        obs_command = job.get("obs_command", "obs")
         for attempt in range(1, obs_attempts + 1):
             if halted():
                 return _finish(job, "stopped")
             try:
-                outcome = link.send_wait("obs", obs_window)
+                outcome = link.send_wait(obs_command, obs_window)
             except Exception as exc:  # noqa: BLE001 - transport failure, fail fast
                 return _finish(job, "link_error", f"obs window failed: {exc}")
             heard = outcome.get("heard")
-            _note(job, "launching", attempt=attempt, heard=heard, others=outcome.get("others", []))
+            _note(job, "launching", attempt=attempt, heard=heard, others=outcome.get("others", []), command=obs_command)
             if heard == "obs_ready":
                 break
             if heard == "obs_fail":

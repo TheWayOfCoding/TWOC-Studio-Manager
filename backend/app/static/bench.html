@@ -134,15 +134,15 @@ ports once, test the wire, then boot OBS.</p>
 <div class="row"><button onclick="linkDevices()">Hub outputs</button>
 <button onclick="linkInputs()">Hub inputs</button>
 <button onclick="linkTest()">Test tone 1s</button></div>
-<div class="row"><label class="field">command <select id="link-cmd"><option value="ping">ping</option><option value="obs">obs</option></select></label>
+<div class="row"><label class="field">command <select id="link-cmd"><option value="ping">ping</option><option value="obs">obs</option><option value="obs_bench">obs_bench</option></select></label>
 <button onclick="linkSend()">Send</button>
 <button onclick="linkSendWait()">Send+Wait</button>
 <button onclick="linkListen()">Listen 2s</button>
-<span class="hint">Send+Wait listens 8s (ping) / 60s (obs) for the ack</span></div></div>
+<span class="hint">Send+Wait listens 8s (ping) / 60s (obs, obs_bench) for the ack</span></div></div>
 <div class="step"><h3 class="step-h"><span class="n">3</span> Boot the main PC's OBS</h3>
 <p class="hint">Pings until the PC answers, starts OBS, then cuts to the collection
-and scene. Takes minutes on a cold PC; the status line follows automatically until it finishes.</p>
-<div class="row"><label class="field">studio <input type="text" id="link-studio" value="home-studio" style="width:10em"></label>
+and scene. Takes minutes on a cold PC; the status line follows automatically until it finishes. Pick the seat whose listener should answer — each seat allows only its own launch tone.</p>
+<div class="row"><label class="field">studio <input type="text" id="link-studio" value="home-studio" style="width:10em"></label><label class="field">seat <select id="link-target"><option value="workstation">workstation</option><option value="testbench">test bench</option></select></label>
 <label class="field">collection <input type="text" id="link-collection" value="ScottyPhoton" style="width:12em"></label>
 <label class="field">scene <input type="text" id="link-scene" value="Face Full View" style="width:12em"></label>
 <button class="primary" onclick="linkBoot()">Boot + OBS</button>
@@ -579,7 +579,7 @@ async function linkListen() {
 }
 async function linkSendWait() {
   const command = document.getElementById("link-cmd").value;
-  const wait = command === "obs" ? 60.0 : 8.0;
+  const wait = command === "ping" ? 8.0 : 60.0;
   try { const r = await jpost("/api/link/send-and-wait", JSON.stringify({command: command, wait_s: wait}));
     const st = r.state || {};
     const confirmed = !!(r.ok && st.confirmed);
@@ -638,7 +638,7 @@ async function linkBoot() {
   const scene = document.getElementById("link-scene").value || "Face Full View";
   const collection = document.getElementById("link-collection").value || null;
   try { const r = await jpost("/api/studios/" + linkStudio() + "/obs/boot",
-    JSON.stringify({scene: scene, collection: collection}));
+    JSON.stringify({scene: scene, collection: collection, target: document.getElementById("link-target").value || "workstation"}));
     out("link", r, r.ok, r.ok ? ("Boot job " + (r.job ? r.job.id : "?") + " started — watching…") : "Boot refused to start"); if (r.ok) linkBootStatus(); }
   catch (e) { out("link", {error: String(e)}, false); }
 }
@@ -648,7 +648,7 @@ async function linkBootStatus() {
   try {
     for (let i = 0; i < 200; i++) {
       const r = await jget("/api/studios/" + linkStudio() + "/obs/boot/status");
-      out("link", r, true, "Boot job " + r.job.id + ": " + r.job.state + (r.job.running ? "…" : "")); renderBootHuman(r.job);
+      out("link", r, true, "Boot job " + r.job.id + " (" + (r.job.target || "?") + "): " + r.job.state + (r.job.running ? "…" : "")); renderBootHuman(r.job);
       if (!r.job.running) return;
       await new Promise(res => setTimeout(res, 5000));
     }

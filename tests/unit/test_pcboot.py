@@ -149,3 +149,16 @@ def test_boot_wol_failure_does_not_abort():
     job = run_boot(new_job("s"), link, _ok_scene([]), sleep=lambda s: None)
     assert job["state"] == "ready"
     assert job["phases"][0]["wol"].startswith("wol skipped")
+
+
+@pytest.mark.unit
+def test_boot_obs_command_targets_session():
+    """The launch phase plays the job's obs_command (per-session addressing)."""
+    assert new_job("s")["obs_command"] == "obs"
+    link = FakeLink(["ack", "obs_ready"])
+    job = run_boot(new_job("s", obs_command="obs_bench"), link, _ok_scene([]), sleep=lambda s: None)
+    assert job["state"] == "ready"
+    assert job["obs_command"] == "obs_bench"
+    assert [call[0] for call in link.calls] == ["ping", "obs_bench"]
+    launching = [phase for phase in job["phases"] if phase["phase"] == "launching"]
+    assert launching and all(phase["command"] == "obs_bench" for phase in launching)

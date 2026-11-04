@@ -66,8 +66,8 @@ def test_silence_and_empty_decode_none():
 
 @pytest.mark.unit
 def test_unknown_valid_code_has_no_name():
-    assert decode_samples(encode_samples("#066", 44100), 44100) == "06"
-    assert decode_command(encode_samples("#066", 44100), 44100) is None
+    assert decode_samples(encode_samples("#077", 44100), 44100) == "07"
+    assert decode_command(encode_samples("#077", 44100), 44100) is None
 
 
 @pytest.mark.unit
@@ -76,6 +76,15 @@ def test_shutdown_code_pinned():
     assert COMMANDS["shutdown"] == "05"
     for rate in (44100, 48000):
         assert decode_command(encode_samples(frame_for("shutdown"), rate), rate) == "shutdown"
+
+
+@pytest.mark.unit
+def test_obs_bench_code_pinned():
+    """Per-session OBS launch: the test-bench seat answers code 06, not 01."""
+    assert COMMANDS["obs_bench"] == "06"
+    assert COMMANDS["obs"] == "01"
+    for rate in (44100, 48000):
+        assert decode_command(encode_samples(frame_for("obs_bench"), rate), rate) == "obs_bench"
 
 
 @pytest.mark.unit
@@ -112,8 +121,8 @@ def test_decode_all_drops_corrupt_keeps_unknown_digits():
     good = frame_for("ping")
     bad = good[:-1] + ("0" if good[-1] != "0" else "1")
     gap = [0.0] * int(rate * 0.4)  # real bursts land seconds apart, never glued
-    buf = encode_samples(bad, rate) + gap + encode_samples("#066", rate) + gap + encode_samples(good, rate)
-    assert decode_all_samples(buf, rate) == ["06", "00"]
+    buf = encode_samples(bad, rate) + gap + encode_samples("#077", rate) + gap + encode_samples(good, rate)
+    assert decode_all_samples(buf, rate) == ["07", "00"]
     assert decode_all_commands(buf, rate) == ["ping"]
 
 

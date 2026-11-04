@@ -94,11 +94,14 @@ the 9900x workstation, which autologins for the presentation).
 2. Confirm Python 3.11+ is reachable from that account (`py --version`
    or `python --version`). A system-wide install is fine; a per-user
    install keeps it fully inside the profile.
-3. Create the home for it and copy this folder's contents in:
-   `C:\Users\USER\pc-link\` gets `listener.py`, `send.py`,
-   `requirements-link.txt`, and a `local.json` made from
-   `local.json.example` (never copy a live `local.json` from another
-   account — its paths point at the wrong profile).
+3. Create the home for it: `C:\Users\USER\pc-link\` gets `listener.py`,
+   `send.py`, `requirements-link.txt` from this folder, PLUS
+   `linkproto.py` copied from `backend/app/linkproto.py` in the repo,
+   and a `local.json` made from `local.json.example` (never copy a
+   live `local.json` from another account — its paths point at the
+   wrong profile). Without `linkproto.py` alongside them the scripts
+   die at import, before any log line — if the log file never appears
+   after a login, this missing file is the first suspect.
 4. Install the deps as USER: `pip install -r requirements-link.txt`
    (add `--user` if Python is system-wide and you want the packages
    inside the profile too).
@@ -130,6 +133,16 @@ the 9900x workstation, which autologins for the presentation).
 Moving to a new account later is the same list again: fresh profile
 copy, fresh `local.json` paths, calibrate, prove, then Startup. The
 old account's copy keeps working untouched.
+
+Per-seat launch commands: the show seat's `local.json` allows `"obs"`,
+the dev/test-bench seat allows `"obs_bench"` instead — each seat runs
+only its own command, so one wire addresses two sessions on the same
+PC without double launches. `ping` stays shared (either seat's ack
+proves the wire is live). Keep each seat's allow-list to its own
+launch command. No step here needs admin: with Python already on the
+machine, a standard (limited) Windows account installs deps with
+`pip install --user`, keeps everything inside its own profile, and
+runs the Startup entry unprivileged.
 
 ## Run it
 
