@@ -13,10 +13,18 @@
 </header>
 <div class="wrap">
 <h1>Equipment datapoints</h1>
-<p class="lede">Freeform facts per device (modifiers, distances, diffusion — whole-phrase labels welcome). Saved to the local studio file and fed to the AI. Name, position, role, notes and est. watts are editable below; identity fields (type, zone, plug, driver) stay read-only.</p>
+<p class="lede">Freeform facts per device (modifiers, distances, diffusion — whole-phrase labels welcome). Saved to the local studio file and fed to the AI. Name, position, role, notes and est. watts are editable below; identity fields (type, plug, driver) stay read-only. Zone membership moves in the Zones card.</p>
 <div class="card"><h2>Device</h2>
 <div class="row"><select id="eq-studio"></select> <select id="eq-device"></select></div>
 <div id="eq-facts"></div></div>
+<div class="card"><h2>Zones</h2>
+<p class="lede">Every asset lives in exactly one zone — removing one from a zone means moving it to another. Power wiring (group/plug) never changes here.</p>
+<div class="row"><label class="field">zone <select id="zn-zone" onchange="znLoad()"></select></label></div>
+<div id="zn-members"></div>
+<div class="row"><label class="field">move <select id="zn-device"></select></label>
+<label class="field">to <select id="zn-target"></select></label>
+<button class="primary" onclick="znMove()">Move</button></div>
+<div id="zn-out"></div></div>
 <div class="card"><h2>Datapoints</h2>
 <table class="grid-t"><thead><tr><th>Label</th><th>Value</th><th></th></tr></thead>
 <tbody id="eq-rows"></tbody></table>
@@ -128,14 +136,44 @@ async function eqSave() {
     out("eq-out", {status: msg}, true);
   } catch (e) { out("eq-out", {error: String(e)}, false); }
 }
+async function znLoad() {
+  try {
+    const z = await jget("/api/studios/" + studio() + "/zones");
+    const zones = z.zones || [];
+    const current = document.getElementById("zn-zone").value;
+    const opts = zones.map((x) => '<option value="' + x.id + '">' + esc(x.label || x.id) + "</option>").join("");
+    document.getElementById("zn-zone").innerHTML = opts;
+    document.getElementById("zn-target").innerHTML = opts;
+    if (current) document.getElementById("zn-zone").value = current;
+    const devs = await jget("/api/studios/" + studio() + "/devices");
+    document.getElementById("zn-device").innerHTML = devs.map((d) => '<option value="' + d.id + '">' + esc(d.name || d.id) + "</option>").join("");
+    const id = document.getElementById("zn-zone").value;
+    const zone = zones.find((x) => x.id === id) || {devices: []};
+    const rows = (zone.devices || []).map((d) => "<tr><td>" + esc(d.name || d.id) + "</td><td>" + esc(d.type || "") + "</td><td>" + esc(d.plug || "no plug") + "</td></tr>").join("");
+    document.getElementById("zn-members").innerHTML = '<table class="grid-t"><thead><tr><th>Asset</th><th>Type</th><th>Plug</th></tr></thead><tbody>' +
+      (rows || '<tr><td colspan="3">no assets in this zone</td></tr>') + "</tbody></table>";
+  } catch (e) { out("zn-out", {error: String(e)}, false); }
+}
+async function znMove() {
+  const device = document.getElementById("zn-device").value;
+  const zone = document.getElementById("zn-target").value;
+  if (!device || !zone) { out("zn-out", {error: "pick a device and a zone first"}, false); return; }
+  try {
+    const r = await jput("/api/studios/" + studio() + "/devices/" + device + "/zone", JSON.stringify({zone}));
+    out("zn-out", {status: "moved " + r.device + " to " + r.zone}, true);
+    document.getElementById("zn-zone").value = r.zone;
+    loadDevices();
+    znLoad();
+  } catch (e) { out("zn-out", {error: String(e)}, false); }
+}
 (async () => {
   try {
     const s = await jget("/api/studios");
     const sel = document.getElementById("eq-studio");
     sel.innerHTML = s.map((x) => '<option value="' + x.id + '">' + esc(x.label) + "</option>").join("");
-    sel.onchange = () => { EQ_STUDIO = sel.value; loadDevices(); };
+    sel.onchange = () => { EQ_STUDIO = sel.value; loadDevices(); znLoad(); };
     EQ_STUDIO = ((s.find((x) => x.id === "home-studio") || s[0]) || {}).id || null;
-    if (EQ_STUDIO) { sel.value = EQ_STUDIO; loadDevices(); }
+    if (EQ_STUDIO) { sel.value = EQ_STUDIO; loadDevices(); znLoad(); }
   } catch (e) { out("eq-out", {error: String(e)}, false); }
 })();
 </script>

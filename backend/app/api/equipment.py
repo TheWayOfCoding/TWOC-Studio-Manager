@@ -1,10 +1,12 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later
-"""Equipment datapoints: per-device freeform details, editable, AI-visible.
+"""Equipment editing: per-device details, properties, and zone moves.
 
 Details are a freeform {label: value} bag (labels may be whole phrases)
 for facts like modifiers, distances, and diffusion that help the AI
-reason about a fixture. Built-in fields stay schema-owned and read-only
-here; only the bag is editable, so saves cannot break validation.
+reason about a fixture. Descriptive properties, dual-protocol transport,
+and zone membership are editable through validated saves; identity
+fields (id, type, plug, driver) stay read-only so a save can never
+rewire the studio.
 """
 
 import json
@@ -117,11 +119,13 @@ def equipment_get(studio_id: str, device_id: str, request: Request):
 
 
 def save_properties(config_root, studio_id, device_id, updates):
-    """Persist editable built-in properties, reload registry (local only).
+    """Persist editable built-in fields, reload registry (local only).
 
-    Only EDITABLE_PROPERTIES may change; identity fields (id, type, zone,
-    plug, driver) stay put so a save can never rewire the studio. Values
-    are validated against the device schema before anything is written.
+    Callers pass validated single-purpose updates (descriptive
+    properties, dual-protocol transport, zone membership); identity
+    fields (id, type, plug, driver) always stay put so a save can never
+    rewire the studio. Values are validated against the device schema
+    before anything is written.
     """
     devices_path = Path(config_root) / "studios.local" / studio_id / "devices.json"
     if not devices_path.exists():
@@ -209,6 +213,32 @@ def equipment_save_transport(studio_id: str, device_id: str, body: TransportBody
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     request.app.state.registries[studio_id] = reloaded
     return {"device": device_id, "transport": body.transport}
+
+
+class ZoneBody(BaseModel):
+    zone: str
+
+
+@router.put("/api/studios/{studio_id}/devices/{device_id}/zone")
+def equipment_move_zone(studio_id: str, device_id: str, body: ZoneBody, request: Request):
+    """Move a device to another zone (local studios only).
+
+    Every device lives in exactly one zone, so removing from one zone
+    means adding to another. Power wiring (group/plug/policy) is never
+    touched here — this only changes which zone lists the asset.
+    """
+    registry = _registry_or_404(request, studio_id)
+    if device_id not in registry.device_ids:
+        raise HTTPException(status_code=404, detail=f"unknown device: {device_id}")
+    if body.zone not in registry.zone_ids:
+        raise HTTPException(status_code=422, detail=f"unknown zone: {body.zone}")
+    log.info("equipment zone move", extra={"fields": {"studio": studio_id, "device": device_id, "zone": body.zone}})
+    try:
+        reloaded = save_properties(request.app.state.config_root, studio_id, device_id, {"zone": body.zone})
+    except DetailsSaveError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    request.app.state.registries[studio_id] = reloaded
+    return {"device": device_id, "zone": body.zone}
 
 
 @router.put("/api/studios/{studio_id}/devices/{device_id}/details")

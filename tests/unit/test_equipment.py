@@ -90,3 +90,43 @@ def test_put_details_refuses_tracked_studios():
         "/api/studios/example-studio/devices/demo-key/details", json={"details": {"a": "b"}}
     )
     assert response.status_code == 422
+
+
+@pytest.mark.unit
+def test_put_zone_moves_device_and_reloads(tmp_path):
+    client = TestClient(app)
+    with _tmp_local_studio(tmp_path) as studio_dir:
+        before = client.get("/api/studios/x/devices/demo-key").json()["device"]
+        assert before["zone"] == "bench"
+        moved = client.put("/api/studios/x/devices/demo-key/zone", json={"zone": "desk"})
+        assert moved.status_code == 200
+        assert moved.json() == {"device": "demo-key", "zone": "desk"}
+        on_disk = json.loads((studio_dir / "devices.json").read_text(encoding="utf-8"))
+        kept = [item for item in on_disk if item["id"] == "demo-key"][0]
+        assert kept["zone"] == "desk"
+        for key in ("powerGroup", "powerPlug", "powerOffPolicy"):
+            assert kept.get(key) == before.get(key)
+        again = client.get("/api/studios/x/devices/demo-key")
+        assert again.json()["device"]["zone"] == "desk"
+        zones = client.get("/api/studios/x/zones").json()["zones"]
+        members = {z["id"]: [d["id"] for d in z["devices"]] for z in zones}
+        assert "demo-key" in members["desk"]
+        assert "demo-key" not in members["bench"]
+
+
+@pytest.mark.unit
+def test_put_zone_rejects_bad_moves(tmp_path):
+    client = TestClient(app)
+    with _tmp_local_studio(tmp_path):
+        base = "/api/studios/x/devices/demo-key/zone"
+        assert client.put(base, json={"zone": "nope"}).status_code == 422
+        assert client.put(base, json={}).status_code == 422
+        assert client.put("/api/studios/x/devices/nope/zone", json={"zone": "desk"}).status_code == 404
+        assert client.put("/api/studios/nope/devices/demo-key/zone", json={"zone": "desk"}).status_code == 404
+
+
+@pytest.mark.unit
+def test_put_zone_refuses_tracked_studios():
+    client = TestClient(app)
+    response = client.put("/api/studios/example-studio/devices/demo-key/zone", json={"zone": "desk"})
+    assert response.status_code == 422

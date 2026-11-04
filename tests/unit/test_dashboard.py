@@ -165,5 +165,14 @@ def test_equipment_structure():
         "loadDevices(",
         "/devices/",
         "/details",
+        'id="zn-zone"',
+        'id="zn-members"',
+        'id="zn-device"',
+        'id="zn-target"',
+        'id="zn-out"',
+        "znLoad(",
+        "znMove(",
+        "/zones",
+        "/zone",
     ):
         assert marker in html
