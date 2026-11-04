@@ -29,3 +29,9 @@ Portable-OBS/
 
 # PC-link listener config (local device names + launch paths).
 tools/pc-link/local.json
+
+# One-off scratch/diagnostic scripts (machine-specific, never shipped).
+scratch/
+
+# PC-link listener stdout/stderr redirect scraps.
+tools/pc-link/*.log
