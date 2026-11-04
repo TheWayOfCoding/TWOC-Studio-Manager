@@ -24,13 +24,11 @@ COLLECTIONS = ("zones", "devices", "modes", "presets", "plugs", "panels", "modal
 # Dashboard cards, in page order. Ordered via the same ordering.json
 # ("panels" collection) and applied client-side by data-panel id.
 PANELS = [
-    ("modes", "Modes"),
+    ("modalities", "Modalities"),
     ("obs", "OBS"),
     ("zones", "Zones"),
     ("power", "Power"),
     ("hub", "Hub Manager"),
-    ("presets", "Presets"),
-    ("presentations", "Presentations"),
     ("ai", "AI look"),
 ]
 

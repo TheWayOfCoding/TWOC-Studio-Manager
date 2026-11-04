@@ -27,10 +27,12 @@ from ..drivers.obs_ws import ObsWsDriver
 from ..drivers.screen import ScreenDriver
 from ..modules.screens import ScreensModule
 from .ninja import _fixed_cct, shared_driver
+from ..modules.modality import ModalityError, plan_modality
 from ..modules.modes import ModesError, ModesModule
 from ..modules.power import PowerModule, UnknownPowerGroupError
 from ..registry import (
     Registry,
+    RegistryError,
     UnknownDeviceError,
     UnknownModeError,
     UnknownPresetError,
@@ -264,8 +266,8 @@ def _studio_log(request, studio_id):
 
 
 def record_action(request, studio_id, kind, entry_id, content, result, restores=None):
-    """Append one apply to the studio's history. Modes/presets resolve live
-    at undo time (content None); custom (AI) entries carry their directives."""
+    """Append one apply to the studio's history. Modes/presets/modalities resolve
+    live at undo time (content None); custom (AI) entries carry their directives."""
     entries = _studio_log(request, studio_id)
     entry = {
         "seq": (entries[-1]["seq"] + 1) if entries else 1,
@@ -298,8 +300,19 @@ def _replay(module, entry):
         if not isinstance(entry.get("content"), dict):
             raise ModesError("cannot undo: original AI content unavailable")
         return {"kind": kind, "id": entry_id}, module.apply_custom(entry_id, entry["content"])
+    if kind == "modality":
+        try:
+            modality = module.registry.get_modality(entry_id)
+            _beats, contents = plan_modality(module.registry, entry_id, modality)
+        except (ModalityError, RegistryError) as exc:
+            raise ModesError(f"cannot undo: modality {entry_id} unavailable ({exc})") from exc
+        final = dict(contents[-1])
+        delay = final.pop("power_delay_s", None)
+        return {"kind": kind, "id": entry_id}, module.apply_custom(
+            entry_id, final, ai_caps=False, allow_scenes=True, power_delay_s=delay
+        )
     if kind == "power":
-        raise ModesError("cannot undo a power action (re-apply a mode to restore it)")
+        raise ModesError("cannot undo a power action (re-run a modality to restore it)")
     raise ModesError(f"cannot undo: unknown history kind {kind!r}")
 
 

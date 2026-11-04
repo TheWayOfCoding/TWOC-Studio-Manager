@@ -44,7 +44,8 @@ controlled family, the touch-tone audio wire, and the war stories.
 
 ## Pages
 
-- `/` dashboard: health, modes, zones, power, presets, shows, OBS, AI look
+- `/` dashboard: health, modalities (run/stop/undo/snapshot), zones, power, OBS, AI look
+- `/modality` Modality Manager: add/edit/remove the smart collections above
 - `/control` one-asset remote (phone and OBS-dock friendly) + Kasa plugs
 - `/bench` hardware bring-up per driver family (incl. official Kasa plugs)
 - `/equipment` per-device facts editor

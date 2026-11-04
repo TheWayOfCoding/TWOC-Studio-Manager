@@ -15,13 +15,14 @@
 </header>
 <div class="wrap">
 <h1>Dashboard</h1>
-<p class="lede">Run the room: modes, OBS, zones, power, looks. Every action answers in plain words; the raw reply hides under Details.</p>
+<p class="lede">Run the room: modalities, OBS, zones, power, looks. Every action answers in plain words; the raw reply hides under Details.</p>
 <div class="grid">
-<div class="card span" data-panel="modes"><h2>Modes</h2>
-<div class="row"><label class="field"><input type="checkbox" id="pwr-delay-on"> stagger power</label><span class="field"><input type="number" id="pwr-delay-s" value="1" min="0" max="5" step="0.1"> s</span><label class="field"><input type="checkbox" id="mode-include-protected"> also cut protected zones</label></div>
-<div class="row" id="modes">loading…</div>
+<div class="card span" data-panel="modalities"><h2>Modalities</h2>
+<div class="row"><select id="modality-pick"></select><button class="primary" onclick="modalityStart()">Start</button><button onclick="modalityStop()">Stop</button></div>
+<div class="row"><span class="hint">edits live in <a href="/modality">Modality Manager</a></span></div>
 <div class="row"><span class="hint" id="actions">no actions yet</span><button id="undo-btn" onclick="undoLast()">Undo</button></div>
-<div id="mode-out"></div></div>
+<div class="row"><input type="text" id="snap-id" placeholder="preset id"><button onclick="snapHardware()">Snapshot hardware</button></div>
+<div id="modality-out"></div></div>
 <div class="card" data-panel="obs"><h2>OBS</h2>
 <div class="row"><span id="status">loading…</span><button onclick="loadStatus()">Refresh</button></div>
 <div class="row" id="obs"></div>
@@ -40,13 +41,6 @@
 <div class="row"><label class="field"><input type="checkbox" id="hub-sd-everything"> turn everything off first</label><label class="field"><input type="checkbox" id="hub-sd-workstation"> also shut down 9900x (DTMF)</label></div>
 <div class="row"><label class="field"><input type="checkbox" id="hub-sd-confirm"> I understand the hub will power down</label><button class="danger" onclick="hubShutdown()">Power down hub</button></div>
 <div id="hub-out"></div></div>
-<div class="card" data-panel="presets"><h2>Presets</h2><div class="row" id="presets">loading…</div>
-<div class="row"><input type="text" id="snap-id" placeholder="preset id"><button onclick="snapHardware()">Snapshot hardware</button></div>
-<div id="preset-out"></div></div>
-<div class="card" data-panel="presentations"><h2>Presentations</h2>
-<div class="row"><label class="field"><input type="checkbox" id="show-confirm"> confirm scene steps</label>
-<button onclick="showStop()">Stop</button></div>
-<div class="row" id="shows">loading…</div><div id="show-out"></div></div>
 <div class="card span" data-panel="ai"><h2>AI look</h2>
 <div><textarea id="ai-prompt" rows="6" placeholder="cozy interview"></textarea></div>
 <div class="row"><select id="ai-targets"><option value="both">lights+screen</option>
@@ -130,30 +124,55 @@ async function applyPanelOrder() {
 }
 let STUDIO = null;
 function studio() { return STUDIO || document.getElementById("studio").value; }
-async function loadModes() {
+async function loadModalities() {
   try {
-    const m = await jget("/api/studios/" + studio() + "/modes");
-    document.getElementById("modes").innerHTML = m.modes.map(x =>
-      "<button onclick=\"applyMode('" + x.id + "')\">" + esc(x.label) +
-      (x.id === m.default ? " ★" : "") + "</button>").join("") || "no modes";
-  } catch (e) { out("mode-out", {error: String(e)}, false); }
+    const m = await jget("/api/studios/" + studio() + "/modalities");
+    document.getElementById("modality-pick").innerHTML = m.modalities.map(x =>
+      "<option value=\"" + esc(x.id) + "\">" + esc(x.label) + " (" + x.beats + ")</option>").join("") ||
+      "<option value=\"\">no modalities</option>";
+  } catch (e) { out("modality-out", {error: String(e)}, false); }
 }
-async function loadPresets() {
-  try {
-    const p = await jget("/api/studios/" + studio() + "/presets");
-    document.getElementById("presets").innerHTML = p.presets.map(x =>
-      "<button onclick=\"applyPreset('" + x.id + "')\">" + esc(x.label) + "</button>").join("") || "no presets";
-  } catch (e) { out("preset-out", {error: String(e)}, false); }
+let LAST_MODALITY = null;
+async function modalityStart() {
+  modalityRun(document.getElementById("modality-pick").value);
 }
-async function applyMode(id) {
-  out("mode-out", {status: "applying " + id + "…"}, true);
-  const opts = {include_manual: document.getElementById("mode-include-protected").checked};
-  if (document.getElementById("pwr-delay-on").checked) {
-    opts.power_delay_s = parseFloat(document.getElementById("pwr-delay-s").value) || 0;
+async function modalityRun(id) {
+  if (!id) { out("modality-out", {error: "pick a modality first"}, false); return; }
+  LAST_MODALITY = id;
+  out("modality-out", {status: "starting " + id + "…"}, true);
+  try { const r = await jpost("/api/studios/" + studio() + "/modalities/" + id + "/run", "{}");
+    out("modality-out", r, r.state === "running", "Modality " + id + ": " + (r.state || "started")); loadActions(); modalityPoll(id);
+  } catch (e) { out("modality-out", {error: String(e)}, false); }
+}
+async function modalityStop() {
+  if (!LAST_MODALITY) { out("modality-out", {error: "run a modality first"}, false); return; }
+  try { const r = await jpost("/api/studios/" + studio() + "/modalities/" + LAST_MODALITY + "/stop", "{}");
+    out("modality-out", r, true, "Modality stopped on its final beat"); }
+  catch (e) { out("modality-out", {error: String(e)}, false); }
+}
+function modalitySummary(id, s) {
+  let line = "Modality " + id + ": " + (s.state || "?");
+  const beats = (s.result && s.result.beats) || [];
+  const failed = beats.filter((b) => !b.ok).length;
+  if (s.state !== "running" && failed) line += " · " + failed + " failed";
+  if (s.result && s.result.stopped_to_final) line += " · stopped to final";
+  return line;
+}
+async function modalityPoll(id) {
+  for (let i = 0; i < 600; i++) {
+    await new Promise(r => setTimeout(r, 1000));
+    try { const s = await jget("/api/studios/" + studio() + "/modalities/" + id + "/status");
+      out("modality-out", s, true, modalitySummary(id, s));
+      if (s.state !== "running") { loadActions(); return; }
+    } catch (e) { out("modality-out", {error: String(e)}, false); return; }
   }
-  const body = JSON.stringify(opts);
-  try { renderApply("mode-out", await jpost("/api/studios/" + studio() + "/modes/" + id + "/apply", body)); loadActions(); }
-  catch (e) { out("mode-out", {error: String(e)}, false); }
+}
+async function snapHardware() {
+  const id = document.getElementById("snap-id").value.trim();
+  if (!id) { out("modality-out", {error: "preset id required"}, false); return; }
+  try { const r = await jpost("/api/studios/" + studio() + "/presets/from-hardware", JSON.stringify({preset_id: id}));
+    out("modality-out", r, r.ok, "Saved the live rig as preset " + id); }
+  catch (e) { out("modality-out", {error: String(e)}, false); }
 }
 async function loadStatus() {
   try {
@@ -207,18 +226,6 @@ async function hubShutdown() {
     out("hub-out", r, true, "Hub shutting down — press its power button to bring it back."); }
   catch (e) { out("hub-out", {error: String(e)}, false); }
 }
-async function applyPreset(id) {
-  out("preset-out", {status: "applying " + id + "…"}, true);
-  try { renderApply("preset-out", await jpost("/api/studios/" + studio() + "/presets/" + id + "/apply", "{}")); loadActions(); }
-  catch (e) { out("preset-out", {error: String(e)}, false); }
-}
-async function snapHardware() {
-  const id = document.getElementById("snap-id").value.trim();
-  if (!id) { out("preset-out", {error: "preset id required"}, false); return; }
-  try { const r = await jpost("/api/studios/" + studio() + "/presets/from-hardware", JSON.stringify({preset_id: id}));
-    out("preset-out", r, r.ok, "Saved the live rig as preset " + id); loadPresets(); }
-  catch (e) { out("preset-out", {error: String(e)}, false); }
-}
 async function loadActions() {
   try {
     const a = await jget("/api/studios/" + studio() + "/actions");
@@ -230,9 +237,9 @@ async function loadActions() {
   } catch (e) { document.getElementById("actions").textContent = "actions unavailable"; }
 }
 async function undoLast() {
-  out("mode-out", {status: "undoing…"}, true);
-  try { renderApply("mode-out", await jpost("/api/studios/" + studio() + "/actions/undo", "{}")); loadActions(); }
-  catch (e) { out("mode-out", {error: String(e)}, false); }
+  out("modality-out", {status: "undoing…"}, true);
+  try { renderApply("modality-out", await jpost("/api/studios/" + studio() + "/actions/undo", "{}")); loadActions(); }
+  catch (e) { out("modality-out", {error: String(e)}, false); }
 }
 async function loadZones() {
   try {
@@ -286,43 +293,6 @@ async function powerAllOff() {
     const r = await jpost("/api/studios/" + studio() + "/power/all-off", JSON.stringify({include_manual: manual}));
     out("power-out", r, r.ok, allOffSummary(r)); loadActions();
   } catch (e) { out("power-out", {error: String(e)}, false); }
-}
-async function loadShows() {
-  try {
-    const s = await jget("/api/studios/" + studio() + "/shows");
-    document.getElementById("shows").innerHTML = s.shows.map(x =>
-      "<button onclick=\"showRun('" + x.id + "')\">" + esc(x.label) + " (" + x.steps + ")</button>").join("") || "no shows";
-  } catch (e) { out("show-out", {error: String(e)}, false); }
-}
-let LAST_SHOW = null;
-async function showRun(id) {
-  LAST_SHOW = id;
-  const body = JSON.stringify({confirm_scenes: document.getElementById("show-confirm").checked});
-  out("show-out", {status: "starting " + id + "…"}, true);
-  try { const r = await jpost("/api/studios/" + studio() + "/shows/" + id + "/run", body);
-    out("show-out", r, r.state === "running", "Show " + id + ": " + (r.state || "started")); showPoll(id);
-  } catch (e) { out("show-out", {error: String(e)}, false); }
-}
-async function showStop() {
-  if (!LAST_SHOW) { out("show-out", {error: "run a show first"}, false); return; }
-  try { const r = await jpost("/api/studios/" + studio() + "/shows/" + LAST_SHOW + "/stop", "{}");
-    out("show-out", r, true, "Show stopped on its final step"); }
-  catch (e) { out("show-out", {error: String(e)}, false); }
-}
-function showSummary(id, s) {
-  let line = "Show " + id + ": " + (s.state || "?");
-  if (s.step !== undefined && s.step !== null) line += " · step " + s.step;
-  if (s.state !== "running" && s.failed && s.failed.length) line += " · " + s.failed.length + " failed";
-  return line;
-}
-async function showPoll(id) {
-  for (let i = 0; i < 120; i++) {
-    await new Promise(r => setTimeout(r, 1000));
-    try { const s = await jget("/api/studios/" + studio() + "/shows/" + id + "/status");
-      out("show-out", s, true, showSummary(id, s));
-      if (s.state !== "running") return;
-    } catch (e) { out("show-out", {error: String(e)}, false); return; }
-  }
 }
 let AI_CANDIDATE = null;
 function scopeMode() {
@@ -424,7 +394,6 @@ async function aiSave() {
       preset_id: id, label: AI_CANDIDATE.label,
       lights: AI_CANDIDATE.lights || {}, screen: AI_CANDIDATE.screen || {}}));
     out("ai-out", {status: "saved preset " + r.preset + (r.overwrote ? " (overwrote)" : "")}, true);
-    loadPresets();
   } catch (e) { out("ai-out", {error: String(e)}, false); }
 }
 (async () => {
@@ -437,9 +406,9 @@ async function aiSave() {
     const s = await jget("/api/studios");
     const sel = document.getElementById("studio");
     sel.innerHTML = s.map(x => "<option value=\"" + x.id + "\">" + esc(x.label) + "</option>").join("");
-    sel.onchange = () => { STUDIO = sel.value; loadModes(); loadPresets(); loadShows(); loadActions(); loadScope(); loadZones(); loadStatus(); };
+    sel.onchange = () => { STUDIO = sel.value; loadModalities(); loadActions(); loadScope(); loadZones(); loadStatus(); };
     STUDIO = (s.find(x => x.id === "home-studio") || s[0] || {}).id || null;
-    if (STUDIO) { sel.value = STUDIO; loadModes(); loadPresets(); loadShows(); loadActions(); loadScope(); loadZones(); loadStatus(); }
+    if (STUDIO) { sel.value = STUDIO; loadModalities(); loadActions(); loadScope(); loadZones(); loadStatus(); }
     fetch("/api/testbench/kasa/prime", {method: "POST", headers: {"Content-Type": "application/json"}, body: "{}"}).catch(() => {});
     applyPanelOrder();
     if (!(window.SpeechRecognition || window.webkitSpeechRecognition)) {
@@ -453,3 +422,4 @@ async function aiSave() {
 </script>
 </body>
 </html>
+

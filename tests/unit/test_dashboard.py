@@ -11,37 +11,45 @@ client = TestClient(app)
 
 @pytest.mark.unit
 def test_dashboard_structure():
-    """Mode dashboard: studio picker, mode/preset buttons, AI prompt, apply calls."""
+    """Dashboard: studio picker, modality runs, AI prompt, zone/power/OBS controls."""
     response = client.get("/")
     assert response.status_code == 200
     html = response.text
     for marker in (
         'id="studio"',
-        'id="modes"',
-        'id="presets"',
         'id="ai-prompt"',
         'id="ai-provider"',
-        'id="pwr-delay-on"',
-        'id="pwr-delay-s"',
-        "power_delay_s",
-        'id="mode-include-protected"',
-        "also cut protected zones",
-        "include_manual",
-        "applyMode(",
-        "applyPreset(",
         "aiLook(",
         "aiSave(",
         'id="ai-preset-id"',
-        'id="shows"',
-        'id="show-confirm"',
-        "loadShows(",
-        "showRun(",
-        "showStop(",
-        "/modes/",
+        'data-panel="modalities"',
+        'id="modality-pick"',
+        'id="modality-out"',
+        "loadModalities(",
+        "modalityStart(",
+        "modalityRun(",
+        "modalityStop(",
+        "modalityPoll(",
+        ">Start</button>",
         "/presets/",
-        "/shows/",
+        "/modalities/",
         "/ai/look",
         "/ai/save-preset",
+    ):
+        assert marker in html
+    for gone in (
+        'data-panel="modes"',
+        'data-panel="presets"',
+        'data-panel="presentations"',
+        "applyMode(",
+        "applyPreset(",
+        "showRun(",
+        "loadShows(",
+        "/modes/",
+        "/shows/",
+    ):
+        assert gone not in html
+    for marker in (
         'id="actions"',
         'id="undo-btn"',
         'id="ai-scope"',

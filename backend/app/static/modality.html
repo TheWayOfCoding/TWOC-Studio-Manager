@@ -18,8 +18,8 @@
 <p class="lede">Modes, presets, and presentations become one concept — a
 Modality: an ordered list of events (power, lights, kiosk, OBS) where the
 last event can stay active and earlier events are timed or combined.
-The full editor is being designed; this page lists what exists today.</p>
-<div class="card"><h2>Modalities</h2><div id="modes">loading…</div><div class="row"><button onclick="runSelected()">Run selected</button><button onclick="stopSelected()">Stop</button><button onclick="newModality()">New</button><button onclick="deleteSelected()">Delete</button><span class="hint" id="run-state"></span></div></div><div class="card"><h2>Editor (forms v1)</h2><div class="row"><label class="field">id <input type="text" id="ed-id"></label><label class="field">label <input type="text" id="ed-label"></label><label class="field">kind <select id="ed-kind"><option>custom</option><option>mode</option><option>preset</option><option>show</option></select></label></div><div id="beats"></div><div class="row"><button onclick="addBeat()">Add beat</button> <button class="primary" onclick="saveModality()">Save modality</button></div><p class="hint">Per beat: actions fire together, then hold. Only the last beat may stay. Lights/screen are JSON in the existing look shapes (see a migrated item for examples).</p></div>
+Pick one below to edit, run, or delete it — or start a new one.</p>
+<div class="card"><h2>Modalities</h2><div class="row"><select id="modality-pick"></select></div><div class="row"><button onclick="editSelected()">Edit</button><button onclick="runSelected()">Run selected</button><button onclick="stopSelected()">Stop</button><button onclick="newModality()">New</button><button onclick="deleteSelected()">Delete</button><span class="hint" id="run-state"></span></div></div><div class="card"><h2>Editor (forms v1)</h2><div class="row"><label class="field">id <input type="text" id="ed-id"></label><label class="field">label <input type="text" id="ed-label"></label><label class="field">kind <select id="ed-kind"><option>custom</option><option>mode</option><option>preset</option><option>show</option></select></label></div><div id="beats"></div><div class="row"><button onclick="addBeat()">Add beat</button> <button class="primary" onclick="saveModality()">Save modality</button></div><p class="hint">Per beat: actions fire together, then hold. Only the last beat may stay. Lights/screen are JSON in the existing look shapes (see a migrated item for examples).</p></div>
 
 
 <div id="out"></div>
@@ -28,19 +28,25 @@ The full editor is being designed; this page lists what exists today.</p>
 async function jget(path) { const r = await fetch(path); if (!r.ok) throw new Error(path + ": " + r.status); return r.json(); }
 function esc(s) { return String(s === null || s === undefined ? "" : s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;"); }
 function studio() { return document.getElementById("studio").value; }
-let SELECTED = null;
+function picked() { return document.getElementById("modality-pick").value; }
 async function jput(path, body) { const r = await fetch(path, {method: "PUT", headers: {"Content-Type": "application/json"}, body}); const j = await r.json().catch(() => ({})); if (!r.ok) throw new Error(j.detail || JSON.stringify(j)); return j; }
 async function jpost(path, body) { const r = await fetch(path, {method: "POST", headers: {"Content-Type": "application/json"}, body: body || "{}"}); const j = await r.json().catch(() => ({})); if (!r.ok) throw new Error(j.detail || JSON.stringify(j)); return j; }
-async function loadAll() {
+async function loadAll(keep) {
   try {
     const m = await jget("/api/studios/" + studio() + "/modalities");
-    document.getElementById("modes").innerHTML = m.modalities.map((x) =>
-      '<div class="namerow"><span class="name">' + esc(x.label) + '</span><span class="meta">' + esc(x.kind) + " · " + x.beats + " beats</span>" +
-      '<button onclick="selectModality(\'' + x.id + '\')">Edit</button></div>').join("") || "none";
+    const sel = document.getElementById("modality-pick");
+    sel.innerHTML = m.modalities.map((x) =>
+      "<option value=\"" + x.id + "\">" + esc(x.label) + " (" + esc(x.kind) + " · " + x.beats + " beats)</option>").join("") ||
+      "<option value=\"\">no modalities</option>";
+    sel.value = keep || "";
   } catch (e) { document.getElementById("out").textContent = String(e); }
 }
+function editSelected() {
+  selectModality(picked());
+}
 async function selectModality(id) {
-  SELECTED = id;
+  if (!id) { document.getElementById("out").textContent = "pick a modality first"; return; }
+  document.getElementById("modality-pick").value = id;
   const r = await jget("/api/studios/" + studio() + "/modalities/" + id);
   const m = r.modality;
   document.getElementById("ed-id").value = id;
@@ -50,7 +56,7 @@ async function selectModality(id) {
   (m.beats || []).forEach((b) => addBeat(b));
 }
 function newModality() {
-  SELECTED = null;
+  document.getElementById("modality-pick").value = "";
   document.getElementById("ed-id").value = "";
   document.getElementById("ed-label").value = "";
   document.getElementById("beats").innerHTML = "";
@@ -99,20 +105,20 @@ async function saveModality() {
     await jput("/api/studios/" + studio() + "/modalities/" + id, JSON.stringify({
       label: document.getElementById("ed-label").value || id,
       kind: document.getElementById("ed-kind").value, beats: collectBeats()}));
-    SELECTED = id;
     document.getElementById("out").textContent = "saved " + id;
-    loadAll();
+    loadAll(id);
   } catch (e) { document.getElementById("out").textContent = String(e); }
 }
 async function deleteSelected() {
-  const id = document.getElementById("ed-id").value.trim();
-  if (!id) return;
+  const id = picked();
+  if (!id) { document.getElementById("out").textContent = "pick a modality first"; return; }
   const r = await fetch("/api/studios/" + studio() + "/modalities/" + id, {method: "DELETE"});
   if (!r.ok) { document.getElementById("out").textContent = "delete failed " + r.status; return; }
+  document.getElementById("out").textContent = "deleted " + id;
   newModality(); loadAll();
 }
 async function runSelected() {
-  const id = document.getElementById("ed-id").value.trim() || SELECTED;
+  const id = picked();
   if (!id) { document.getElementById("out").textContent = "pick a modality first"; return; }
   try {
     const r = await jpost("/api/studios/" + studio() + "/modalities/" + id + "/run");
@@ -131,8 +137,8 @@ async function pollRun(id) {
   }
 }
 async function stopSelected() {
-  const id = document.getElementById("ed-id").value.trim() || SELECTED;
-  if (!id) return;
+  const id = picked();
+  if (!id) { document.getElementById("out").textContent = "pick a modality first"; return; }
   try { const r = await jpost("/api/studios/" + studio() + "/modalities/" + id + "/stop");
     document.getElementById("run-state").textContent = id + ": " + r.state; }
   catch (e) { document.getElementById("out").textContent = String(e); }
@@ -141,7 +147,7 @@ async function stopSelected() {
   const s = await jget("/api/studios");
   const sel = document.getElementById("studio");
   sel.innerHTML = s.map((x) => "<option value=\"" + x.id + "\">" + esc(x.label) + "</option>").join("");
-  sel.onchange = loadAll;
+  sel.onchange = () => loadAll();
   const home = s.find((x) => x.id === "home-studio") || s[0];
   if (home) sel.value = home.id;
   loadAll();

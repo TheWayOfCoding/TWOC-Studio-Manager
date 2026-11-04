@@ -1284,6 +1284,23 @@ def test_actions_undo_needs_two_entries():
 
 
 @pytest.mark.unit
+def test_actions_undo_replays_modality():
+    """Undo restores the pre-run state by re-applying the modality's final beat."""
+    from types import SimpleNamespace
+
+    from app.api.modes import record_action
+
+    app.state.action_log.clear()
+    stub = SimpleNamespace(app=app)
+    blank = {"ok": True, "subsystems": {}}
+    record_action(stub, "example-studio", "modality", "demo_work", None, blank)
+    record_action(stub, "example-studio", "modality", "demo_stream", None, blank)
+    undo = client.post("/api/studios/example-studio/actions/undo")
+    assert undo.status_code == 200
+    assert undo.json()["restored"] == {"kind": "modality", "id": "demo_work"}
+
+
+@pytest.mark.unit
 def test_actions_unknown_studio_404():
     assert client.get("/api/studios/nope/actions").status_code == 404
     assert client.post("/api/studios/nope/actions/undo").status_code == 404

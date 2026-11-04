@@ -128,7 +128,7 @@ Bench page, one family at a time, each verified by eye before modes:
 5. Backdrop screen push + audio bed, then presentations.
 6. PC-link loop + first boot job (step 8).
 
-Then dashboard: apply each mode, watch subsystems report ready (or
+Then dashboard: run each modality, watch subsystems report ready (or
 honestly degraded-by-name — fix wiring, never silence).
 
 ## 11. Polish and go-live checks
