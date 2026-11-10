@@ -22,7 +22,6 @@ from ..drivers.gvm_ble import GvmBleDriver
 from ..drivers.ir_usb_serial import IrLabelDriver, default_port
 from ..drivers.kasa import KasaDriver, resolve_host
 from ..drivers.ninja_ble import NinjaError
-from ..drivers.obs_ws import DEFAULT_PORT as OBS_DEFAULT_PORT
 from ..drivers.obs_ws import ObsWsDriver
 from ..drivers.screen import ScreenDriver
 from ..modules.screens import ScreensModule
@@ -177,27 +176,23 @@ def _scrub(node, mapping):
 
 
 def _obs_applier(registry, config_root):
-    """Per-request OBS scene applier from hub-local obs.json. None when unconfigured.
+    """Per-request OBS scene applier from the hub-local target store.
 
-    obs.json maps studio ids to {"host", "port"?, "password"?}; a studio
-    without an entry keeps the honest "obs applier not wired" skip. A missing
-    file is normal (OBS not configured yet); only malformed JSON warns.
-    Passwords are passed to the driver, never echoed in responses.
+    Resolves the studio's selected target (legacy inline entries still
+    work). A studio without one keeps the honest "obs applier not wired"
+    skip; a missing file is normal (OBS not configured yet); anything
+    else warns. Passwords are passed to the driver, never echoed.
     """
-    path = Path(config_root) / "studios.local" / "obs.json"
+    from ..obs_store import ObsStoreError, resolve_studio
+
     try:
-        raw = path.read_text(encoding="utf-8")
-    except OSError:
+        creds = resolve_studio(config_root, registry.studio.get("id"))
+    except ObsStoreError as exc:
+        log.warning("obs store unreadable: %s", exc)
         return None
-    try:
-        entries = json.loads(raw).get("studios") or {}
-    except ValueError as exc:
-        log.warning("obs.json malformed: %s", exc)
+    if creds is None:
         return None
-    cfg = entries.get(registry.studio.get("id")) or {}
-    if not isinstance(cfg, dict) or not cfg.get("host"):
-        return None
-    host, port, password = cfg["host"], cfg.get("port", OBS_DEFAULT_PORT), cfg.get("password")
+    host, port, password = creds["host"], creds["port"], creds["password"]
 
     def apply_scene(scene):
         # Long connect window: modes routinely land seconds after OBS starts.

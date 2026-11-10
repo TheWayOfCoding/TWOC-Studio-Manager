@@ -818,12 +818,17 @@ def test_obs_bench_passthrough(monkeypatch):
         def apply(self, command):
             return DriverResult(ok=True, state={"echo": command}, error=None)
 
+        def safe_stop(self):
+            seen["closed"] = seen.get("closed", 0) + 1
+            return DriverResult(ok=True, state={"connected": False})
+
     monkeypatch.setattr("app.api.obs.ObsWsDriver", FakeObsDriver)
     state = client.post("/api/testbench/obs/state", json={"host": "obs-pc"})
     assert state.json()["ok"] is True
     assert seen["host"] == "obs-pc"
     switch = client.post("/api/testbench/obs/switch", json={"host": "obs-pc", "scene": "Main"})
     assert switch.json()["state"] == {"echo": {"action": "switch", "scene": "Main"}}
+    assert seen.get("closed") == 2  # every request disconnects (no lingering sessions)
 
 
 @pytest.mark.unit
@@ -1219,6 +1224,9 @@ def test_obs_scenes_passthrough(monkeypatch):
         def apply(self, command):
             return DriverResult(ok=True, state={"scenes": ["Main", "Bench"]}, error=None)
 
+        def safe_stop(self):
+            return DriverResult(ok=True, state={"connected": False})
+
     monkeypatch.setattr("app.api.obs.ObsWsDriver", FakeObsDriver)
     scenes = client.post("/api/testbench/obs/scenes", json={"host": "obs-pc"})
     assert scenes.status_code == 200
@@ -1591,6 +1599,9 @@ def test_obs_status_reports(monkeypatch):
                 state={"sceneCollections": ["Untitled", "ScottyPhoton"], "currentSceneCollectionName": "Untitled"},
             )
 
+        def close(self):
+            pass
+
     monkeypatch.setattr(obs_api, "_studio_obs", lambda root, studio: (StubObsModule(), "BRB"))
     body = client.get("/api/studios/example-studio/obs/status").json()
     assert body["configured"] is True
@@ -1616,6 +1627,9 @@ def test_obs_status_skips_followups_when_down(monkeypatch):
 
         def list_collections(self):
             raise AssertionError("must not be called when scenes fail")
+
+        def close(self):
+            pass
 
     monkeypatch.setattr(obs_api, "_studio_obs", lambda root, studio: (StubObsModule(), None))
     body = client.get("/api/studios/example-studio/obs/status").json()
@@ -1645,6 +1659,9 @@ def test_obs_switch_uses_safe_fallback(monkeypatch):
                 return DriverResult(ok=True, state={"scene": "Main"})
             return DriverResult(ok=True, state={"scene": "BRB", "fallback": True, "requested": scene})
 
+        def close(self):
+            pass
+
     stub = StubObsModule()
     monkeypatch.setattr(obs_api, "_studio_obs", lambda root, studio: (stub, "BRB"))
     fell_back = client.post("/api/studios/example-studio/obs/switch", json={"scene": "Nope"})
@@ -1667,6 +1684,9 @@ def test_obs_collection_switches(monkeypatch):
         def set_collection(self, collection):
             self.seen = collection
             return DriverResult(ok=True, state={"collection": collection})
+
+        def close(self):
+            pass
 
     stub = StubObsModule()
     monkeypatch.setattr(obs_api, "_studio_obs", lambda root, studio: (stub, None))
@@ -1695,6 +1715,9 @@ def test_obs_stream_guarded(monkeypatch):
                 raise SafetyViolation("refusing unconfirmed stream start")
             self.streaming = action == "start"
             return DriverResult(ok=True, state={"streaming": self.streaming})
+
+        def close(self):
+            pass
 
     monkeypatch.setattr(obs_api, "_studio_obs", lambda root, studio: (StubObsModule(), None))
     base = "/api/studios/example-studio/obs/stream"
@@ -2009,6 +2032,9 @@ def test_obs_studio_maps_faults(monkeypatch):
         def set_streaming(self, *args, **kwargs):
             raise RuntimeError("socket dead")
 
+        def close(self):
+            pass
+
     monkeypatch.setattr(obs_api, "_studio_obs", lambda root, studio: (Fault(), None))
     base = "/api/studios/example-studio/obs"
     assert client.post(f"{base}/switch", json={"scene": "M"}).status_code == 502
@@ -2024,6 +2050,9 @@ def test_obs_studio_maps_faults(monkeypatch):
 
         def set_streaming(self, *args, **kwargs):
             raise ObsModuleError("bad action")
+
+        def close(self):
+            pass
 
     monkeypatch.setattr(obs_api, "_studio_obs", lambda root, studio: (BadRequest(), None))
     assert client.post(f"{base}/switch", json={"scene": "M"}).status_code == 422
@@ -2048,6 +2077,9 @@ def test_obs_studio_status_and_boot_helpers(monkeypatch, tmp_path):
     class DeadModule:
         def list_scenes(self):
             return boom_list()
+
+        def close(self):
+            pass
 
     real_studio_obs = obs_api._studio_obs
     monkeypatch.setattr(obs_api, "_studio_obs", lambda root, studio: (DeadModule(), None))
@@ -2099,6 +2131,9 @@ def test_obs_studio_status_and_boot_helpers(monkeypatch, tmp_path):
 
         def set_collection(self, *args, **kwargs):
             raise RuntimeError("cut dead")
+
+        def close(self):
+            pass
 
     monkeypatch.setattr(obs_api, "_studio_obs", lambda root, studio: (CutDead(), None))
     assert captured["obs_set"]("Main") == (False, "cut dead")

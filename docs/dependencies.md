@@ -20,6 +20,7 @@ Windows-only or hub-only and never install elsewhere.
 | websocket-client | >=1.8 | `app/drivers/obs_ws.py` | OBS WebSocket v5 (handshake, scenes, collections, stream state). Main-PC listener deliberately uses a stdlib Upgrade probe instead. |
 | sounddevice | >=0.4 | `app/drivers/link_audio.py`, PC-link listener/sender | PortAudio bindings for the 3.5mm DTMF wire, both directions. |
 | numpy | >=1.26 | sounddevice runtime | Sample buffers for tone play/capture; sounddevice needs it installed. |
+| cryptography | >=41 | `app/obs_store.py` | Fernet encryption for stored OBS WebSocket passwords (key in `studios.local/.obs-key`). |
 
 Standard library does heavy lifting on purpose: `asyncio` (Kasa wrapper),
 `subprocess` (scheduled-task helpers, listener actions), `socket`

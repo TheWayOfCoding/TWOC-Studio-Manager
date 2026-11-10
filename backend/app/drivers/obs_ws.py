@@ -158,7 +158,10 @@ class ObsWsClient:
         except Exception as exc:
             raise ObsError(f"obs connect failed ({host}:{port}): {exc}") from exc
         try:
-            hello = cls._recv(sock)
+            try:
+                hello = cls._recv(sock)
+            except ObsError as exc:
+                raise ObsError(f"obs handshake failed: no Hello from server ({exc})") from exc
             if hello.get("op") != 0:
                 raise ObsError(f"obs handshake: expected Hello, got op {hello.get('op')}")
             identify = {"rpcVersion": RPC_VERSION, "eventSubscriptions": 0}
@@ -168,7 +171,12 @@ class ObsWsClient:
                     raise ObsError("obs requires a password (set one in the bench card)")
                 identify["authentication"] = _auth_secret(password, auth["salt"], auth["challenge"])
             sock.send(json.dumps({"op": 1, "d": identify}))
-            identified = cls._recv(sock)
+            try:
+                identified = cls._recv(sock)
+            except ObsError as exc:
+                raise ObsError(
+                    "obs login rejected: server closed during Identify (wrong WebSocket password?)"
+                ) from exc
             if identified.get("op") != 2:
                 raise ObsError(f"obs handshake: expected Identified, got op {identified.get('op')}")
         except Exception:

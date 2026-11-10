@@ -26,6 +26,10 @@ class ObsShowModule(Module):
             "guarded": ["stream start/stop need explicit confirmation"],
         }
 
+    def close(self):
+        """Drop the WebSocket. Every request disconnects (OBS forgets us)."""
+        self.drivers["ws"].safe_stop()
+
     def state_info(self):
         """Connection state without switching anything."""
         return self.drivers["ws"].apply({"action": "state"})

@@ -1,0 +1,186 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Studio Hub — OBS targets</title>
+<link rel="stylesheet" href="/hub.css">
+</head>
+<body>
+<header class="topbar">
+<span class="brand">Studio Hub</span>
+<nav><a href="/">Dashboard</a><a href="/control">Control</a><a href="/equipment">Equipment</a><span class="navgroup">Administration</span><a href="/modality">Modality Manager</a><a href="/ordering">Ordering</a><a href="/obs" aria-current="page">OBS targets</a><a href="/bench">Test Bench</a><a href="/docs">API docs</a></nav>
+</header>
+<div class="wrap">
+<h1>OBS targets</h1>
+<p class="lede">Named OBS WebSocket endpoints (one per install: main PC standard, bench laptop, portable…). Passwords are encrypted on the hub and never shown back — Test proves the stored credentials without revealing them. Each studio below picks one target as its default; the dashboard OBS card can switch it too.</p>
+<div class="card"><h2>Targets</h2>
+<table class="grid-t"><thead><tr><th>Name</th><th>Host</th><th>Port</th><th>Password</th><th></th></tr></thead>
+<tbody id="tg-rows"><tr><td colspan="5">loading…</td></tr></tbody></table>
+<div id="tg-out"></div></div>
+<div class="card"><h2 id="tg-form-title">Add target</h2>
+<div class="row"><label class="field">Name <input type="text" id="tg-name" placeholder="main-standard" style="width:12em"></label>
+<label class="field">Host <input type="text" id="tg-host" placeholder="192.0.2.5" style="width:12em"></label>
+<label class="field">Port <input type="number" id="tg-port" value="4455" min="1" max="65535" style="width:6em"></label></div>
+<div class="row"><label class="field">Password <input type="password" id="tg-pass" autocomplete="new-password" style="width:16em"></label>
+<label class="field"><input type="checkbox" id="tg-nopass"> no password on this OBS</label></div>
+<p class="hint" id="tg-pass-hint">Blank password + unticked box = keep the stored one (update) or none (new target).</p>
+<div class="row"><button class="primary" onclick="tgSave()">Save</button><button onclick="tgCancel()">Cancel</button></div>
+<div id="tg-form-out"></div></div>
+<div class="card"><h2>Studio defaults</h2>
+<p class="lede">Which target each studio talks to (modes, dashboard card, boot scene cuts). Clearing leaves the studio unconfigured.</p>
+<div id="st-rows">loading…</div>
+<div id="st-out"></div></div>
+</div>
+<script>
+async function jget(path) {
+  const r = await fetch(path);
+  if (!r.ok) throw new Error(path + ": " + r.status);
+  return r.json();
+}
+async function jpost(path, body) {
+  const r = await fetch(path, {method: "POST", headers: {"Content-Type": "application/json"}, body: body});
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(j.detail || r.status);
+  return j;
+}
+async function jput(path, body) {
+  const r = await fetch(path, {method: "PUT", headers: {"Content-Type": "application/json"}, body: body});
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(j.detail || r.status);
+  return j;
+}
+async function jdel(path) {
+  const r = await fetch(path, {method: "DELETE"});
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(j.detail || r.status);
+  return j;
+}
+function esc(s) {
+  return String(s === null || s === undefined ? "" : s)
+    .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+}
+function out(id, obj, ok, summary) {
+  const line = summary === undefined
+    ? (obj && typeof obj === "object" ? (obj.status || obj.error || (ok === false ? "Failed" : "Done")) : String(obj))
+    : summary;
+  document.getElementById(id).innerHTML =
+    '<div class="result ' + (ok === false ? "bad" : "ok") + '"><div class="result-line"><span class="dot">●</span><span>' +
+    esc(line) + '</span></div><details class="result-json"><summary>Details</summary><pre>' +
+    esc(JSON.stringify(obj, null, 2)) + "</pre></details></div>";
+}
+let TG_EDIT = null;
+async function tgLoad() {
+  try {
+    const r = await jget("/api/obs/targets");
+    const rows = r.targets || [];
+    document.getElementById("tg-rows").innerHTML = rows.length
+      ? rows.map((t) => "<tr><td>" + esc(t.name) + "</td><td>" + esc(t.host) + "</td><td>" + esc(t.port) + "</td>" +
+        "<td>" + (t.has_password ? "set" : "none") + "</td><td>" +
+        "<button onclick=\"tgTest('" + esc(t.name).replace(/'/g, "\\'") + "')\">Test</button> " +
+        "<button onclick=\"tgEdit('" + esc(t.name).replace(/'/g, "\\'") + "')\">Edit</button> " +
+        "<button onclick=\"tgDelete('" + esc(t.name).replace(/'/g, "\\'") + "')\">Delete</button></td></tr>").join("")
+      : '<tr><td colspan="5">no targets yet — add one below</td></tr>';
+  } catch (e) { out("tg-out", {error: String(e)}, false); }
+}
+function tgFill(name, host, port) {
+  document.getElementById("tg-name").value = name || "";
+  document.getElementById("tg-host").value = host || "";
+  document.getElementById("tg-port").value = port || 4455;
+  document.getElementById("tg-pass").value = "";
+  document.getElementById("tg-nopass").checked = false;
+}
+async function tgEdit(name) {
+  try {
+    const r = await jget("/api/obs/targets");
+    const t = (r.targets || []).find((x) => x.name === name);
+    if (!t) { out("tg-form-out", {error: "target vanished: " + name}, false); return; }
+    TG_EDIT = name;
+    document.getElementById("tg-form-title").textContent = "Update target";
+    document.getElementById("tg-name").value = t.name;
+    document.getElementById("tg-name").disabled = true;
+    document.getElementById("tg-host").value = t.host;
+    document.getElementById("tg-port").value = t.port;
+    document.getElementById("tg-pass").value = "";
+    document.getElementById("tg-nopass").checked = !t.has_password;
+    document.getElementById("tg-form-out").innerHTML = "";
+    window.scrollTo(0, document.getElementById("tg-form-title").offsetTop);
+  } catch (e) { out("tg-form-out", {error: String(e)}, false); }
+}
+function tgCancel() {
+  TG_EDIT = null;
+  document.getElementById("tg-form-title").textContent = "Add target";
+  document.getElementById("tg-name").disabled = false;
+  tgFill("", "", 4455);
+  document.getElementById("tg-form-out").innerHTML = "";
+}
+async function tgSave() {
+  const name = document.getElementById("tg-name").value.trim();
+  const host = document.getElementById("tg-host").value.trim();
+  const port = parseInt(document.getElementById("tg-port").value, 10);
+  const pw = document.getElementById("tg-pass").value;
+  const nopass = document.getElementById("tg-nopass").checked;
+  if (!name) { out("tg-form-out", {error: "name required"}, false); return; }
+  try {
+    let r;
+    if (TG_EDIT) {
+      const body = {host: host, port: port};
+      if (pw) body.password = pw;
+      else if (nopass) body.password = null;
+      r = await jput("/api/obs/targets/" + encodeURIComponent(TG_EDIT), JSON.stringify(body));
+      out("tg-form-out", r, true, "Updated " + TG_EDIT);
+    } else {
+      const body = {name: name, host: host, port: port};
+      if (pw) body.password = pw;
+      else if (!nopass) body.password = null;
+      r = await jpost("/api/obs/targets", JSON.stringify(body));
+      out("tg-form-out", r, true, "Added " + name + " — Test it before trusting it");
+    }
+    tgCancel();
+    tgLoad();
+    stLoad();
+  } catch (e) { out("tg-form-out", {error: String(e)}, false); }
+}
+async function tgDelete(name) {
+  if (!window.confirm("Delete OBS target '" + name + "'? Studios defaulting to it block the delete.")) return;
+  try {
+    const r = await jdel("/api/obs/targets/" + encodeURIComponent(name));
+    out("tg-out", r, true, "Deleted " + name);
+    tgLoad();
+    stLoad();
+  } catch (e) { out("tg-out", {error: String(e)}, false); }
+}
+async function tgTest(name) {
+  out("tg-out", {status: "testing " + name + "…"}, true);
+  try {
+    const r = await jpost("/api/obs/targets/" + encodeURIComponent(name) + "/test", "{}");
+    out("tg-out", r, r.ok, r.ok ? (name + " answers (OBS " + (((r.state || {}).obsVersion) || "?") + ")") : (name + " failed: " + (r.error || "?")));
+  } catch (e) { out("tg-out", {error: String(e)}, false); }
+}
+async function stLoad() {
+  try {
+    const studios = await jget("/api/studios");
+    const ids = studios.map((s) => s.id || s);
+    const rows = [];
+    for (const id of ids) {
+      const cur = await jget("/api/studios/" + id + "/obs/target").catch(() => ({target: null, targets: []}));
+      const opts = ["<option value=''>— unconfigured —</option>"].concat(
+        (cur.targets || []).map((n) => "<option value='" + esc(n) + "'" + (n === cur.target ? " selected" : "") + ">" + esc(n) + "</option>"));
+      rows.push('<div class="row"><label class="field">' + esc(id) + ' <select id="st-sel-' + esc(id) + '">' + opts.join("") + "</select></label>" +
+        "<button onclick=\"stSave('" + esc(id) + "')\">Save default</button></div>");
+    }
+    document.getElementById("st-rows").innerHTML = rows.join("") || "no studios";
+  } catch (e) { out("st-out", {error: String(e)}, false); }
+}
+async function stSave(id) {
+  const v = document.getElementById("st-sel-" + id).value || null;
+  try {
+    const r = await jput("/api/studios/" + id + "/obs/target", JSON.stringify({target: v}));
+    out("st-out", r, true, v ? (id + " now uses " + v) : (id + " cleared (unconfigured)"));
+  } catch (e) { out("st-out", {error: String(e)}, false); }
+}
+tgLoad();
+stLoad();
+</script>
+</body>
+</html>

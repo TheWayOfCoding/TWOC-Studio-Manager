@@ -22,6 +22,7 @@ from .api.gvm import router as gvm_router  # noqa: E402
 from .api.modes import router as modes_router  # noqa: E402
 from .api.ninja import router as ninja_router  # noqa: E402
 from .api.obs import router as obs_router  # noqa: E402
+from .api.obs_targets import router as obs_targets_router  # noqa: E402
 from .api.power import router as power_router  # noqa: E402
 from .api.screen import router as screen_router  # noqa: E402
 from .api.dmx import router as dmx_router  # noqa: E402
@@ -86,6 +87,7 @@ def create_app():
     app.include_router(modes_router)
     app.include_router(ninja_router)
     app.include_router(obs_router)
+    app.include_router(obs_targets_router)
     app.include_router(power_router)
     app.include_router(screen_router)
     app.include_router(dmx_router)
@@ -121,6 +123,10 @@ def create_app():
     @app.get("/modality", include_in_schema=False)
     def modality():
         return FileResponse(STATIC_DIR / "modality.html")
+
+    @app.get("/obs", include_in_schema=False)
+    def obs_targets():
+        return FileResponse(STATIC_DIR / "obs.html")
 
     @app.get("/screen/{screen_id}", include_in_schema=False)
     def screen_page(screen_id: str):

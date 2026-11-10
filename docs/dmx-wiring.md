@@ -24,6 +24,33 @@ standard fixture. Symptoms of a miswired path: dongle LED flashes (USB
 side is fine) but fixtures never show the DMX connection icon and never
 respond, even isolated one at a time.
 
+A second unit (TONTONE 3-pin-XLR-to-RJ45 pair, Amazon B0F6TTNJ1P, sold as
+a 1 ft CAT5 DMX extension) meters differently — same data pins, ground
+moved:
+
+| XLR pin | Signal | → RJ45 pin on the TONTONE |
+|---|---|---|
+| 1 | GND/shield | 4 |
+| 2 | Data− | 7 |
+| 3 | Data+ | 8 |
+
+Working custom end for the TONTONE (adapter end plain T-568B): fixture
+end 1=brown, 2=white-brown, 3=white-green, 4=white-blue, 5=orange,
+6=green, 7=blue, 8=empty; trim white-orange. Verified live Nov 2026
+(Ninja 400 DMX icon + response). The SiYear custom end (ground on green)
+does NOT work on this adapter — its ground lands on empty pin 6.
+
+## Why they differ
+
+These listings are male+female **pairs** for extending XLR over CAT5: one
+adapter each end, cable between. As a pair any consistent pinout works
+(the far adapter un-crosses whatever the near one did), so vendors pick
+arbitrary layouts — usually a Chinese LED-decoder convention with data
+on 7/8 and ground wherever is convenient (6 on the SiYear, 4 on the
+TONTONE). The pinout only matters when you use ONE adapter single-ended
+against an ESTA fixture jack. Always meter a new adapter; never trust
+the listing, and never assume two look-alike adapters share a layout.
+
 ## The fix: custom CAT5
 
 Re-terminate one end of a CAT5 cable so the fixture end presents ESTA

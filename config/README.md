@@ -43,16 +43,29 @@ hosts; the map itself stays hand-maintained for alias/zone/creds.
 
 ## obs.json (studios.local/)
 
-`studios.local/obs.json` maps studio ids to their OBS WebSocket endpoint for
-mode scene switches (absent file or entry = honest "not wired" skip):
+`studios.local/obs.json` holds named OBS WebSocket endpoints plus each
+studio's selected default (absent file or entry = honest "not wired"
+skip). Manage it on the Administration → OBS targets page (add/update/
+delete, per-target Test, per-studio defaults); the dashboard OBS card
+can also switch a studio's target. Hand-editing works too:
 
 ```json
-{"studios": {"home-studio": {"host": "192.0.2.5", "port": 4455, "password": "..."}}}
+{"targets": {"main": {"host": "192.0.2.5", "port": 4455, "password": "enc:..."}},
+ "studios": {"home-studio": {"target": "main"}}}
 ```
 
-`port` defaults to 4455; omit `password` when OBS has no WebSocket password.
-Enable OBS WebSocket in OBS (Tools → WebSocket Server Settings) and confirm
-the scene names in `modes.json` match the OBS collection exactly.
+`port` defaults to 4455; `password: null` means the OBS has no WebSocket
+password. Passwords rest encrypted (Fernet key in
+`studios.local/.obs-key`, created on first use) and no API ever echoes
+one — Test proves the stored credentials without revealing them. Both
+files are git-ignored (all of `studios.local/` is) and ship to the hub
+with the normal deploy, so targets entered on either box work on both.
+Old single-endpoint files (`{"studios": {id: {"host", ...}}}`) still
+resolve, and migrate to a named target on the first admin save.
+
+Enable OBS WebSocket in each OBS install (Tools → WebSocket Server
+Settings) and confirm the scene names in `modes.json` match the OBS
+collection exactly.
 
 ## meta.json (studios.local/)
 

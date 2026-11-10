@@ -80,7 +80,12 @@ example-studio`, fictional) drives every page against mock drivers.
 1. One-time passwordless SSH (see the header of
    `tools/deploy-win.ps1` for the key + ACL steps).
 2. `tools\deploy-win.ps1 -TargetHost <hub-ip>` — ships the tree +
-   `studios.local`, restarts the task, health-checks.
+   `studios.local`, restarts the task, health-checks. The deploy
+   refuses when hub-side config (OBS targets, equipment edits,
+   presets) differs from this PC's copy — review with
+   `tools\pull-hub-config.ps1` (add `-Apply` to take the hub copy)
+   or re-run with `-Force` to deliberately overwrite the hub.
+   Every deploy keeps a timestamped hub-side backup (`C:\studio\backups`).
 3. Requirements changes need one hub-side
    `.venv\Scripts\pip install -r backend\requirements.txt`.
 
@@ -112,9 +117,10 @@ example-studio`, fictional) drives every page against mock drivers.
 
 ## 9. OBS and AI (optional integrations)
 
-- OBS: `config/studios.local/obs.json` (host/port/password from OBS
-  WebSocket settings) + scene/collection names in `modes.json` must
-  match OBS exactly (`config/README.md`).
+- OBS: Administration → OBS targets page (host/port/password from each
+  install's OBS WebSocket settings, one target per install, Test each,
+  pick each studio's default) + scene/collection names in `modes.json`
+  must match OBS exactly (`config/README.md`).
 - AI: mock provider works with zero setup. Live provider:
   `config/studios.local/meta.json` key (`config/README.md`), model
   defaults sensibly when omitted.

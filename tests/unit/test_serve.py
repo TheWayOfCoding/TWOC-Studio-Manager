@@ -1,7 +1,10 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later
 """Unit tests for the dual-listener entrypoint (no sockets; plan only)."""
 
+import asyncio
 import importlib.util
+import subprocess
+import sys
 from pathlib import Path
 
 TOOLS_DIR = Path(__file__).resolve().parents[2] / "tools"
@@ -80,3 +83,38 @@ def test_bt_heal_never_raises():
         raise OSError("no shell")
 
     assert serve.restart_bluetooth_service(runner=runner, platform_name="nt") is False
+
+
+def test_lock_lives_beside_tls_dir(tmp_path):
+    """Lock defaults next to the TLS dir: outside the deploy tree."""
+    serve = load_serve()
+    assert serve.default_lock_path(str(tmp_path / "tls")) == str(tmp_path / serve.LOCK_FILENAME)
+
+
+def test_second_process_loses_the_lock(tmp_path):
+    """A live claim defeats a second starter (real second process)."""
+    serve = load_serve()
+    lock = str(tmp_path / serve.LOCK_FILENAME)
+    held = serve.try_claim_lock(lock)
+    assert held is not None
+    try:
+        probe = (
+            "import importlib.util, sys; "
+            "spec = importlib.util.spec_from_file_location('hs_probe', r'%s'); "
+            "hs = importlib.util.module_from_spec(spec); spec.loader.exec_module(hs); "
+            "sys.exit(0 if hs.try_claim_lock(r'%s') is None else 7)"
+        ) % (TOOLS_DIR / "hub-serve.py", lock)
+        done = subprocess.run([sys.executable, "-c", probe], capture_output=True, timeout=120)
+        assert done.returncode == 0
+    finally:
+        held.close()
+    again = serve.try_claim_lock(lock)
+    assert again is not None  # close releases: no stale wedge
+    again.close()
+
+
+def test_amain_exits_when_lock_held(monkeypatch):
+    """A loser prints and exits LOCK_EXIT_CODE before touching anything."""
+    serve = load_serve()
+    monkeypatch.setattr(serve, "try_claim_lock", lambda path: None)
+    assert asyncio.run(serve.amain()) == serve.LOCK_EXIT_CODE

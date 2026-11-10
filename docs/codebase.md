@@ -90,7 +90,10 @@ change must honor.
 - `tools/deploy-win.ps1 -TargetHost <hub>` ships tracked files +
   wanted untracked + `studios.local` (never design notes), zips over
   SCP, restarts the `StudioHub` task, health-checks. Guard first:
-  compile check, SSH check, plug-map hash match, hub backup.
+  compile check, SSH check, per-file `studios.local` hash compare
+  (same path + different bytes aborts unless `-Force`), hub-side
+  timestamped backup (keeps 5). Resolve divergence with
+  `tools/pull-hub-config.ps1` (review, then `-Apply`).
 - Requirements changes need one hub-side pip install (deploy never
   installs deps). Task/firewall/port changes need explicit remote
   steps — the deploy only restarts the existing task.

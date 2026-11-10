@@ -1,9 +1,7 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later
 """Bench + studio endpoints for OBS. Passwords pass through, never stored."""
 
-import json
 import threading
-from pathlib import Path
 
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel
@@ -42,41 +40,62 @@ def _module(body):
 def obs_state(body: ObsBody):
     """Connection state. Explicit human trial (Bench)."""
     log.debug("obs state")
-    result = _module(body).state_info()
+    module = None
+    try:
+        module = _module(body)
+        result = module.state_info()
+    finally:
+        if module is not None:
+            module.close()
     return {"ok": result.ok, "state": result.state, "error": result.error}
 
 
 @router.post("/api/testbench/obs/scenes")
 def obs_scenes(body: ObsBody):
     """List scenes plus the current program scene."""
+    module = None
     try:
-        result = _module(body).list_scenes()
+        module = _module(body)
+        result = module.list_scenes()
     except Exception as exc:
         raise HTTPException(status_code=502, detail=str(exc)) from exc
+    finally:
+        if module is not None:
+            module.close()
     return {"ok": result.ok, "state": result.state, "error": result.error}
 
 
 @router.post("/api/testbench/obs/switch")
 def obs_switch(body: SwitchBody):
     """Cut the program feed to a named scene."""
+    module = None
     try:
-        result = _module(body).switch_scene(body.scene)
+        module = _module(body)
+        result = module.switch_scene(body.scene)
     except ObsModuleError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     except Exception as exc:
         raise HTTPException(status_code=502, detail=str(exc)) from exc
+    finally:
+        if module is not None:
+            module.close()
     return {"ok": result.ok, "state": result.state, "error": result.error}
 
 
 @router.post("/api/testbench/obs/stream")
 def obs_stream(body: StreamBody):
     """Start/stop streaming. Refuses without explicit confirmation."""
+    module = None
     try:
-        result = _module(body).set_streaming(body.action, body.confirmed)
+        module = _module(body)
+        result = module.set_streaming(body.action, body.confirmed)
     except (ObsModuleError, SafetyViolation) as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     except Exception as exc:
         raise HTTPException(status_code=502, detail=str(exc)) from exc
+    finally:
+        if module is not None:
+            module.close()
     return {"ok": result.ok, "state": result.state, "error": result.error}
 
 
@@ -103,37 +122,53 @@ def _registry_or_404(request, studio_id):
 def _studio_obs(request, studio_id):
     """Studio OBS module + safe scene, or None when unconfigured.
 
-    Reads hub-local studios.local/obs.json (same file the modes applier
-    uses). The safe scene is the studio's break-mode scene when it names
-    one; without it a failed switch just fails.
+    Resolves the studio's selected target from hub-local
+    studios.local/obs.json (same store the modes applier uses). The safe
+    scene is the studio's break-mode scene when it names one; without it
+    a failed switch just fails. Raises ObsCryptoError when the stored
+    password is undecryptable (callers report it, never swallow it).
     """
+    from ..obs_store import ObsCryptoError, ObsStoreError, resolve_studio
+
     registry = request.app.state.registries.get(studio_id)
     if registry is None:
         return None
-    path = Path(request.app.state.config_root) / "studios.local" / "obs.json"
     try:
-        entries = json.loads(path.read_text(encoding="utf-8")).get("studios") or {}
-    except (OSError, ValueError):
+        creds = resolve_studio(request.app.state.config_root, studio_id)
+    except ObsCryptoError:
+        raise
+    except ObsStoreError:
         return None
-    cfg = entries.get(studio_id) or {}
-    if not isinstance(cfg, dict) or not cfg.get("host"):
+    if creds is None:
         return None
     try:
         brb = registry.get_mode("brb")
     except UnknownModeError:
         brb = None
     safe = brb.get("obsScene") if isinstance(brb, dict) else None
-    driver = ObsWsDriver(
-        "obs-studio", cfg["host"], cfg.get("port", DEFAULT_PORT), cfg.get("password")
-    )
+    driver = ObsWsDriver("obs-studio", creds["host"], creds["port"], creds["password"])
     return ObsShowModule("obs", {"ws": driver}), safe
 
 
 @router.get("/api/studios/{studio_id}/obs/status")
 def obs_studio_status(studio_id: str, request: Request):
     """Studio OBS at a glance: configured, connected, current scene, streaming."""
+    from ..obs_store import ObsCryptoError
+
     _registry_or_404(request, studio_id)
-    found = _studio_obs(request, studio_id)
+    try:
+        found = _studio_obs(request, studio_id)
+    except ObsCryptoError as exc:
+        return {
+            "configured": True,
+            "connected": False,
+            "current": None,
+            "streaming": None,
+            "scenes": [],
+            "collection": None,
+            "collections": [],
+            "error": str(exc),
+        }
     if found is None:
         return {
             "configured": False,
@@ -153,6 +188,8 @@ def obs_studio_status(studio_id: str, request: Request):
         collections = module.list_collections() if scenes.ok else None
     except Exception as exc:
         raise HTTPException(status_code=502, detail=str(exc)) from exc
+    finally:
+        module.close()
     names = []
     current = None
     if scenes.ok:
@@ -177,23 +214,35 @@ def obs_studio_status(studio_id: str, request: Request):
     }
 
 
-@router.post("/api/studios/{studio_id}/obs/switch")
-def obs_studio_switch(studio_id: str, body: StudioSwitchBody, request: Request):
-    """Cut the studio program feed to a scene (safe-scene fallback armed)."""
-    _registry_or_404(request, studio_id)
-    found = _studio_obs(request, studio_id)
+def _studio_obs_or_422(request, studio_id):
+    """_studio_obs with honest errors: 422 unconfigured, 502 undecryptable."""
+    from ..obs_store import ObsCryptoError
+
+    try:
+        found = _studio_obs(request, studio_id)
+    except ObsCryptoError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
     if found is None:
         raise HTTPException(
             status_code=422,
             detail=f"obs not configured for studio {studio_id} (studios.local/obs.json)",
         )
-    module, safe = found
+    return found
+
+
+@router.post("/api/studios/{studio_id}/obs/switch")
+def obs_studio_switch(studio_id: str, body: StudioSwitchBody, request: Request):
+    """Cut the studio program feed to a scene (safe-scene fallback armed)."""
+    _registry_or_404(request, studio_id)
+    module, safe = _studio_obs_or_422(request, studio_id)
     try:
         result = module.switch_scene(body.scene, safe)
     except ObsModuleError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     except Exception as exc:
         raise HTTPException(status_code=502, detail=str(exc)) from exc
+    finally:
+        module.close()
     return {"ok": result.ok, "state": result.state, "error": result.error}
 
 
@@ -201,19 +250,15 @@ def obs_studio_switch(studio_id: str, body: StudioSwitchBody, request: Request):
 def obs_studio_collection(studio_id: str, body: StudioCollectionBody, request: Request):
     """Switch the studio to a named scene collection."""
     _registry_or_404(request, studio_id)
-    found = _studio_obs(request, studio_id)
-    if found is None:
-        raise HTTPException(
-            status_code=422,
-            detail=f"obs not configured for studio {studio_id} (studios.local/obs.json)",
-        )
-    module, _safe = found
+    module, _safe = _studio_obs_or_422(request, studio_id)
     try:
         result = module.set_collection(body.collection)
     except ObsModuleError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     except Exception as exc:
         raise HTTPException(status_code=502, detail=str(exc)) from exc
+    finally:
+        module.close()
     return {"ok": result.ok, "state": result.state, "error": result.error}
 
 
@@ -221,19 +266,15 @@ def obs_studio_collection(studio_id: str, body: StudioCollectionBody, request: R
 def obs_studio_stream(studio_id: str, body: StudioStreamBody, request: Request):
     """Start/stop the studio stream. Refuses without explicit confirmation."""
     _registry_or_404(request, studio_id)
-    found = _studio_obs(request, studio_id)
-    if found is None:
-        raise HTTPException(
-            status_code=422,
-            detail=f"obs not configured for studio {studio_id} (studios.local/obs.json)",
-        )
-    module, _safe = found
+    module, _safe = _studio_obs_or_422(request, studio_id)
     try:
         result = module.set_streaming(body.action, body.confirmed)
     except (ObsModuleError, SafetyViolation) as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     except Exception as exc:
         raise HTTPException(status_code=502, detail=str(exc)) from exc
+    finally:
+        module.close()
     return {"ok": result.ok, "state": result.state, "error": result.error}
 
 
@@ -318,6 +359,8 @@ def _run_boot_thread(request, studio_id):
             result = module.switch_scene(scene, safe)
         except Exception as exc:  # noqa: BLE001 - driver faults read as a failed cut
             return False, str(exc)
+        finally:
+            module.close()
         return bool(result.ok), result.error or ""
 
     def collect_set(collection):
@@ -329,6 +372,8 @@ def _run_boot_thread(request, studio_id):
             result = module.set_collection(collection)
         except Exception as exc:  # noqa: BLE001 - driver faults read as a failed cut
             return False, str(exc)
+        finally:
+            module.close()
         return bool(result.ok), result.error or ""
 
     log.info("obs boot job running", extra={"fields": {"studio": studio_id, "job": job["id"]}})

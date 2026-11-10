@@ -9,7 +9,7 @@
 <body>
 <header class="topbar">
 <span class="brand">Studio Hub</span>
-<nav><a href="/" aria-current="page">Dashboard</a><a href="/control">Control</a><a href="/equipment">Equipment</a><span class="navgroup">Administration</span><a href="/modality">Modality Manager</a><a href="/ordering">Ordering</a><a href="/bench">Test Bench</a><a href="/docs">API docs</a></nav>
+<nav><a href="/" aria-current="page">Dashboard</a><a href="/control">Control</a><a href="/equipment">Equipment</a><span class="navgroup">Administration</span><a href="/modality">Modality Manager</a><a href="/ordering">Ordering</a><a href="/obs">OBS targets</a><a href="/bench">Test Bench</a><a href="/docs">API docs</a></nav>
 <span class="spacer"></span>
 <span class="context"><span class="pill" id="health">loading…</span><label>Studio <select id="studio"></select></label></span>
 </header>
@@ -25,7 +25,8 @@
 <div id="modality-out"></div></div>
 <div class="card" data-panel="obs"><h2>OBS</h2>
 <div class="row"><span id="status">loading…</span><button onclick="loadStatus()">Refresh</button></div>
-<div class="row" id="obs"></div>
+<div class="row"><label class="field">target <select id="obs-target"></select></label><button onclick="obsUseTarget()">Use</button><span class="hint">edits live in&nbsp;<a href="/obs">OBS targets</a></span></div>
+<div class="row" id="obs"><label class="field">scene <select id="obs-scene"></select></label><button onclick="obsCut()">Cut to scene</button></div>
 <div class="row"><label class="field">collection <select id="obs-collection"></select></label><button onclick="obsCollection()">Switch collection</button></div>
 <div class="row"><label class="field"><input type="checkbox" id="obs-confirm"> confirm stream start/stop</label><button onclick="obsStream('start')">Start stream</button><button onclick="obsStream('stop')">Stop stream</button></div>
 <div id="obs-out"></div></div>
@@ -79,6 +80,14 @@ async function jget(path) {
 }
 async function jpost(path, body) {
   const r = await fetch(path, {method: "POST", headers: {"Content-Type": "application/json"}, body: body});
+  const text = await r.text();
+  let j;
+  try { j = JSON.parse(text); } catch (e) { throw new Error(path + ": " + r.status + " (non-JSON reply: " + text.slice(0, 120) + ")"); }
+  if (!r.ok) throw new Error(JSON.stringify(j));
+  return j;
+}
+async function jput(path, body) {
+  const r = await fetch(path, {method: "PUT", headers: {"Content-Type": "application/json"}, body: body});
   const text = await r.text();
   let j;
   try { j = JSON.parse(text); } catch (e) { throw new Error(path + ": " + r.status + " (non-JSON reply: " + text.slice(0, 120) + ")"); }
@@ -184,15 +193,29 @@ async function snapHardware() {
     out("modality-out", r, r.ok, "Saved the live rig as preset " + id); }
   catch (e) { out("modality-out", {error: String(e)}, false); }
 }
+async function loadObsTargets() {
+  try {
+    const t = await jget("/api/studios/" + studio() + "/obs/target");
+    document.getElementById("obs-target").innerHTML = "<option value=''>— unconfigured —</option>" +
+      (t.targets || []).map((n) => "<option value='" + n + "'" + (n === t.target ? " selected" : "") + ">" + esc(n) + "</option>").join("");
+  } catch (e) { /* targets unavailable; status still loads */ }
+}
+async function obsUseTarget() {
+  const v = document.getElementById("obs-target").value || null;
+  try { const r = await jput("/api/studios/" + studio() + "/obs/target", JSON.stringify({target: v}));
+    out("obs-out", r, true, v ? ("OBS target → " + v) : "OBS target cleared (unconfigured)"); loadStatus(); }
+  catch (e) { out("obs-out", {error: String(e)}, false); }
+}
 async function loadStatus() {
+  loadObsTargets();
   try {
     const s = await jget("/api/studios/" + studio() + "/obs/status");
     document.getElementById("status").innerHTML = !s.configured
-      ? '<span class="bad">●</span> not configured (studios.local/obs.json)'
+      ? '<span class="bad">●</span> not configured (pick one in <a href="/obs">OBS targets</a>)'
       : '<span class="' + (s.connected ? "ok" : "warn") + '">●</span> ' +
         (s.connected ? ("program: " + esc(s.current || "?") + (s.streaming ? " — STREAMING" : " — not streaming")) : "configured, OBS unreachable");
-    document.getElementById("obs").innerHTML = (s.scenes || []).map(n =>
-      "<button onclick=\"obsSwitch('" + n.replace(/'/g, "\\'") + "')\"" + (n === s.current ? " disabled" : "") + ">" + esc(n) + "</button>").join("");
+    document.getElementById("obs-scene").innerHTML = (s.scenes || []).map(n =>
+      "<option" + (n === s.current ? " selected" : "") + ">" + esc(n) + "</option>").join("");
     const sel = document.getElementById("obs-collection");
     sel.innerHTML = (s.collections || []).map(n => "<option>" + esc(n) + "</option>").join("");
     if (s.collection) sel.value = s.collection;
@@ -208,6 +231,11 @@ async function obsSwitch(scene) {
   try { const r = await jpost("/api/studios/" + studio() + "/obs/switch", JSON.stringify({scene}));
     out("obs-out", r, r.ok, r.ok ? "Cut to " + scene : ("Switch failed: " + (r.error || "?"))); loadStatus(); }
   catch (e) { out("obs-out", {error: String(e)}, false); }
+}
+function obsCut() {
+  const scene = document.getElementById("obs-scene").value;
+  if (!scene) { out("obs-out", {error: "no scene listed — is OBS reachable?"}, false); return; }
+  obsSwitch(scene);
 }
 async function obsStream(action) {
   if (!document.getElementById("obs-confirm").checked) { out("obs-out", {error: "tick confirm first"}, false); return; }

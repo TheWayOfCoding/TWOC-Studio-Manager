@@ -3,6 +3,8 @@ Design-Documents/
 
 # Real studios stay local; only fictional examples are committed.
 config/studios.local/
+# Hub config pull reviews (see tools/pull-hub-config.ps1).
+config/studios.hub-review/
 
 # Python runtime debris.
 __pycache__/
