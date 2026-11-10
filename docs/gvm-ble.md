@@ -66,6 +66,18 @@ Example — brightness 16%:
 - One 14-byte (`0E`) setup frame at connect is still undecoded; not needed
   for open-loop control.
 
+## Hub page-context rule
+
+Color frames need their page announced first, or they land on whatever page
+the panel last showed (order-dependent wrong colors). The hub therefore plans
+every look before sending (`plan_gvm_writes`, shared by Bench, modes, and
+presets): `cct` gains a `cct` announce, `hue`/`saturation` gain one `hsi`
+announce, `scene` gains a `scene` announce. Power and brightness never gain a
+page — the panel's brightness dial works in every mode, matching the physical
+BRG dial. An explicit `page` ships verbatim and disables inference. A whole
+look ships on one BLE connection (`apply_many`); the Bench `applied` list
+shows every frame, inferred pages included.
+
 HSI source: `captures/run5/` (Oct-2026 re-run: scripted tab switches, hue
 taps at 100/155/245/345°, saturation drags 100→5→100, brightness drags
 1→3→0% — all dim, screenshots + tap logs alongside).

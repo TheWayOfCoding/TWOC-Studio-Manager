@@ -298,9 +298,9 @@ def test_gvm_keys_translated_per_key(modes):
         "lights": {"demo-key": {"intensity": 30, "cct": 5000}},
     }
     modes.apply_mode("g", sleep=lambda s: None)
-    assert modes.lights["demo-key"].state == {"brightness": 30, "cct": 5000}
+    assert modes.lights["demo-key"].state == {"brightness": 30, "page": "cct", "cct": 5000}
     calls = [call for call in modes.lights["demo-key"].calls if call[0] == "apply"]
-    assert [sorted(call[1]) for call in calls] == [["brightness"], ["cct"]]
+    assert [sorted(call[1]) for call in calls] == [["brightness"], ["page"], ["cct"]]
     modes.registry._devices["demo-rgb"]["driver"] = "gvm"
     modes.registry._modes["h"] = {
         "id": "h",
@@ -309,7 +309,7 @@ def test_gvm_keys_translated_per_key(modes):
     }
     hued = modes.apply_mode("h", sleep=lambda s: None)
     assert hued["subsystems"]["lights"]["status"] == "ready"
-    assert modes.lights["demo-rgb"].state == {"hue": 220, "saturation": 60}
+    assert modes.lights["demo-rgb"].state == {"page": "hsi", "hue": 220, "saturation": 60}
 
 
 @pytest.mark.unit
@@ -744,6 +744,25 @@ def test_gvm_keys_plan_page_first_scene_last(modes):
     )
     keys = [key for key, _value in plan["lights"]["devices"][0]["commands"]]
     assert keys == ["page", "brightness", "hue", "saturation", "scene"]
+
+
+@pytest.mark.unit
+def test_gvm_plan_infers_page_for_color_keys(modes):
+    """Automation looks announce their page: hue without page still lands on HSI."""
+    modes.registry._devices["demo-rgb"]["driver"] = "gvm"
+    plan = modes.plan_custom("look", {"lights": {"demo-rgb": {"hue": 220, "saturation": 60}}})
+    keys = [key for key, _value in plan["lights"]["devices"][0]["commands"]]
+    assert keys == ["page", "hue", "saturation"]
+    assert plan["lights"]["devices"][0]["commands"][0] == ("page", "hsi")
+
+
+@pytest.mark.unit
+def test_gvm_plan_leaves_brightness_without_page(modes):
+    """Brightness-only looks stay on the panel's current page (no CCT yank)."""
+    modes.registry._devices["demo-key"]["driver"] = "gvm"
+    plan = modes.plan_custom("look", {"lights": {"demo-key": {"intensity": 5}}})
+    keys = [key for key, _value in plan["lights"]["devices"][0]["commands"]]
+    assert keys == ["brightness"]
 
 
 class BatchDriver:

@@ -266,6 +266,85 @@ def test_gvm_set_by_panel_resolves_and_scrubs(monkeypatch):
         assert "Key panel" in response.text
 
 
+class RecordingGvmDriver:
+    """GVM stand-in without batch support: records sequential applies (no radio)."""
+
+    calls = []
+
+    def __init__(self, driver_id, address, timeout=15):
+        RecordingGvmDriver.calls = []
+
+    def apply(self, command):
+        RecordingGvmDriver.calls.append(dict(command))
+        return DriverResult(ok=True, state=dict(command))
+
+
+class BatchRecordingGvmDriver(RecordingGvmDriver):
+    """GVM stand-in with batch support: records whole looks per connection."""
+
+    batches = []
+
+    def __init__(self, driver_id, address, timeout=15):
+        super().__init__(driver_id, address, timeout)
+        BatchRecordingGvmDriver.batches = []
+
+    def apply_many(self, commands):
+        BatchRecordingGvmDriver.batches.append([dict(command) for command in commands])
+        return [DriverResult(ok=True, state=dict(command)) for command in commands]
+
+
+@pytest.mark.unit
+def test_gvm_set_infers_hsi_page_for_color_keys(monkeypatch):
+    """Bench hue/saturation announce HSI: no manual page step, no order trap."""
+    monkeypatch.setattr("app.api.gvm.GvmBleDriver", RecordingGvmDriver)
+    with _panel_registries():
+        response = client.post(
+            "/api/testbench/gvm/set", json={"panel": "s1/key", "hue": 220, "saturation": 60}
+        )
+        assert response.status_code == 200
+        assert RecordingGvmDriver.calls == [{"page": "hsi"}, {"hue": 220}, {"saturation": 60}]
+        applied = [entry["command"] for entry in response.json()["state"]["applied"]]
+        assert applied == ["page", "hue", "saturation"]
+
+
+@pytest.mark.unit
+def test_gvm_set_leaves_brightness_on_current_page(monkeypatch):
+    """Brightness ships alone: adjusting power must not yank the panel to CCT."""
+    monkeypatch.setattr("app.api.gvm.GvmBleDriver", RecordingGvmDriver)
+    with _panel_registries():
+        response = client.post("/api/testbench/gvm/set", json={"panel": "s1/key", "brightness": 5})
+        assert response.status_code == 200
+        assert RecordingGvmDriver.calls == [{"brightness": 5}]
+
+
+@pytest.mark.unit
+def test_gvm_set_explicit_page_ships_verbatim(monkeypatch):
+    """Explicit page callers keep exact control: no inferred duplicates."""
+    monkeypatch.setattr("app.api.gvm.GvmBleDriver", RecordingGvmDriver)
+    with _panel_registries():
+        response = client.post(
+            "/api/testbench/gvm/set",
+            json={"panel": "s1/key", "page": "hsi", "hue": 220, "saturation": 60},
+        )
+        assert response.status_code == 200
+        assert RecordingGvmDriver.calls == [{"page": "hsi"}, {"hue": 220}, {"saturation": 60}]
+
+
+@pytest.mark.unit
+def test_gvm_set_sends_multi_key_look_on_one_connection(monkeypatch):
+    """One HTTP set is one BLE session, not one connection per key."""
+    monkeypatch.setattr("app.api.gvm.GvmBleDriver", BatchRecordingGvmDriver)
+    with _panel_registries():
+        response = client.post(
+            "/api/testbench/gvm/set",
+            json={"panel": "s1/key", "page": "hsi", "hue": 220, "saturation": 60},
+        )
+        assert response.status_code == 200
+        assert BatchRecordingGvmDriver.batches == [
+            [{"page": "hsi"}, {"hue": 220}, {"saturation": 60}]
+        ]
+
+
 @pytest.mark.unit
 def test_gvm_panel_errors():
     """Unknown/unaddressed panels 404; panel+address or neither is 422."""
@@ -678,7 +757,7 @@ def test_modes_apply_home_hands_on_drives_ninja_ble(monkeypatch):
     assert (3, "B") not in mock_drivers  # Ninja 400 is DMX-only: no BLE driver
     assert stub.channels == {1: 6, 2: 132}  # 400 over DMX: 2% + 5600K
     assert mock_drivers[(3, "C")].look["brightness"] == 2
-    assert FakeGvm.instances["gvm-ho"].calls == [{"brightness": 5}, {"cct": 5000}]
+    assert FakeGvm.instances["gvm-ho"].calls == [{"brightness": 5}, {"page": "cct"}, {"cct": 5000}]
     faded = client.post("/api/studios/home-studio/modes/hands_on/apply", json={"fade_s": 0.5})
     assert faded.status_code == 200
     faded_lights = faded.json()["subsystems"]["lights"]
@@ -720,7 +799,7 @@ def test_build_modes_module_wires_home_ninja_without_http(monkeypatch):
     assert stub.channels == {1: 6, 2: 132}  # Ninja 400 over DMX (DMX-only)
     assert (3, "B") not in mock_drivers
     assert mock_drivers[(3, "C")].look["brightness"] == 2
-    assert FakeGvm.instances["gvm-ho"].calls == [{"brightness": 5}, {"cct": 5000}]
+    assert FakeGvm.instances["gvm-ho"].calls == [{"brightness": 5}, {"page": "cct"}, {"cct": 5000}]
     faded = module.apply_mode("hands_on", sleep=lambda s: None, fade_s=0.5)
     assert faded["subsystems"]["lights"]["status"] == "ready"
     assert any("ninja-20" in item["reason"] for item in faded["subsystems"]["lights"]["notes"])
@@ -1768,3 +1847,280 @@ def test_plug_drivers_resolve_alias_to_live_host(monkeypatch):
     drivers = modes_api._plug_drivers(registry, CONFIG_ROOT)
     assert drivers["plug-9"].host == "192.0.2.21"
     assert seen == {"alias": "Studio Plug 9", "fallback": "192.0.2.99"}
+
+
+@pytest.mark.unit
+def test_hub_launchers_report_schtasks_failures():
+    """Helper-task launchers surface each failed step (fake runner, no OS calls)."""
+    from types import SimpleNamespace
+
+    from app.api import routes
+
+    class FakeRun:
+        def __init__(self, codes):
+            self.codes = list(codes)
+            self.calls = []
+
+        def __call__(self, *args, **kwargs):
+            self.calls.append(args[0])
+            return SimpleNamespace(returncode=self.codes.pop(0))
+
+    ok = FakeRun([0, 0])
+    assert routes._launch_hub_restart(runner=ok) is True
+    assert ok.calls[0][1] == "/Create" and ok.calls[1][1] == "/Run"
+    with pytest.raises(RuntimeError, match="create the restart helper"):
+        routes._launch_hub_restart(runner=FakeRun([1, 0]))
+    with pytest.raises(RuntimeError, match="start the restart helper"):
+        routes._launch_hub_restart(runner=FakeRun([0, 1]))
+    with pytest.raises(RuntimeError, match="create the shutdown helper"):
+        routes._launch_hub_shutdown(runner=FakeRun([1, 0]))
+    with pytest.raises(RuntimeError, match="start the shutdown helper"):
+        routes._launch_hub_shutdown(runner=FakeRun([0, 1]))
+
+
+@pytest.mark.unit
+def test_hub_restart_and_shutdown_are_windows_only(monkeypatch):
+    import os
+
+    monkeypatch.setattr(os, "name", "posix")
+    assert client.post("/api/hub/restart", json={"confirm": True}).status_code == 503
+    assert client.post("/api/hub/shutdown", json={"confirm": True}).status_code == 503
+
+
+@pytest.mark.unit
+def test_hub_shutdown_needs_confirm(monkeypatch):
+    """Shutdown is destructive (PC powers off): no confirm, no launch."""
+    from app.api import routes
+
+    launches = []
+    monkeypatch.setattr(routes, "_launch_hub_shutdown", lambda: launches.append(1))
+    assert client.post("/api/hub/shutdown", json={}).status_code == 422
+    assert client.post("/api/hub/shutdown", json={"confirm": False}).status_code == 422
+    assert launches == []
+
+
+@pytest.mark.unit
+def test_hub_shutdown_runs_steps_then_helper(monkeypatch):
+    from app.api import routes
+
+    launches = []
+    tones = []
+    monkeypatch.setattr(routes, "_launch_hub_shutdown", lambda: launches.append(1) or True)
+    monkeypatch.setattr("app.drivers.link_audio.send_tones", lambda *a, **k: tones.append((a, k)))
+    response = client.post(
+        "/api/hub/shutdown",
+        json={"confirm": True, "workstation_off": True, "everything_off": True,
+              "studio": "example-studio"},
+    )
+    assert response.status_code == 200
+    body = response.json()
+    assert body["shutting_down"] is True
+    assert [step["step"] for step in body["steps"]] == [
+        "workstation shutdown tones sent", "everything off"]
+    # Example studio has no plug drivers: everything-off degrades honestly.
+    assert body["steps"][0]["ok"] is True
+    assert body["steps"][1]["ok"] is False
+    assert "no driver" in body["steps"][1]["error"]
+    assert tones and launches == [1]
+
+    class FakePower:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        def set_all_power(self, *args, **kwargs):
+            return [{"ok": True, "device": "plug-1"}], [{"device": "plug-2"}]
+
+    monkeypatch.setattr("app.modules.power.PowerModule", FakePower)
+    happy = client.post("/api/hub/shutdown", json={"confirm": True, "everything_off": True})
+    assert happy.json()["steps"] == [
+        {"step": "everything off", "ok": True, "applied": 1, "held": ["plug-2"]}]
+
+
+@pytest.mark.unit
+def test_hub_shutdown_best_effort_steps_still_shut_down(monkeypatch):
+    from app.api import routes
+
+    monkeypatch.setattr(routes, "_launch_hub_shutdown", lambda: True)
+
+    def boom(*args, **kwargs):
+        raise RuntimeError("no audio backend")
+
+    monkeypatch.setattr("app.drivers.link_audio.send_tones", boom)
+    monkeypatch.setattr("app.api.modes._plug_drivers", boom)
+    response = client.post(
+        "/api/hub/shutdown",
+        json={"confirm": True, "workstation_off": True, "everything_off": True,
+              "studio": "example-studio"},
+    )
+    assert response.status_code == 200
+    assert response.json()["shutting_down"] is True
+    assert [step["ok"] for step in response.json()["steps"]] == [False, False]
+
+
+@pytest.mark.unit
+def test_hub_shutdown_launch_failure_is_honest(monkeypatch):
+    from app.api import routes
+
+    def boom():
+        raise RuntimeError("schtasks said no")
+
+    monkeypatch.setattr(routes, "_launch_hub_shutdown", boom)
+    response = client.post("/api/hub/shutdown", json={"confirm": True})
+    assert response.status_code == 503
+    assert "shutdown not started" in response.json()["detail"]
+
+
+@pytest.mark.unit
+def test_obs_bench_maps_faults(monkeypatch):
+    """Bench OBS: driver faults are 502, bad scene requests are 422."""
+    from app.api import obs as obs_api
+    from app.modules.obsshow import ObsModuleError
+
+    def boom(body):
+        raise RuntimeError("bench dead")
+
+    monkeypatch.setattr(obs_api, "_module", boom)
+    assert client.post("/api/testbench/obs/scenes", json={"host": "x"}).status_code == 502
+    assert client.post("/api/testbench/obs/switch", json={"host": "x", "scene": "M"}).status_code == 502
+    stream = client.post("/api/testbench/obs/stream",
+                         json={"host": "x", "action": "start", "confirmed": True})
+    assert stream.status_code == 502
+
+    def bad_request(body):
+        raise ObsModuleError("no such scene")
+
+    monkeypatch.setattr(obs_api, "_module", bad_request)
+    assert client.post("/api/testbench/obs/switch", json={"host": "x", "scene": "M"}).status_code == 422
+
+
+@pytest.mark.unit
+def test_obs_studio_maps_faults(monkeypatch):
+    """Studio OBS: driver faults are 502, bad requests are 422."""
+    from app.api import obs as obs_api
+    from app.modules.obsshow import ObsModuleError
+
+    class Fault:
+        def switch_scene(self, *args, **kwargs):
+            raise RuntimeError("socket dead")
+
+        def set_collection(self, *args, **kwargs):
+            raise RuntimeError("socket dead")
+
+        def set_streaming(self, *args, **kwargs):
+            raise RuntimeError("socket dead")
+
+    monkeypatch.setattr(obs_api, "_studio_obs", lambda root, studio: (Fault(), None))
+    base = "/api/studios/example-studio/obs"
+    assert client.post(f"{base}/switch", json={"scene": "M"}).status_code == 502
+    assert client.post(f"{base}/collection", json={"collection": "C"}).status_code == 502
+    assert client.post(f"{base}/stream", json={"action": "start", "confirmed": True}).status_code == 502
+
+    class BadRequest:
+        def switch_scene(self, *args, **kwargs):
+            raise ObsModuleError("no such scene")
+
+        def set_collection(self, *args, **kwargs):
+            raise ObsModuleError("no such collection")
+
+        def set_streaming(self, *args, **kwargs):
+            raise ObsModuleError("bad action")
+
+    monkeypatch.setattr(obs_api, "_studio_obs", lambda root, studio: (BadRequest(), None))
+    assert client.post(f"{base}/switch", json={"scene": "M"}).status_code == 422
+    assert client.post(f"{base}/collection", json={"collection": "C"}).status_code == 422
+    assert client.post(f"{base}/stream", json={"action": "start", "confirmed": True}).status_code == 422
+
+
+@pytest.mark.unit
+def test_obs_studio_status_and_boot_helpers(monkeypatch, tmp_path):
+    """Unconfigured studio OBS stays honest; boot helpers degrade without hardware."""
+    import threading
+    from types import SimpleNamespace
+
+    from app.api import obs as obs_api
+
+    assert client.post("/api/studios/example-studio/obs/stream",
+                       json={"action": "start", "confirmed": True}).status_code == 422
+
+    def boom_list(*args, **kwargs):
+        raise RuntimeError("listener gone")
+
+    class DeadModule:
+        def list_scenes(self):
+            return boom_list()
+
+    real_studio_obs = obs_api._studio_obs
+    monkeypatch.setattr(obs_api, "_studio_obs", lambda root, studio: (DeadModule(), None))
+    assert client.get("/api/studios/example-studio/obs/status").status_code == 502
+
+    # _studio_obs config parsing, no sockets: missing/malformed/unhosted
+    # files read as unconfigured; a valid entry builds a lazy module.
+    req = SimpleNamespace(app=SimpleNamespace(
+        state=SimpleNamespace(registries=app.state.registries, config_root=tmp_path)))
+    assert real_studio_obs(req, "example-studio") is None
+    obs_path = tmp_path / "studios.local" / "obs.json"
+    obs_path.parent.mkdir(parents=True)
+    obs_path.write_text("{oops", encoding="utf-8")
+    assert real_studio_obs(req, "example-studio") is None
+    obs_path.write_text('{"studios": {}}', encoding="utf-8")
+    assert real_studio_obs(req, "example-studio") is None
+    obs_path.write_text('{"studios": {"example-studio": {"host": "192.0.2.5"}}}', encoding="utf-8")
+    found = real_studio_obs(req, "example-studio")
+    assert found is not None and found[0] is not None
+
+    # Boot thread with no job exits quietly.
+    bare = SimpleNamespace(app=SimpleNamespace(state=SimpleNamespace()))
+    assert obs_api._run_boot_thread(bare, "example-studio") is None
+
+    # Boot OBS callbacks report unconfigured honestly (captured run_boot).
+    captured = {}
+    real_state = app.state
+
+    def fake_run(job, link, obs_set, stop=None, collect_set=None):
+        captured["obs_set"] = obs_set
+        captured["collect_set"] = collect_set
+
+    monkeypatch.setattr(obs_api, "run_boot", fake_run)
+    real_state.__dict__.setdefault("boot_jobs", {})["example-studio"] = {"id": "t", "state": "running"}
+    real_state.__dict__.setdefault("boot_stops", {})["example-studio"] = threading.Event()
+    try:
+        obs_api._run_boot_thread(SimpleNamespace(app=app), "example-studio")
+    finally:
+        real_state.__dict__["boot_jobs"].pop("example-studio", None)
+        real_state.__dict__["boot_stops"].pop("example-studio", None)
+    monkeypatch.setattr(obs_api, "_studio_obs", real_studio_obs)
+    assert captured["obs_set"]("Main") == (False, "obs not configured for studio example-studio (studios.local/obs.json)")
+    assert captured["collect_set"]("C")[0] is False
+    assert real_studio_obs(req, "nope") is None
+
+    class CutDead:
+        def switch_scene(self, *args, **kwargs):
+            raise RuntimeError("cut dead")
+
+        def set_collection(self, *args, **kwargs):
+            raise RuntimeError("cut dead")
+
+    monkeypatch.setattr(obs_api, "_studio_obs", lambda root, studio: (CutDead(), None))
+    assert captured["obs_set"]("Main") == (False, "cut dead")
+    assert captured["collect_set"]("C") == (False, "cut dead")
+
+
+@pytest.mark.unit
+def test_boot_link_wol_without_mac_or_backend(tmp_path, monkeypatch):
+    """Boot WoL: no MAC is a note, backend faults read as failures."""
+    from app.api.obs import _BootLink
+    from app.drivers import wol as wol_driver
+
+    assert _BootLink(tmp_path).wol() == "no wol_mac configured; relying on plug power"
+    link_file = tmp_path / "studios.local" / "link.json"
+    link_file.parent.mkdir(parents=True)
+    link_file.write_text('{"wol_mac": "AA:BB:CC:DD:EE:01"}', encoding="utf-8")
+    monkeypatch.setattr(wol_driver, "wake", lambda mac: 3)
+    assert _BootLink(tmp_path).wol() == "3 magic packets sent"
+
+    def boom(mac):
+        raise wol_driver.WolError("no route")
+
+    monkeypatch.setattr(wol_driver, "wake", boom)
+    with pytest.raises(RuntimeError, match="wol failed"):
+        _BootLink(tmp_path).wol()

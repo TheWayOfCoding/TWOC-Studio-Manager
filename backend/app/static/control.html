@@ -214,7 +214,7 @@ async function lightBright() {
   const d = current(), v = parseInt(document.getElementById("c-br-n").value, 10);
   try {
     if (d.driver === "gvm")
-      out(await jpost("/api/testbench/gvm/set", JSON.stringify({panel: studio() + "/" + d.id, page: "cct", brightness: v})), true, "Brightness → " + v + "%");
+      out(await jpost("/api/testbench/gvm/set", JSON.stringify({panel: studio() + "/" + d.id, brightness: v})), true, "Brightness → " + v + "%");
     else if (d.driver === "ninja")
       out(await jpost("/api/testbench/ninja/set", JSON.stringify({light: studio() + "/" + d.id, brightness: v, allow_bright: allowBright()})), true, "Brightness → " + v + "%");
     else if (d.driver === "dmx")

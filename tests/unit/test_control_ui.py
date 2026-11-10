@@ -50,6 +50,32 @@ def test_control_light_actions_present():
     assert "set_scene" not in html
 
 
+def _function_slice(html, start_marker, end_marker):
+    """Source slice of one page function (static structure test, no JS harness)."""
+    start = html.index(start_marker)
+    end = html.index(end_marker, start)
+    return html[start:end]
+
+
+@pytest.mark.unit
+def test_control_brightness_leaves_gvm_page_alone():
+    """Brightness must not force the CCT page: the panel dims in any mode."""
+    html = _control_html()
+    bright_fn = _function_slice(html, "async function lightBright()", "async function lightCct()")
+    assert "/api/testbench/gvm/set" in bright_fn
+    assert "page" not in bright_fn
+
+
+@pytest.mark.unit
+def test_control_cct_and_color_announce_gvm_page():
+    """CCT and HSI actions each announce their own panel page."""
+    html = _control_html()
+    cct_fn = _function_slice(html, "async function lightCct()", "async function lightHsi()")
+    assert 'page: "cct"' in cct_fn
+    hsi_fn = _function_slice(html, "async function lightHsi()", "async function loadSwatches()")
+    assert 'page: "hsi"' in hsi_fn
+
+
 @pytest.mark.unit
 def test_control_screen_theme_select_ttl_and_clear_present():
     """Control screens get the same curated themes, text timer, Clear."""

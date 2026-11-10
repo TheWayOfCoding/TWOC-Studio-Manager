@@ -22,7 +22,7 @@ from app.drivers.gvm_ble import (
     scene_frame,
 )
 from app.drivers.mock import MockDriver
-from app.modules.gvm import GvmModule, GvmModuleError, scene_risk
+from app.modules.gvm import GvmModule, GvmModuleError, plan_gvm_writes, scene_risk
 
 
 def test_crc_matches_captured_frames():
@@ -201,3 +201,91 @@ def test_apply_many_rejects_bad_command_without_touching_ble(monkeypatch):
     results = driver.apply_many([{"brightness": 50}, {"brightness": 999}])
     assert [item.ok for item in results] == [False, False]
     assert "brightness" in results[0].error
+
+
+def test_page_context_announces_hsi_once_for_color_keys():
+    """Hue/saturation land on the HSI page even when no page was asked for."""
+    assert plan_gvm_writes([("hue", 220), ("saturation", 60)]) == [
+        ("page", "hsi"),
+        ("hue", 220),
+        ("saturation", 60),
+    ]
+    assert plan_gvm_writes([("saturation", 60)]) == [("page", "hsi"), ("saturation", 60)]
+
+
+def test_page_context_announces_cct_for_temperature():
+    assert plan_gvm_writes([("brightness", 5), ("cct", 5000)]) == [
+        ("brightness", 5),
+        ("page", "cct"),
+        ("cct", 5000),
+    ]
+
+
+def test_page_context_leaves_power_and_brightness_on_current_page():
+    """The panel's brightness dial works in every mode: no page yank."""
+    assert plan_gvm_writes([("power", "on")]) == [("power", "on")]
+    assert plan_gvm_writes([("brightness", 5)]) == [("brightness", 5)]
+    assert plan_gvm_writes([("power", "on"), ("brightness", 5)]) == [
+        ("power", "on"),
+        ("brightness", 5),
+    ]
+
+
+def test_page_context_announces_scene_page():
+    assert plan_gvm_writes([("scene", 3)]) == [("page", "scene"), ("scene", 3)]
+
+
+def test_page_context_explicit_page_disables_inference():
+    """An explicit page ships verbatim: callers that manage context keep control."""
+    ordered_pairs = [("page", "hsi"), ("hue", 220), ("saturation", 60)]
+    assert plan_gvm_writes(ordered_pairs) == ordered_pairs
+    assert plan_gvm_writes([("page", "cct"), ("brightness", 5)]) == [
+        ("page", "cct"),
+        ("brightness", 5),
+    ]
+
+
+def test_page_context_announces_each_color_group_once():
+    """White + color in one look: each value lands on its own page, HSI last."""
+    assert plan_gvm_writes([("brightness", 5), ("cct", 5000), ("hue", 210)]) == [
+        ("brightness", 5),
+        ("page", "cct"),
+        ("cct", 5000),
+        ("page", "hsi"),
+        ("hue", 210),
+    ]
+
+
+def test_module_apply_many_gates_scene_before_sending():
+    """The intense-scene gate raises before anything ships, batch or not."""
+    module = GvmModule("gvm", {"ble": MockDriver("mock-gvm")})
+    with pytest.raises(GvmModuleError):
+        module.apply_many([{"brightness": 5}, {"scene": 3}])
+    assert module.drivers["ble"].calls == []
+
+
+def test_module_apply_many_uses_one_driver_batch():
+    """Multi-key looks ride one driver batch when the driver offers it."""
+
+    class BatchDriver(MockDriver):
+        def __init__(self, driver_id):
+            super().__init__(driver_id, initial_state={})
+            self.batches = []
+
+        def apply_many(self, commands):
+            self.batches.append([dict(command) for command in commands])
+            return [self.apply(command) for command in commands]
+
+    batch_driver = BatchDriver("batch-gvm")
+    module = GvmModule("gvm", {"ble": batch_driver})
+    results = module.apply_many([{"page": "hsi"}, {"hue": 220}], allow_intense=True)
+    assert [item.ok for item in results] == [True, True]
+    assert batch_driver.batches == [[{"page": "hsi"}, {"hue": 220}]]
+
+
+def test_module_apply_many_falls_back_without_batch_support():
+    """Drivers without apply_many get sequential applies (mock path)."""
+    module = GvmModule("gvm", {"ble": MockDriver("mock-gvm", initial_state={})})
+    results = module.apply_many([{"hue": 220}, {"saturation": 60}])
+    assert [item.ok for item in results] == [True, True]
+    assert module.drivers["ble"].state == {"hue": 220, "saturation": 60}

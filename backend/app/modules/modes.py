@@ -20,6 +20,7 @@ from ..core.safety import SafetyViolation
 from ..drivers.base import DriverResult
 from ..drivers.ninja_ble import NinjaError, address_byte
 from .base import Module
+from .gvm import plan_gvm_writes
 from .ir import STRIP_FIXED_COLORS, nearest_strip_color
 from .power import PowerError, UnknownPowerGroupError
 
@@ -332,6 +333,7 @@ class ModesModule(Module):
                         continue
                     translated.append((GVM_TRANSLATE[key], kept[key]))
                 translated.sort(key=lambda pair: GVM_KEY_ORDER.index(pair[0]))
+                translated = plan_gvm_writes(translated)
             elif family == "dmx":
                 translated = self._translate_dmx(device_id, device, kept, skipped)
                 if translated is None:

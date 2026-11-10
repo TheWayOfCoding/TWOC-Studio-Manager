@@ -151,6 +151,7 @@ def save_properties(config_root, studio_id, device_id, updates):
         validate(candidate, "device", f"device {device_id}")
     except ConfigError as exc:
         raise DetailsSaveError(str(exc)) from exc
+    matches[0].clear()
     matches[0].update(candidate)
     tmp_path = devices_path.with_suffix(".json.tmp")
     tmp_path.write_text(json.dumps(stored, indent=2), encoding="utf-8")

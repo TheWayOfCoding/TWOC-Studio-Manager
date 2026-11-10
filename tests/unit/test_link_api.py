@@ -85,6 +85,31 @@ def test_link_send_validates_and_plays(monkeypatch):
 
 
 @pytest.mark.unit
+def test_link_test_validates_and_plays_tone(monkeypatch):
+    """Calibration tone: range gates hold, playback reports its duration."""
+    from app.api import link as link_api
+
+    seen = {}
+    monkeypatch.setattr(link_api, "_link_config", lambda root: {})
+    monkeypatch.setattr(
+        link_api,
+        "play_samples",
+        lambda samples, rate, device=None: seen.update(
+            samples=len(samples), rate=rate, device=device
+        )
+        or 0.5,
+    )
+    assert client.post("/api/link/test", json={"seconds": 0}).status_code == 422
+    assert client.post("/api/link/test", json={"seconds": 11}).status_code == 422
+    assert client.post("/api/link/test", json={"freq": 10}).status_code == 422
+    assert client.post("/api/link/test", json={"freq": 30000}).status_code == 422
+    ok = client.post("/api/link/test", json={"seconds": 0.5, "freq": 880})
+    assert ok.status_code == 200
+    assert ok.json()["state"] == {"seconds": 0.5, "freq": 880}
+    assert seen == {"samples": 22050, "rate": 44100, "device": None}
+
+
+@pytest.mark.unit
 def test_link_inputs_reports_backend(monkeypatch):
     from app.api import link as link_api
     from app.drivers.base import DriverResult

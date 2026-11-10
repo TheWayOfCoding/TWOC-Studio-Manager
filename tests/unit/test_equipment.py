@@ -130,3 +130,148 @@ def test_put_zone_refuses_tracked_studios():
     client = TestClient(app)
     response = client.put("/api/studios/example-studio/devices/demo-key/zone", json={"zone": "desk"})
     assert response.status_code == 422
+
+
+@pytest.mark.unit
+def test_put_properties_roundtrip_and_validation(tmp_path):
+    client = TestClient(app)
+    with _tmp_local_studio(tmp_path) as studio_dir:
+        base = "/api/studios/x/devices/demo-key/properties"
+        updates = {"name": "Key Light", "role": "key", "estWatts": 120}
+        saved = client.put(base, json=updates)
+        assert saved.status_code == 200
+        assert saved.json() == {"device": "demo-key", "properties": updates}
+        on_disk = json.loads((studio_dir / "devices.json").read_text(encoding="utf-8"))
+        kept = [item for item in on_disk if item["id"] == "demo-key"][0]
+        assert kept["role"] == "key" and kept["estWatts"] == 120
+        assert client.get("/api/studios/x/devices/demo-key").json()["device"]["role"] == "key"
+        assert client.put(base, json={}).status_code == 422
+        assert client.put(base, json={"estWatts": -5}).status_code == 422
+        assert client.put("/api/studios/x/devices/nope/properties", json=updates).status_code == 404
+        assert client.put("/api/studios/nope/devices/demo-key/properties", json=updates).status_code == 404
+
+
+@pytest.mark.unit
+def test_put_properties_refuses_tracked_studios():
+    client = TestClient(app)
+    response = client.put(
+        "/api/studios/example-studio/devices/demo-key/properties", json={"role": "key"}
+    )
+    assert response.status_code == 422
+
+
+@contextmanager
+def _tmp_dual_studio(tmp_path):
+    """Tmp local studio whose demo-key carries BLE + DMX addresses."""
+    from app.config.loader import load_all
+    from app.registry import Registry
+
+    shutil.copytree(CONFIG_ROOT / "profiles", tmp_path / "profiles")
+    studio_dir = tmp_path / "studios.local" / "x"
+    shutil.copytree(CONFIG_ROOT / "studios" / "example-studio", studio_dir)
+    meta_path = studio_dir / "studio.json"
+    meta = json.loads(meta_path.read_text(encoding="utf-8"))
+    meta["id"] = "x"
+    meta_path.write_text(json.dumps(meta), encoding="utf-8")
+    devices_path = studio_dir / "devices.json"
+    devices = json.loads(devices_path.read_text(encoding="utf-8"))
+    for item in devices:
+        if item["id"] == "demo-key":
+            item["driver"] = "ninja"
+            item["driverAddress"] = {"channel": 3, "group": "B", "dmx": {"dimmer": 1, "cct": 2}}
+    devices_path.write_text(json.dumps(devices), encoding="utf-8")
+
+    data = load_all(tmp_path)
+    saved = (app.state.config_root, dict(app.state.registries), list(app.state.studio_list))
+    app.state.config_root = tmp_path
+    app.state.registries = {"x": Registry.from_loaded(data["studios"]["x"], data["profiles"])}
+    app.state.studio_list = [{"id": "x", "label": "X", "source": "studios.local"}]
+    try:
+        yield studio_dir
+    finally:
+        app.state.config_root, registries, studio_list = saved
+        app.state.registries.clear()
+        app.state.registries.update(registries)
+        app.state.studio_list = studio_list
+
+
+@pytest.mark.unit
+def test_put_transport_switch_roundtrip_and_rejects(tmp_path):
+    client = TestClient(app)
+    with _tmp_dual_studio(tmp_path) as studio_dir:
+        base = "/api/studios/x/devices/demo-key/transport"
+        switched = client.put(base, json={"transport": "dmx"})
+        assert switched.status_code == 200
+        assert switched.json() == {"device": "demo-key", "transport": "dmx"}
+        on_disk = json.loads((studio_dir / "devices.json").read_text(encoding="utf-8"))
+        kept = [item for item in on_disk if item["id"] == "demo-key"][0]
+        assert kept["transport"] == "dmx"
+        assert client.put(base, json={"transport": "wifi"}).status_code == 422
+        assert client.put("/api/studios/x/devices/nope/transport", json={"transport": "dmx"}).status_code == 404
+        single = client.put("/api/studios/x/devices/demo-rgb/transport", json={"transport": "dmx"})
+        assert single.status_code == 422
+        assert "not a dual-protocol fixture" in single.json()["detail"]
+
+
+@pytest.mark.unit
+def test_check_details_rejects_non_object():
+    from app.api.equipment import DetailsSaveError, _check_details
+
+    with pytest.raises(DetailsSaveError, match="must be an object"):
+        _check_details(["nope"])
+
+
+@pytest.mark.unit
+def test_save_details_rejects_unreadable_files(tmp_path):
+    from app.api.equipment import DetailsSaveError, save_details
+
+    studio_dir = tmp_path / "studios.local" / "x"
+    devices_path = studio_dir / "devices.json"
+    with pytest.raises(DetailsSaveError, match="only for local studios"):
+        save_details(tmp_path, "ghost", "demo-key", {})
+    devices_path.parent.mkdir(parents=True)
+    devices_path.mkdir()
+    with pytest.raises(DetailsSaveError, match="cannot read"):
+        save_details(tmp_path, "x", "demo-key", {})
+    devices_path.rmdir()
+    devices_path.write_text("{}", encoding="utf-8")
+    with pytest.raises(DetailsSaveError, match="must hold a device list"):
+        save_details(tmp_path, "x", "demo-key", {})
+    devices_path.write_text('[{"id": "other"}]', encoding="utf-8")
+    with pytest.raises(DetailsSaveError, match="not in"):
+        save_details(tmp_path, "x", "demo-key", {})
+    devices_path.write_text('[{"id": "demo-key"}]', encoding="utf-8")
+    with pytest.raises(DetailsSaveError):
+        save_details(tmp_path, "x", "demo-key", {"a": "b"})
+
+
+@pytest.mark.unit
+def test_save_properties_file_errors_and_none_pop(tmp_path):
+    from app.api.equipment import DetailsSaveError, save_properties
+
+    with pytest.raises(DetailsSaveError, match="only for local studios"):
+        save_properties(tmp_path, "ghost", "demo-key", {"notes": "x"})
+    studio_dir = tmp_path / "studios.local" / "x"
+    studio_dir.mkdir(parents=True)
+    devices_path = studio_dir / "devices.json"
+    devices_path.mkdir()
+    with pytest.raises(DetailsSaveError, match="cannot read"):
+        save_properties(tmp_path, "x", "demo-key", {"notes": "x"})
+    devices_path.rmdir()
+    devices_path.write_text("{}", encoding="utf-8")
+    with pytest.raises(DetailsSaveError, match="must hold a device list"):
+        save_properties(tmp_path, "x", "demo-key", {"notes": "x"})
+    devices_path.write_text('[{"id": "other"}]', encoding="utf-8")
+    with pytest.raises(DetailsSaveError, match="not in"):
+        save_properties(tmp_path, "x", "demo-key", {"notes": "x"})
+    devices_path.write_text('[{"id": "demo-key", "name": "D"}]', encoding="utf-8")
+    with pytest.raises(DetailsSaveError):
+        save_properties(tmp_path, "x", "demo-key", {"notes": "x"})
+    with _tmp_local_studio(tmp_path / "full") as studio_dir:
+        root = studio_dir.parent.parent
+        save_properties(root, "x", "demo-key", {"notes": "temporary"})
+        reloaded = save_properties(root, "x", "demo-key", {"notes": None})
+        on_disk = json.loads((studio_dir / "devices.json").read_text(encoding="utf-8"))
+        kept = [item for item in on_disk if item["id"] == "demo-key"][0]
+        assert "notes" not in kept
+        assert reloaded.effective_device("demo-key").get("notes") is None

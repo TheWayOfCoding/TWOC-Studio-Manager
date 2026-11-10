@@ -6,7 +6,7 @@ from pydantic import BaseModel
 
 from ..core.logging import get_logger
 from ..drivers.gvm_ble import GvmBleDriver, scan_devices
-from ..modules.gvm import GvmModule, GvmModuleError, scene_risk
+from ..modules.gvm import GvmModule, GvmModuleError, plan_gvm_writes, scene_risk
 from ..registry import UnknownDeviceError
 
 router = APIRouter()
@@ -152,38 +152,41 @@ def gvm_set(body: SetBody, request: Request):
     """Apply commands in page, power, brightness, cct, hue, saturation, scene order.
 
     Explicit human trial (Bench), no policy gate — except scenes, which need
-    allow_intense until verified gentle (D-PHOTO).
+    allow_intense until verified gentle (D-PHOTO). Color keys without an
+    explicit page gain their page announce, and the whole look ships on one
+    BLE connection; the applied list shows every frame that went out.
     """
     address, label = _resolve_target(body, request)
     module = _module(address, body.timeout)
     requested = []
     if body.page is not None:
-        requested.append(("page", lambda: module.announce_page(body.page)))
+        requested.append(("page", body.page))
     if body.power is not None:
         if body.power not in ("on", "off"):
             raise HTTPException(status_code=422, detail='power needs "on"|"off"')
-        requested.append(("power", lambda: module.set_power(body.power == "on")))
+        requested.append(("power", body.power))
     if body.brightness is not None:
-        requested.append(("brightness", lambda: module.set_brightness(body.brightness)))
+        requested.append(("brightness", body.brightness))
     if body.cct is not None:
-        requested.append(("cct", lambda: module.set_cct(body.cct)))
+        requested.append(("cct", body.cct))
     if body.hue is not None:
-        requested.append(("hue", lambda: module.set_hue(body.hue)))
+        requested.append(("hue", body.hue))
     if body.saturation is not None:
-        requested.append(("saturation", lambda: module.set_saturation(body.saturation)))
+        requested.append(("saturation", body.saturation))
     if body.scene is not None:
-        requested.append(
-            ("scene", lambda: module.set_scene(body.scene, allow_intense=body.allow_intense))
-        )
+        requested.append(("scene", body.scene))
     if not requested:
         raise HTTPException(status_code=422, detail="nothing to set")
+    planned = plan_gvm_writes(requested)
+    try:
+        results = module.apply_many(
+            [{key: value} for key, value in planned], allow_intense=body.allow_intense
+        )
+    except GvmModuleError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
     applied = []
     failed = False
-    for name, run in requested:
-        try:
-            result = run()
-        except GvmModuleError as exc:
-            raise HTTPException(status_code=422, detail=str(exc)) from exc
+    for (name, _value), result in zip(planned, results):
         applied.append(
             {
                 "command": name,

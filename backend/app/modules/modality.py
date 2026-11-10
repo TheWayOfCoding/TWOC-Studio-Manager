@@ -35,12 +35,14 @@ def beat_to_content(registry, beat, where="beat"):
     hold = beat.get("hold_s", 0)
     if isinstance(hold, bool) or not isinstance(hold, (int, float)) or not 0 <= hold <= HOLD_MAX_S:
         raise ModalityError(f"{where}.hold_s must be 0..{HOLD_MAX_S}: {hold!r}")
-    lights = dict(actions.get("lights") or {})
-    if not isinstance(lights, dict):
+    raw_lights = actions.get("lights") or {}
+    if not isinstance(raw_lights, dict):
         raise ModalityError(f"{where}.actions.lights must be an object")
-    zone_lights = actions.get("zoneLights") or {}
-    if not isinstance(zone_lights, dict):
+    lights = dict(raw_lights)
+    raw_zone_lights = actions.get("zoneLights") or {}
+    if not isinstance(raw_zone_lights, dict):
         raise ModalityError(f"{where}.actions.zoneLights must be an object")
+    zone_lights = raw_zone_lights
     for zone_id, look in zone_lights.items():
         if zone_id not in registry.zone_ids:
             raise ModalityError(f"{where}.actions.zoneLights names unknown zone {zone_id!r}")
@@ -49,9 +51,10 @@ def beat_to_content(registry, beat, where="beat"):
         for device in registry.devices_in_zone(zone_id):
             if device.get("type") in ("light", "lightstrip") and device.get("controllable", True):
                 lights.setdefault(device["id"], dict(look))
-    scenes = actions.get("scenes") or {}
-    if not isinstance(scenes, dict):
+    raw_scenes = actions.get("scenes") or {}
+    if not isinstance(raw_scenes, dict):
         raise ModalityError(f"{where}.actions.scenes must be an object")
+    scenes = raw_scenes
     for device_id, scene in scenes.items():
         lights.setdefault(device_id, {})["scene"] = scene
     content = {
@@ -74,6 +77,8 @@ def plan_modality(registry, modality_id, modality):
         raise ModalityError(f"modality {modality_id} needs a non-empty beats list")
     beats = modality["beats"]
     for index, beat in enumerate(beats):
+        if not isinstance(beat, dict):
+            raise ModalityError(f"modality {modality_id} beat {index} must be an object")
         if beat.get("stay") and index != len(beats) - 1:
             raise ModalityError(f"modality {modality_id} beat {index}: stay is only for the last beat")
     contents = [beat_to_content(registry, beat, f"{modality_id} beat {i}") for i, beat in enumerate(beats)]
