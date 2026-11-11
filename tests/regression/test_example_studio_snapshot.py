@@ -30,6 +30,9 @@ def test_example_studio_snapshot():
     assert [m["id"] for m in loaded["modes"]] == ["demo_work", "demo_stream"]
     assert sorted(loaded["presets"]) == ["default"]
     assert loaded["studio"]["defaultMode"] == "demo_work"
+    assert sorted(loaded["defaults"]) == ["default"]
+    assert loaded["studio"]["defaultSet"] == "default"
+    assert loaded["defaults"]["default"]["devices"]["demo-key"] == {"intensity": 50, "cct": 4600}
 
 
 @pytest.mark.regression

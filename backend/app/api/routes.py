@@ -193,6 +193,13 @@ def studios(request: Request):
     return request.app.state.studio_list
 
 
+@router.get("/api/profiles")
+def profiles(request: Request):
+    """List shared model profiles as {id, kind} entries (spec truth for ranges)."""
+    profiles = getattr(request.app.state, "profiles", None) or {}
+    return [{"id": pid, "kind": profiles[pid].get("kind", "")} for pid in sorted(profiles)]
+
+
 @router.get("/api/studios/{studio_id}/devices")
 def studio_devices(studio_id: str, request: Request):
     """List effective devices (instance merged with profile) for a studio."""

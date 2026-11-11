@@ -4,6 +4,7 @@
 from .store import (
     Registry,
     RegistryError,
+    UnknownDefaultSetError,
     UnknownDeviceError,
     UnknownModeError,
     UnknownPresetError,
@@ -13,6 +14,7 @@ from .store import (
 __all__ = [
     "Registry",
     "RegistryError",
+    "UnknownDefaultSetError",
     "UnknownDeviceError",
     "UnknownModeError",
     "UnknownPresetError",

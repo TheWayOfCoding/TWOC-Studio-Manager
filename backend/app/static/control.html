@@ -5,11 +5,13 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Studio Hub — Control</title>
 <link rel="stylesheet" href="/hub.css">
+<script src="/nav.js" defer></script>
 </head>
 <body>
 <header class="topbar">
 <span class="brand">Studio Hub</span>
-<nav><a href="/">Dashboard</a><a href="/control" aria-current="page">Control</a><a href="/equipment">Equipment</a><span class="navgroup">Administration</span><a href="/modality">Modality Manager</a><a href="/ordering">Ordering</a><a href="/obs">OBS targets</a><a href="/bench">Test Bench</a><a href="/docs">API docs</a></nav>
+<button type="button" class="nav-toggle" aria-expanded="false" aria-controls="mainnav" aria-label="Menu">☰</button>
+<nav id="mainnav" aria-label="Main"><a href="/">Dashboard</a><a href="/control" aria-current="page">Control</a><div class="navdrop"><button type="button" class="navdrop-toggle" aria-expanded="false" aria-controls="navadmin">Administration</button><div class="navdrop-menu" id="navadmin"><a href="/equipment">Equipment</a><a href="/modality">Modality Manager</a><a href="/ordering">Ordering</a><a href="/datamap">Data map</a><a href="/obs">OBS targets</a><a href="/bench">Test Bench</a><a href="/docs">API docs</a></div></div></nav>
 </header>
 <div class="wrap narrow">
 <h1>Control</h1>
@@ -18,6 +20,7 @@
 <div class="row"><label class="field" for="device">Asset (A–Z)</label><select id="device" onchange="renderCard()"></select></div>
 <div class="row"><label><input type="radio" name="control-view" value="assets" checked onchange="viewSwap()"> Everything else</label>
 <label><input type="radio" name="control-view" value="plugs" onchange="viewSwap()"> Kasa plugs</label></div>
+<div class="row"><button id="reset-all" onclick="resetAll()" style="display:none">Reset everything to studio default</button><label class="field" id="reset-plugs-row" style="display:none"><input type="checkbox" id="reset-plugs"> also reset Kasa plugs</label></div>
 <div id="assets-view">
 <div id="card"></div>
 </div>
@@ -54,6 +57,13 @@ function dualProtocol(d) {
   return Boolean(a.channel && a.group && a.dmx && a.dmx.dimmer);
 }
 
+function effFamily(d) {
+  // Effective driver family after the transport pick (mirrors the backend).
+  if ((d.driver === "ninja" || d.driver === "dmx") && (d.transport === "ble" || d.transport === "dmx"))
+    return d.transport === "ble" ? "ninja" : "dmx";
+  return d.driver;
+}
+
 async function transportSet(id, value) {
   try {
     const r = await fetch("/api/studios/" + studio() + "/devices/" + id + "/transport",
@@ -65,6 +75,35 @@ async function transportSet(id, value) {
   } catch (e) { out({error: String(e)}, false); }
 }
 let DEVICES = [];
+let RANGES = {};   // effective per-device ranges from the shared resolver (no hardcoded spans)
+let DEFAULT_SET = null;   // assigned default set for this studio ({label, devices, plugs}) or null
+let DEFAULT_SET_ID = null;
+
+function sessKey(id) { return "twoc.control." + studio() + "." + id; }
+function sessRead(id) {
+  try { return JSON.parse(sessionStorage.getItem(sessKey(id)) || "{}") || {}; }
+  catch (e) { return {}; }
+}
+function sessWrite(id, values) {
+  try {
+    sessionStorage.setItem(sessKey(id), JSON.stringify(Object.assign(sessRead(id), values)));
+  } catch (e) { /* storage blocked: session memory off, page still works */ }
+}
+function defaultValues(id) {
+  if (!DEFAULT_SET || !DEFAULT_SET.devices) return {};
+  return DEFAULT_SET.devices[id] || {};
+}
+function hasDefault(id) { return Object.keys(defaultValues(id)).length > 0; }
+function initVal(id, key, fallback) {
+  // Session (what this tab last sent) wins; then the studio default set
+  // (file key "intensity" feeds the card's brightness input); else hardcoded.
+  const s = sessRead(id);
+  if (s[key] !== undefined) return s[key];
+  const d = defaultValues(id);
+  const fileKey = key === "brightness" ? "intensity" : key;
+  if (d[fileKey] !== undefined) return d[fileKey];
+  return fallback;
+}
 
 function drivable(d) {
   if (d.controllable === false) return false;
@@ -101,6 +140,7 @@ async function loadPlugs() {
       "<button onclick=\"plugSet('" + p.plug + "',true)\">On</button>" +
       "<button onclick=\"plugSet('" + p.plug + "',false)\">Off</button>" +
       "<button onclick=\"plugState('" + p.plug + "')\">State</button>" +
+      "<button onclick=\"plugReset('" + p.plug + "')\">Reset</button>" +
       ' <span class="meta">' + esc(p.zone || "") + "</span></div>").join("") || "no plugs";
   } catch (e) { document.getElementById("plugs").textContent = "plugs unavailable"; }
 }
@@ -109,15 +149,32 @@ async function plugState(plug) {
     const r = await jget("/api/kasa/plugs/" + plug + "/state");
     const el = document.getElementById("cp-state-" + plug);
     if (el) el.textContent = r.ok ? (r.state.power || "?") : "error";
+    if (r.ok && (r.state.power === "on" || r.state.power === "off"))
+      sessWrite("plug." + plug, {on: r.state.power === "on"});
     out(r, r.ok, plug + (r.ok ? " is " + (r.state.power || "?") : " failed"));
   } catch (e) { out({error: String(e)}, false); }
 }
+async function sendPlug(plug, on) {
+  return jpost("/api/kasa/plugs/" + plug + "/set", JSON.stringify({on: on}));
+}
 async function plugSet(plug, on) {
   try {
-    const r = await jpost("/api/kasa/plugs/" + plug + "/set", JSON.stringify({on: on}));
+    const r = await sendPlug(plug, on);
     const el = document.getElementById("cp-state-" + plug);
     if (el && r.ok) el.textContent = r.state.power || (on ? "on" : "off");
+    if (r.ok) sessWrite("plug." + plug, {on: on});
     out(r, r.ok, plug + (r.ok ? " → " + (r.state.power || "?") : " failed"));
+  } catch (e) { out({error: String(e)}, false); }
+}
+async function plugReset(plug) {
+  const want = (DEFAULT_SET && DEFAULT_SET.plugs && DEFAULT_SET.plugs[plug]) || null;
+  if (!want) { out({error: "no saved default for " + plug}, false); return; }
+  try {
+    const r = await sendPlug(plug, want.on);
+    const el = document.getElementById("cp-state-" + plug);
+    if (el && r.ok) el.textContent = r.state.power || (want.on ? "on" : "off");
+    if (r.ok) sessWrite("plug." + plug, {on: want.on});
+    out(r, r.ok, plug + (r.ok ? " reset → " + (r.state.power || "?") : " failed"));
   } catch (e) { out({error: String(e)}, false); }
 }
 
@@ -125,10 +182,20 @@ async function loadDevices() {
   try {
     DEVICES = await jget("/api/studios/" + studio() + "/devices");
   } catch (e) { out({error: String(e)}, false); return; }
-  const shown = DEVICES.filter((d) => d.type === "light" || d.type === "lightstrip" || d.type === "screen");
+  try {
+    RANGES = (await jget("/api/studios/" + studio() + "/ranges")).devices || {};
+  } catch (e) { RANGES = {}; }
+  const shown = DEVICES.filter((d) => drivable(d));
   document.getElementById("device").innerHTML = shown.map((d) =>
-    "<option value='" + d.id + "'" + (drivable(d) ? "" : " disabled") + ">" +
-    esc(d.name || d.id) + (drivable(d) ? "" : " (manual)") + "</option>").join("");
+    "<option value='" + d.id + "'>" + esc(d.name || d.id) + "</option>").join("");
+  try {
+    const ds = await jget("/api/studios/" + studio() + "/defaults");
+    DEFAULT_SET_ID = ds.default || null;
+    DEFAULT_SET = (ds.default && ds.sets && ds.sets[ds.default]) || null;
+  } catch (e) { DEFAULT_SET_ID = null; DEFAULT_SET = null; }
+  document.getElementById("reset-all").style.display = DEFAULT_SET ? "" : "none";
+  document.getElementById("reset-plugs-row").style.display =
+    (DEFAULT_SET && Object.keys(DEFAULT_SET.plugs || {}).length) ? "" : "none";
   renderCard();
 }
 
@@ -139,6 +206,16 @@ function sliderRow(id, label, min, max, step, val, unit, liveFn) {
     'oninput="document.getElementById(\'' + id + '-n\').value = this.value' + live + '">' +
     '<label class="field"><input type="number" id="' + id + '-n" min="' + min + '" max="' + max + '" step="' + step + '" value="' + val + '" style="width:5em" ' +
     'onchange="document.getElementById(\'' + id + '\').value = this.value' + live + '"> ' + (unit || "") + "</label></div>";
+}
+
+function cctBounds(d) {
+  // One resolver for every page: the ranges endpoint (profile spec wins,
+  // generic outer bounds only where a profile omits the range).
+  const info = ((RANGES[d.id] || {}).values || {}).cct;
+  if (info && info.supported !== false && info.min !== undefined) return [info.min, info.max, info.step || 100];
+  const spec = (d.spec || {}).cctRange;
+  if (spec && spec.length === 2) return [spec[0], spec[1], 100];
+  return [2500, 8500, 100];
 }
 
 function renderCard() {
@@ -160,6 +237,11 @@ function renderCard() {
       '<option value="dmx"' + (cur === "dmx" ? " selected" : "") + '>DMX</option></select></label>' +
       '<span class="hint">dual-protocol fixture: bench, modes, AI and Control all follow this</span></div>';
   }
+  if (hasDefault(d.id))
+    h += '<div class="row"><button onclick="resetDevice()">Reset to default</button>' +
+      '<span class="hint">studio default: ' + esc(DEFAULT_SET.label || DEFAULT_SET_ID || "") + "</span></div>";
+  else
+    h += '<div class="row"><span class="hint">No saved default for this asset — manage default sets on the Equipment page.</span></div>';
   if (d.type === "screen") {
     h += '<div class="row"><label class="field" for="c-theme">Theme</label><select id="c-theme"><option value="">Default</option><option value="live">Live</option><option value="work">Work</option><option value="focus">Focus</option><option value="warm">Warm</option><option value="candle">Candle</option><option value="sunset">Sunset</option><option value="ocean">Ocean</option><option value="slate">Slate</option><option value="rose">Rose</option></select></div>' +
       '<div class="row"><label class="field" for="c-anim">Animation</label><select id="c-anim"><option value="">None</option><option value="fireplace">Fireplace</option><option value="fishtank">Fish tank</option><option value="underwater">Underwater reef</option><option value="starfield">Starfield</option><option value="nebula">Nebula (JWST infrared)</option><option value="galaxy">Galaxy (Hubble spiral)</option><option value="code">Code rain (programming)</option><option value="arcade">Arcade (gaming)</option><option value="gears">Gears (crafting / Gunpla)</option><option value="dice">Dice (D&amp;D)</option><option value="puzzle">Puzzle</option><option value="bistro">Bistro (food / drink)</option><option value="tailor">Tailor (cosplay / sewing)</option><option value="unbox">Unboxing</option><option value="aperture">Aperture (camera)</option><option value="circuit">Circuit (tech news)</option><option value="photons">Photons (Scotty Photon)</option></select></div>' +
@@ -167,7 +249,7 @@ function renderCard() {
       '<div class="row"><label class="field" for="c-ttl">Show s</label><input type="number" id="c-ttl" value="0" min="0" max="3600"></div>' +
       '<div class="row"><button onclick="screenPush()">Push to screen</button><button onclick="screenClear()">Clear</button></div>' +
       '<hr><div class="row"><span class="hint">Audio</span></div><div class="row"><label class="field" for="c-track">Track</label><select id="c-track"><option value="piano">Piano</option><option value="eurobeat">Eurobeat</option><option value="dance">Dance</option><option value="synthwave">Synthwave</option><option value="ocean">Ocean</option><option value="space">Space</option><option value="lofi">Lo-fi (co-working)</option><option value="chiptune">Chiptune (gaming)</option></select></div>' +
-      sliderRow("c-vol", "Audio volume", 0, 100, 1, 100, "%", "screenVolume()") +
+      sliderRow("c-vol", "Audio volume", 0, 100, 1, initVal(d.id, "volume", 100), "%", "screenVolume()") +
       '<div class="row"><button onclick="screenAudio(\'play\')">Play bed</button><button onclick="screenAudio(\'stop\')">Stop bed</button></div>' +
       '<div class="row"><label class="field" for="c-fx">Audio FX</label><select id="c-fx"><option value="stinger">stinger</option><option value="ding">ding</option><option value="pop">pop</option><option value="coin">coin</option><option value="levelup">levelup</option><option value="powerup">powerup</option><option value="whoosh">whoosh</option><option value="error">error</option><option value="success">success</option><option value="applause">applause</option><option value="laser">laser</option><option value="unlock">unlock</option><option value="alert">alert</option><option value="blip">blip</option></select><button onclick="screenFx()">Play FX</button></div>';
   } else if (d.driver === "ir") {
@@ -175,66 +257,104 @@ function renderCard() {
       '<div class="row"><label class="field">Fixed color</label></div><div class="swatches" id="c-swatches"><span class="hint">loading…</span></div>' +
       '<p class="hint">No brightness levels on the strip — brightness stepping stays on the Test Bench.</p>';
   } else {
-    if (d.driver === "gvm" || d.driver === "ninja" || d.driver === "mock")
+    if (effFamily(d) === "gvm" || effFamily(d) === "ninja" || effFamily(d) === "mock")
       h += '<div class="row"><button onclick="lightPower(\'on\')">On</button><button onclick="lightPower(\'off\')">Off</button></div>';
     else
       h += '<p class="hint">DMX has no power switch — 0% is dark.</p>';
-    h += sliderRow("c-br", "Brightness", 0, 100, 1, 5, "%") +
+    h += sliderRow("c-br", "Brightness", 0, 100, 1, initVal(d.id, "brightness", 5), "%") +
       '<div class="row"><button onclick="lightBright()">Set brightness</button></div>';
-    if (caps.cct !== false)
-      h += sliderRow("c-cct", "Color temperature", 2500, 8500, 100, 5600, "K") +
-        '<div class="row"><button onclick="lightCct()">Set CCT</button></div>';
+    if (caps.cct !== false) {
+      const [cctMin, cctMax, cctStep] = cctBounds(d);
+      h += sliderRow("c-cct", "Color temperature", cctMin, cctMax, cctStep, initVal(d.id, "cct", 5600), "K") +
+        '<div class="row"><button onclick="lightCct()">Set CCT</button><span class="hint">' + cctMin + "–" + cctMax + " K · this fixture's span</span></div>";
+    }
     if (caps.rgb) {
-      h += sliderRow("c-hue", "Hue", 0, 360, 5, 220, "°") +
-        sliderRow("c-sat", "Saturation", 0, 100, 1, 60, "%") +
+      h += sliderRow("c-hue", "Hue", 0, 360, 5, initVal(d.id, "hue", 220), "°") +
+        sliderRow("c-sat", "Saturation", 0, 100, 1, initVal(d.id, "saturation", 60), "%") +
         '<div class="row"><button onclick="lightHsi()">Set color</button></div>';
     }
     if (d.driver === "dmx" || d.driver === "ninja")
       h += '<div class="row"><label class="field"><input type="checkbox" id="c-bright"> allow bright (past the gentle 10%)</label></div>';
   }
   el.innerHTML = h + "</div>";
+  if (d.type === "screen") {
+    document.getElementById("c-theme").value = initVal(d.id, "theme", "");
+    document.getElementById("c-anim").value = initVal(d.id, "animation", "");
+    document.getElementById("c-text").value = initVal(d.id, "text", "");
+    document.getElementById("c-track").value = initVal(d.id, "track", "piano");
+  }
   if (d.driver === "ir") loadSwatches();
 }
 
 function allowBright() { const c = document.getElementById("c-bright"); return c ? c.checked : false; }
 
+async function sendPower(d, on) {
+  const where = studio() + "/" + d.id, fam = effFamily(d);
+  if (fam === "gvm")
+    return jpost("/api/testbench/gvm/set", JSON.stringify({panel: where, power: on}));
+  if (fam === "ninja")
+    return jpost("/api/testbench/ninja/set", JSON.stringify({light: where, power: on}));
+  throw new Error(fam + " has no power switch here");
+}
+
+async function sendTransport(d, value) {
+  const r = await fetch("/api/studios/" + studio() + "/devices/" + d.id + "/transport",
+    {method: "PUT", headers: {"Content-Type": "application/json"}, body: JSON.stringify({transport: value})});
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(j.detail || r.status);
+  d.transport = value;
+  return j;
+}
+
+async function sendBright(d, v, brightOk) {
+  const where = studio() + "/" + d.id, fam = effFamily(d);
+  if (fam === "gvm")
+    return jpost("/api/testbench/gvm/set", JSON.stringify({panel: where, brightness: v}));
+  if (fam === "ninja")
+    return jpost("/api/testbench/ninja/set", JSON.stringify({light: where, brightness: v, allow_bright: brightOk}));
+  if (fam === "dmx")
+    return jpost("/api/testbench/dmx/light", JSON.stringify({studio: studio(), fixture: d.id, power: v, allow_bright: brightOk}));
+  throw new Error(fam + " brightness is bench-only");
+}
+
+async function sendCct(d, v) {
+  const where = studio() + "/" + d.id, fam = effFamily(d);
+  if (fam === "gvm")
+    return jpost("/api/testbench/gvm/set", JSON.stringify({panel: where, page: "cct", cct: v}));
+  if (fam === "ninja")
+    return jpost("/api/testbench/ninja/set", JSON.stringify({light: where, cct: v}));
+  if (fam === "dmx")
+    return jpost("/api/testbench/dmx/light", JSON.stringify({studio: studio(), fixture: d.id, cct: v}));
+  throw new Error(fam + " CCT is bench-only");
+}
+
+async function sendHsi(d, hue, sat) {
+  if (effFamily(d) === "gvm")
+    return jpost("/api/testbench/gvm/set", JSON.stringify({panel: studio() + "/" + d.id, page: "hsi", hue: hue, saturation: sat}));
+  throw new Error(effFamily(d) + " has no color picker here");
+}
+
 async function lightPower(on) {
   const d = current();
   try {
-    if (d.driver === "gvm")
-      out(await jpost("/api/testbench/gvm/set", JSON.stringify({panel: studio() + "/" + d.id, power: on})), true, "Power " + on);
-    else if (d.driver === "ninja")
-      out(await jpost("/api/testbench/ninja/set", JSON.stringify({light: studio() + "/" + d.id, power: on})), true, "Power " + on);
-    else
-      out({error: d.driver + " has no power switch here"}, false);
+    out(await sendPower(d, on), true, "Power " + on);
+    sessWrite(d.id, {power: on});
   } catch (e) { out({error: String(e)}, false); }
 }
 
 async function lightBright() {
   const d = current(), v = parseInt(document.getElementById("c-br-n").value, 10);
   try {
-    if (d.driver === "gvm")
-      out(await jpost("/api/testbench/gvm/set", JSON.stringify({panel: studio() + "/" + d.id, brightness: v})), true, "Brightness → " + v + "%");
-    else if (d.driver === "ninja")
-      out(await jpost("/api/testbench/ninja/set", JSON.stringify({light: studio() + "/" + d.id, brightness: v, allow_bright: allowBright()})), true, "Brightness → " + v + "%");
-    else if (d.driver === "dmx")
-      out(await jpost("/api/testbench/dmx/light", JSON.stringify({studio: studio(), fixture: d.id, power: v, allow_bright: allowBright()})), true, "Brightness → " + v + "%");
-    else
-      out({error: d.driver + " brightness is bench-only"}, false);
+    out(await sendBright(d, v, allowBright()), true, "Brightness → " + v + "%");
+    sessWrite(d.id, {brightness: v});
   } catch (e) { out({error: String(e)}, false); }
 }
 
 async function lightCct() {
   const d = current(), v = parseInt(document.getElementById("c-cct-n").value, 10);
   try {
-    if (d.driver === "gvm")
-      out(await jpost("/api/testbench/gvm/set", JSON.stringify({panel: studio() + "/" + d.id, page: "cct", cct: v})), true, "CCT → " + v + "K");
-    else if (d.driver === "ninja")
-      out(await jpost("/api/testbench/ninja/set", JSON.stringify({light: studio() + "/" + d.id, cct: v})), true, "CCT → " + v + "K");
-    else if (d.driver === "dmx")
-      out(await jpost("/api/testbench/dmx/light", JSON.stringify({studio: studio(), fixture: d.id, cct: v})), true, "CCT → " + v + "K");
-    else
-      out({error: d.driver + " CCT is bench-only"}, false);
+    out(await sendCct(d, v), true, "CCT → " + v + "K");
+    sessWrite(d.id, {cct: v});
   } catch (e) { out({error: String(e)}, false); }
 }
 
@@ -243,11 +363,113 @@ async function lightHsi() {
   const hue = parseInt(document.getElementById("c-hue-n").value, 10);
   const sat = parseInt(document.getElementById("c-sat-n").value, 10);
   try {
-    if (d.driver === "gvm")
-      out(await jpost("/api/testbench/gvm/set", JSON.stringify({panel: studio() + "/" + d.id, page: "hsi", hue: hue, saturation: sat})), true, "Color → " + hue + "° / " + sat + "%");
-    else
-      out({error: d.driver + " has no color picker here"}, false);
+    out(await sendHsi(d, hue, sat), true, "Color → " + hue + "° / " + sat + "%");
+    sessWrite(d.id, {hue: hue, saturation: sat});
   } catch (e) { out({error: String(e)}, false); }
+}
+
+async function resetOne(d) {
+  // Drive one device to its default-set values. Returns step summaries.
+  const want = defaultValues(d.id);
+  const steps = [];
+  if (d.type === "screen") {
+    const body = {screen: d.id, theme: want.theme || "", text: want.text || "",
+      animation: want.animation || ""};
+    await sendScreenPush(body);
+    sessWrite(d.id, {theme: body.theme, text: body.text, animation: body.animation});
+    return ["pushed " + (body.theme || "default theme")];
+  }
+  if (d.driver === "ir") {
+    if (want.power !== undefined) { await sendIr(want.power, d.id); steps.push("power " + want.power); }
+    if (want.color !== undefined) { await sendIr(want.color, d.id); steps.push("color " + want.color); }
+    if (!steps.length) throw new Error("nothing resettable for " + d.id);
+    sessWrite(d.id, Object.assign({},
+      want.power !== undefined ? {power: want.power} : null,
+      want.color !== undefined ? {color: want.color} : null));
+    return steps;
+  }
+  // Saved interface first: the look below routes through the picked family.
+  let flipped = false;
+  if (want.transport !== undefined && dualProtocol(d) && d.transport !== want.transport) {
+    await sendTransport(d, want.transport); steps.push("interface " + want.transport); flipped = true;
+  }
+  if (flipped) sessWrite(d.id, {transport: want.transport});
+  // Reset restores saved levels exactly, so it always allows bright: the
+  // checkbox guards ad-hoc slider moves, not a deliberate restore.
+  if (want.power !== undefined && (effFamily(d) === "gvm" || effFamily(d) === "ninja")) {
+    await sendPower(d, want.power); steps.push("power " + want.power);
+  }
+  if (want.intensity !== undefined) {
+    await sendBright(d, want.intensity, true); steps.push("brightness " + want.intensity + "%");
+  }
+  if (want.cct !== undefined) { await sendCct(d, want.cct); steps.push("CCT " + want.cct + "K"); }
+  if (want.hue !== undefined || want.saturation !== undefined) {
+    const hue = want.hue !== undefined ? want.hue : initVal(d.id, "hue", 220);
+    const sat = want.saturation !== undefined ? want.saturation : initVal(d.id, "saturation", 60);
+    await sendHsi(d, hue, sat); steps.push("color " + hue + "°/" + sat + "%");
+  }
+  if (!steps.length) throw new Error("nothing resettable for " + d.id);
+  const mem = {};
+  if (want.power !== undefined) mem.power = want.power;
+  if (want.intensity !== undefined) mem.brightness = want.intensity;
+  if (want.cct !== undefined) mem.cct = want.cct;
+  if (want.hue !== undefined) mem.hue = want.hue;
+  if (want.saturation !== undefined) mem.saturation = want.saturation;
+  sessWrite(d.id, mem);
+  return steps;
+}
+
+async function refreshKeepSelection() {
+  const id = deviceId();
+  await loadDevices();
+  const sel = document.getElementById("device");
+  if ([...sel.options].some((o) => o.value === id)) sel.value = id;
+  renderCard();
+}
+
+async function resetDevice() {
+  const d = current();
+  if (!hasDefault(d.id)) { out({error: "no saved default for " + d.id}, false); return; }
+  try {
+    const steps = await resetOne(d);
+    out({reset: d.id}, true, d.id + " reset: " + steps.join(", "));
+    if (steps.some((s) => s.indexOf("interface ") === 0)) await refreshKeepSelection();
+    else renderCard();
+  } catch (e) { out({error: String(e)}, false); }
+}
+
+async function resetAll() {
+  if (!DEFAULT_SET) return;
+  const done = [], failed = [], skipped = [];
+  let flipped = false;
+  for (const id of Object.keys(DEFAULT_SET.devices || {})) {
+    const d = DEVICES.find((x) => x.id === id);
+    if (!d || !drivable(d)) { skipped.push(id); continue; }
+    try {
+      const steps = await resetOne(d);
+      if (steps.some((s) => s.indexOf("interface ") === 0)) flipped = true;
+      done.push(id);
+    }
+    catch (e) { failed.push(id); }
+  }
+  const plugOk = document.getElementById("reset-plugs").checked;
+  const plugHeld = [];
+  for (const plug of Object.keys(DEFAULT_SET.plugs || {})) {
+    if (!plugOk) { plugHeld.push(plug); continue; }
+    try {
+      const r = await sendPlug(plug, DEFAULT_SET.plugs[plug].on);
+      if (r.ok) { sessWrite("plug." + plug, {on: DEFAULT_SET.plugs[plug].on}); done.push(plug); }
+      else failed.push(plug);
+    } catch (e) { failed.push(plug); }
+  }
+  let summary = done.length + " reset";
+  if (failed.length) summary += "; failed: " + failed.join(", ");
+  if (skipped.length) summary += "; skipped (manual): " + skipped.join(", ");
+  if (plugHeld.length) summary += "; plugs held (tick the plug box): " + plugHeld.join(", ");
+  out({done: done, failed: failed, skipped: skipped}, failed.length === 0, summary);
+  if (flipped) await refreshKeepSelection();
+  else renderCard();
+  loadPlugs();
 }
 
 async function loadSwatches() {
@@ -261,10 +483,19 @@ async function loadSwatches() {
   } catch (e) { document.getElementById("c-swatches").innerHTML = '<span class="hint">no saved codes</span>'; }
 }
 
+async function sendIr(label, id) {
+  return jpost("/api/testbench/ir/send", JSON.stringify({studio: studio(), device: id || deviceId(), label: label}));
+}
+
 async function irSend(label) {
   try {
-    out(await jpost("/api/testbench/ir/send", JSON.stringify({studio: studio(), device: deviceId(), label: label})), true, "Sent " + label);
+    out(await sendIr(label), true, "Sent " + label);
+    sessWrite(deviceId(), (label === "on" || label === "off") ? {power: label} : {color: label});
   } catch (e) { out({error: String(e)}, false); }
+}
+
+async function sendScreenPush(body) {
+  return jpost("/api/testbench/screen/push", JSON.stringify(body));
 }
 
 async function screenPush() {
@@ -276,14 +507,17 @@ async function screenPush() {
       text: document.getElementById("c-text").value || null,
       animation: document.getElementById("c-anim").value};
     if (body.text && ttl > 0) body.text_ttl_s = ttl;
-    out(await jpost("/api/testbench/screen/push", JSON.stringify(body)), true, "Pushed to " + (current().name || deviceId()));
+    const r = await sendScreenPush(body);
+    sessWrite(deviceId(), {theme: body.theme || "", text: body.text || "", animation: body.animation || ""});
+    out(r, true, "Pushed to " + (current().name || deviceId()));
   } catch (e) { out({error: String(e)}, false); }
 }
 
 async function screenClear() {
   try {
-    out(await jpost("/api/testbench/screen/push", JSON.stringify({
-      screen: deviceId(), theme: "", text: "", animation: ""})), true, "Cleared " + (current().name || deviceId()));
+    const r = await sendScreenPush({screen: deviceId(), theme: "", text: "", animation: ""});
+    sessWrite(deviceId(), {theme: "", text: "", animation: ""});
+    out(r, true, "Cleared " + (current().name || deviceId()));
   } catch (e) { out({error: String(e)}, false); }
 }
 
@@ -297,6 +531,7 @@ async function screenAudio(action, quiet) {
     }
     const r = await jpost("/api/testbench/screen/audio", JSON.stringify(body));
     screenPlaying = action === "play" && r.ok;
+    if (action === "play" && r.ok) sessWrite(deviceId(), {track: body.track, volume: body.volume});
     if (!quiet || !r.ok) out(r, r.ok, "Bed " + action);
   } catch (e) { out({error: String(e)}, false); }
 }

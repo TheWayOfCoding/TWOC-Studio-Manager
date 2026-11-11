@@ -74,3 +74,34 @@ def test_bad_profile_reference_rejected():
     loaded["devices"][0]["profile"] = "nope"
     with pytest.raises(ConfigError, match="unknown profile"):
         check_references(loaded, data["profiles"], "example-studio")
+
+
+@pytest.mark.unit
+def test_defaults_missing_reads_as_empty(tmp_path):
+    import json
+    import shutil
+
+    shutil.copytree(CONFIG_ROOT / "profiles", tmp_path / "profiles")
+    studio_dir = tmp_path / "studios.local" / "x"
+    shutil.copytree(CONFIG_ROOT / "studios" / "example-studio", studio_dir)
+    (studio_dir / "defaults.json").unlink()
+    meta_path = studio_dir / "studio.json"
+    meta = json.loads(meta_path.read_text(encoding="utf-8"))
+    meta["id"] = "x"
+    del meta["defaultSet"]
+    meta_path.write_text(json.dumps(meta), encoding="utf-8")
+    loaded = load_studio(tmp_path, "x")
+    assert loaded["defaults"] == {}
+
+
+@pytest.mark.unit
+def test_bad_default_set_references_rejected():
+    data = load_all(CONFIG_ROOT)
+    loaded = data["studios"]["example-studio"]
+    loaded["studio"]["defaultSet"] = "nope"
+    with pytest.raises(ConfigError, match="unknown default set"):
+        check_references(loaded, data["profiles"], "example-studio")
+    loaded["studio"]["defaultSet"] = "default"
+    loaded["defaults"]["default"]["devices"]["nope"] = {"intensity": 5}
+    with pytest.raises(ConfigError, match="unknown device"):
+        check_references(loaded, data["profiles"], "example-studio")

@@ -5,11 +5,13 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Studio Hub — Equipment</title>
 <link rel="stylesheet" href="/hub.css">
+<script src="/nav.js" defer></script>
 </head>
 <body>
 <header class="topbar">
 <span class="brand">Studio Hub</span>
-<nav><a href="/">Dashboard</a><a href="/control">Control</a><a href="/equipment" aria-current="page">Equipment</a><span class="navgroup">Administration</span><a href="/modality">Modality Manager</a><a href="/ordering">Ordering</a><a href="/obs">OBS targets</a><a href="/bench">Test Bench</a><a href="/docs">API docs</a></nav>
+<button type="button" class="nav-toggle" aria-expanded="false" aria-controls="mainnav" aria-label="Menu">☰</button>
+<nav id="mainnav" aria-label="Main"><a href="/">Dashboard</a><a href="/control">Control</a><div class="navdrop"><button type="button" class="navdrop-toggle" aria-expanded="false" aria-controls="navadmin" aria-current="true">Administration</button><div class="navdrop-menu" id="navadmin"><a href="/equipment" aria-current="page">Equipment</a><a href="/modality">Modality Manager</a><a href="/ordering">Ordering</a><a href="/datamap">Data map</a><a href="/obs">OBS targets</a><a href="/bench">Test Bench</a><a href="/docs">API docs</a></div></div></nav>
 </header>
 <div class="wrap">
 <h1>Equipment datapoints</h1>
@@ -25,6 +27,54 @@
 <label class="field">to <select id="zn-target"></select></label>
 <button class="primary" onclick="znMove()">Move</button></div>
 <div id="zn-out"></div></div>
+<div class="card"><h2>Default sets</h2>
+<p class="lede">Named equipment-value snapshots for this studio. The assigned studio default seeds the Control page and powers one-click reset everywhere. Pick equipment from the dropdowns below (spans come from each fixture's profile) or paste JSON directly — both save through the same gate. Strips take power + color; screens take theme + text + animation; plugs take on/off.</p>
+<div class="row"><label class="field">studio default <select id="ds-default"></select></label>
+<button class="primary" onclick="dsAssign()">Assign</button><button onclick="dsClear()">Clear</button></div>
+<div id="ds-list"></div>
+<h3>Create set</h3>
+<div class="row"><label class="field">label <input type="text" id="ds-new-label" placeholder="Evening" oninput="dsSlugLabel()"></label>
+<span class="hint">id <code id="ds-new-id-show">—</code> (generated from the label)</span>
+<input type="hidden" id="ds-new-id"></div>
+<div class="row"><span class="hint">The label is what you see; the id is generated from it and stays fixed once created.</span></div>
+<div class="row"><label class="field">add device <select id="ds-add-device"></select></label>
+<button onclick="dsBuilderAdd(false)">Add</button>
+<button onclick="dsBuilderAddAll(false)">Add all controllable</button>
+<label class="field">add plug <select id="ds-add-plug"></select></label>
+<button onclick="dsPlugAdd(false)">Add</button></div>
+<div id="ds-builder-new"></div>
+<div id="ds-plugs-new"></div>
+<div class="row"><label class="field">quick assign <select id="ds-quick-prop"><option value="intensity">intensity</option><option value="cct">cct</option><option value="hue">hue</option><option value="saturation">saturation</option><option value="power">power</option><option value="page">page</option><option value="transport">interface</option></select></label>
+<label class="field">value <input type="text" id="ds-quick-value" style="width:7em"></label>
+<button onclick="dsQuickApply(false)">Apply to added lights</button>
+<span class="hint">clamps to each fixture's span; every clamp is reported</span></div>
+<div id="ds-quick-new-out"></div>
+<details><summary>Advanced JSON (auto-filled from the builder above)</summary>
+<div class="row"><label class="field">devices <textarea id="ds-new-devices" rows="5" cols="50" placeholder='{"demo-key": {"intensity": 40, "cct": 3200}}'></textarea></label>
+<label class="field">plugs <textarea id="ds-new-plugs" rows="5" cols="30" placeholder='{"plug-1": {"on": true}}'></textarea></label></div>
+</details>
+<div class="row"><button class="primary" onclick="dsCreate()">Create</button></div>
+<datalist id="ds-strip-colors"></datalist>
+<datalist id="ds-screen-themes"></datalist>
+<div id="ds-edit" style="display:none"><h3>Edit set</h3>
+<div class="row"><label class="field">label <input type="text" id="ds-edit-label"></label></div>
+<div class="row"><label class="field">add device <select id="ds-edit-add-device"></select></label>
+<button onclick="dsBuilderAdd(true)">Add</button>
+<button onclick="dsBuilderAddAll(true)">Add all controllable</button>
+<label class="field">add plug <select id="ds-edit-add-plug"></select></label>
+<button onclick="dsPlugAdd(true)">Add</button></div>
+<div id="ds-builder-edit"></div>
+<div id="ds-plugs-edit"></div>
+<div class="row"><label class="field">quick assign <select id="ds-edit-quick-prop"><option value="intensity">intensity</option><option value="cct">cct</option><option value="hue">hue</option><option value="saturation">saturation</option><option value="power">power</option><option value="page">page</option><option value="transport">interface</option></select></label>
+<label class="field">value <input type="text" id="ds-edit-quick-value" style="width:7em"></label>
+<button onclick="dsQuickApply(true)">Apply to added lights</button></div>
+<div id="ds-quick-edit-out"></div>
+<details open><summary>Advanced JSON (auto-filled from the builder above)</summary>
+<div class="row"><label class="field">devices <textarea id="ds-edit-devices" rows="8" cols="50"></textarea></label>
+<label class="field">plugs <textarea id="ds-edit-plugs" rows="8" cols="30"></textarea></label></div>
+</details>
+<div class="row"><button class="primary" onclick="dsSave()">Save</button><button onclick="dsCancelEdit()">Cancel</button></div></div>
+<div id="ds-out"></div></div>
 <div class="card"><h2>Datapoints</h2>
 <table class="grid-t"><thead><tr><th>Label</th><th>Value</th><th></th></tr></thead>
 <tbody id="eq-rows"></tbody></table>
@@ -41,6 +91,24 @@ async function jput(path, body) {
   const r = await fetch(path, {method: "PUT", headers: {"Content-Type": "application/json"}, body: body});
   const j = await r.json();
   if (!r.ok) throw new Error(JSON.stringify(j));
+  return j;
+}
+async function jpost(path, body) {
+  const r = await fetch(path, {method: "POST", headers: {"Content-Type": "application/json"}, body: body});
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error((j && j.detail) || r.status);
+  return j;
+}
+async function jputd(path, body) {
+  const r = await fetch(path, {method: "PUT", headers: {"Content-Type": "application/json"}, body: body});
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error((j && j.detail) || r.status);
+  return j;
+}
+async function jdel(path) {
+  const r = await fetch(path, {method: "DELETE"});
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error((j && j.detail) || r.status);
   return j;
 }
 function esc(s) {
@@ -103,11 +171,86 @@ async function loadDevice() {
       '<div class="row"><label class="field">Role <input type="text" id="eq-prop-role" value="' + esc(d.role || "").replace(/"/g, "&quot;") + '"></label>' +
       '<label class="field">Est. watts <input type="number" id="eq-prop-watts" value="' + esc(d.estWatts === undefined ? "" : d.estWatts) + '"></label></div>' +
       '<div class="row"><label class="field">Notes <input type="text" id="eq-prop-notes" value="' + esc(d.notes || "").replace(/"/g, "&quot;") + '"></label>' +
-      '<button onclick="eqSaveProps()">Save properties</button></div>';
+      '<button onclick="eqSaveProps()">Save properties</button></div>' + eqAddrForm(d) + dsResetRow();
     document.getElementById("eq-rows").innerHTML = "";
     Object.entries(r.details || {}).forEach(([k, v]) => eqAdd(k, v));
     document.getElementById("eq-out").innerHTML = "";
   } catch (e) { out("eq-out", {error: String(e)}, false); }
+}
+function eqAddrForm(d) {
+  const fam = d.driver;
+  if (fam !== "gvm" && fam !== "ninja" && fam !== "dmx") return "";
+  const a = d.driverAddress || {};
+  let h = '<div class="row"><span class="hint">Address — driver-linked values, validated on save.</span></div>';
+  if (fam === "gvm") {
+    h += '<div class="row"><label class="field">BLE MAC <input type="text" id="eq-addr-ble" value="' +
+      esc(a.ble || "").replace(/"/g, "&quot;") + '" placeholder="AA:BB:CC:DD:EE:FF" style="width:14em"></label></div>';
+  } else {
+    const dx = a.dmx || {};
+    h += '<div class="row"><label class="field">BLE channel <input type="number" id="eq-addr-channel" min="1" max="19" value="' +
+      (a.channel === undefined ? "" : a.channel) + '" style="width:4em"></label>' +
+      '<label class="field">group <input type="text" id="eq-addr-group" value="' + esc(a.group || "") +
+      '" maxlength="1" style="width:3em"></label>' +
+      '<span class="hint">broadcast pair — both or neither (empty removes BLE)</span></div>';
+    h += '<div class="row"><label class="field">DMX dimmer <input type="number" id="eq-addr-dimmer" min="1" max="512" value="' +
+      (dx.dimmer === undefined ? "" : dx.dimmer) + '" style="width:5em"></label>' +
+      '<label class="field">CCT <input type="number" id="eq-addr-cct" min="1" max="512" value="' +
+      (dx.cct === undefined ? "" : dx.cct) + '" style="width:5em"></label>' +
+      '<span class="hint">dimmer 1–512; CCT optional (fixed-temp fixtures omit it)</span></div>';
+  }
+  h += '<div class="row"><button onclick="eqSaveAddr()">Save address</button>' +
+    '<span class="hint">at least one half must stay; dropping a half moves the interface pick with it</span></div>';
+  return h;
+}
+async function eqSaveAddr() {
+  const id = device();
+  let addr;
+  try {
+    const cur = (await jget("/api/studios/" + studio() + "/devices/" + id)).device || {};
+    if (cur.driver === "gvm") {
+      addr = {ble: document.getElementById("eq-addr-ble").value.trim()};
+    } else {
+      addr = {};
+      const ch = document.getElementById("eq-addr-channel").value.trim();
+      const gr = document.getElementById("eq-addr-group").value.trim();
+      if (ch !== "" || gr !== "") {
+        if (ch === "" || gr === "") throw new Error("BLE needs both channel and group (or neither)");
+        addr.channel = Number(ch); addr.group = gr;
+      }
+      const di = document.getElementById("eq-addr-dimmer").value.trim();
+      const cc = document.getElementById("eq-addr-cct").value.trim();
+      if (di !== "" || cc !== "") {
+        if (di === "") throw new Error("DMX needs a dimmer channel (or neither)");
+        addr.dmx = {dimmer: Number(di)};
+        if (cc !== "") addr.dmx.cct = Number(cc);
+      }
+    }
+  } catch (e) { out("eq-out", {error: String(e)}, false); return; }
+  try {
+    const r = await jputd("/api/studios/" + studio() + "/devices/" + id + "/address",
+      JSON.stringify({driverAddress: addr}));
+    let msg = "address saved on " + r.device;
+    if (r.transport_coerced) msg += " (interface moved to " + (r.transport || "unset") + ")";
+    out("eq-out", {status: msg, address: r.address}, true);
+    await loadDevices();
+    document.getElementById("eq-device").value = id;
+    loadDevice();
+    dsRefreshRanges();
+  } catch (e) { out("eq-out", {error: String(e)}, false); }
+}
+async function dsRefreshRanges() {
+  try {
+    const [ranges, devs] = await Promise.all([
+      jget("/api/studios/" + studio() + "/ranges"),
+      jget("/api/studios/" + studio() + "/devices"),
+    ]);
+    DS_RANGES = ranges.devices || {}; DS_DEVLIST = devs || [];
+    const hasNew = Object.keys(DS_NEW.dev).length || Object.keys(DS_NEW.plugs).length;
+    const hasEdit = DS_EDIT_ID && (Object.keys(DS_EDIT.dev).length || Object.keys(DS_EDIT.plugs).length);
+    dsRenderBuilder(false); dsRenderBuilder(true);
+    if (hasNew) dsSyncJSON(false);
+    if (hasEdit) dsSyncJSON(true);
+  } catch (e) { /* builder keeps its last good data */ }
 }
 async function eqSaveProps() {
   const watts = document.getElementById("eq-prop-watts").value;
@@ -166,14 +309,494 @@ async function znMove() {
     znLoad();
   } catch (e) { out("zn-out", {error: String(e)}, false); }
 }
+let DS_SETS = {}, DS_DEFAULT = null, DS_EDIT_ID = null;
+function dsDeviceValues(id) {
+  if (!DS_DEFAULT || !DS_SETS[DS_DEFAULT]) return null;
+  const devs = DS_SETS[DS_DEFAULT].devices || {};
+  return devs[id] || null;
+}
+function dsResetRow() {
+  const dv = dsDeviceValues(device());
+  return '<div class="row"><button onclick="eqReset()" ' + (dv ? "" : "disabled") +
+    '>Reset to studio default</button><span class="hint">' +
+    (dv ? esc(JSON.stringify(dv)) : "no saved default for this asset") + "</span></div>";
+}
+let DS_RANGES = {}, DS_DEVLIST = [], DS_PLUGLIST = [];
+let DS_NEW = {dev: {}, plugs: {}}, DS_EDIT = {dev: {}, plugs: {}};
+let DS_GEN = {n: {}, e: {}};
+const DS_NUMERIC = ["intensity", "cct", "hue", "saturation"];
+const DS_UNITS = {intensity: "%", cct: "K", hue: "°", saturation: "%"};
+function dsTarget(isEdit) { return isEdit ? DS_EDIT : DS_NEW; }
+function dsRange(id) { return DS_RANGES[id] || {kind: "generic", values: {}}; }
+function dsDevName(id) {
+  const d = DS_DEVLIST.find((x) => x.id === id);
+  return d ? (d.name || d.id) : id;
+}
+function dsSlug(text) {
+  let s = String(text || "").trim().toLowerCase()
+    .replace(/[\s_]+/g, "-").replace(/[^a-z0-9-]/g, "")
+    .replace(/-+/g, "-").replace(/^-+|-+$/g, "");
+  if (!/^[a-z0-9]/.test(s)) s = "set-" + s;
+  return (s || "set").slice(0, 64);
+}
+function dsFreeId(base) {
+  let id = base, n = 2;
+  while (DS_SETS[id] || id === "assign") id = (base + "-" + (n++)).slice(0, 64);
+  return id;
+}
+function dsSlugLabel() {
+  const label = document.getElementById("ds-new-label").value;
+  const id = label.trim() ? dsFreeId(dsSlug(label)) : "";
+  document.getElementById("ds-new-id").value = id;
+  document.getElementById("ds-new-id-show").textContent = id || "—";
+}
+async function dsRangesLoad() {
+  DS_NEW = {dev: {}, plugs: {}}; DS_EDIT = {dev: {}, plugs: {}}; DS_GEN = {n: {}, e: {}};
+  try {
+    const [ranges, devs, plugs] = await Promise.all([
+      jget("/api/studios/" + studio() + "/ranges"),
+      jget("/api/studios/" + studio() + "/devices"),
+      jget("/api/kasa/plugs").catch(() => ({plugs: []})),
+    ]);
+    DS_RANGES = ranges.devices || {}; DS_DEVLIST = devs || []; DS_PLUGLIST = plugs.plugs || [];
+  } catch (e) { DS_RANGES = {}; DS_DEVLIST = []; DS_PLUGLIST = []; }
+  const controllable = DS_DEVLIST.filter((d) => d.controllable !== false);
+  const devOpts = controllable.map((d) => '<option value="' + d.id + '">' + esc(d.name || d.id) + " (" + d.id + ")</option>").join("");
+  document.getElementById("ds-add-device").innerHTML = devOpts || '<option value="">(no controllable devices)</option>';
+  document.getElementById("ds-edit-add-device").innerHTML = devOpts || '<option value="">(no controllable devices)</option>';
+  const plugOpts = DS_PLUGLIST.map((p) => '<option value="' + p.plug + '">' + esc(p.alias || p.plug) + "</option>").join("");
+  document.getElementById("ds-add-plug").innerHTML = plugOpts || '<option value="">(no plugs)</option>';
+  document.getElementById("ds-edit-add-plug").innerHTML = plugOpts || '<option value="">(no plugs)</option>';
+  let colors = [];
+  Object.keys(DS_RANGES).forEach((id) => {
+    const c = ((DS_RANGES[id].values || {}).color || {}).choices;
+    if (c && c.length > colors.length) colors = c;
+  });
+  document.getElementById("ds-strip-colors").innerHTML = colors.map((c) => '<option value="' + esc(c) + '">').join("");
+  let themes = [];
+  Object.keys(DS_RANGES).forEach((id) => {
+    const c = ((DS_RANGES[id].values || {}).theme || {}).choices;
+    if (c && c.length > themes.length) themes = c;
+  });
+  document.getElementById("ds-screen-themes").innerHTML = themes.map((c) => '<option value="' + esc(c) + '">').join("");
+  dsRenderBuilder(false); dsRenderBuilder(true);
+}
+function dsBuilderAdd(isEdit) {
+  const sel = document.getElementById(isEdit ? "ds-edit-add-device" : "ds-add-device");
+  if (!sel.value) return;
+  const t = dsTarget(isEdit);
+  if (!(sel.value in t.dev)) t.dev[sel.value] = {};
+  dsRenderBuilder(isEdit); dsSyncJSON(isEdit);
+}
+function dsBuilderAddAll(isEdit) {
+  const t = dsTarget(isEdit);
+  DS_DEVLIST.filter((d) => d.controllable !== false).forEach((d) => {
+    if (!(d.id in t.dev)) t.dev[d.id] = {};
+  });
+  dsRenderBuilder(isEdit); dsSyncJSON(isEdit);
+}
+function dsBuilderRemove(isEdit, id) {
+  delete dsTarget(isEdit).dev[id];
+  delete (isEdit ? DS_GEN.e : DS_GEN.n)[id];
+  dsRenderBuilder(isEdit); dsSyncJSON(isEdit);
+}
+function dsPlugAdd(isEdit) {
+  const sel = document.getElementById(isEdit ? "ds-edit-add-plug" : "ds-add-plug");
+  if (!sel.value) return;
+  dsTarget(isEdit).plugs[sel.value] = {on: true};
+  dsRenderBuilder(isEdit); dsSyncJSON(isEdit);
+}
+function dsPlugRemove(isEdit, plug) {
+  delete dsTarget(isEdit).plugs[plug];
+  dsRenderBuilder(isEdit); dsSyncJSON(isEdit);
+}
+function dsPlugSet(isEdit, plug, val) {
+  dsTarget(isEdit).plugs[plug] = {on: val === "on"};
+  dsSyncJSON(isEdit);
+}
+function dsValSet(isEdit, id, key, el) {
+  const t = dsTarget(isEdit), raw = el.value.trim();
+  if (raw === "") delete t.dev[id][key];
+  else { const num = Number(raw); t.dev[id][key] = isNaN(num) ? raw : num; }
+  dsWarn(isEdit, id); dsSyncJSON(isEdit);
+}
+function dsSelSet(isEdit, id, key, el) {
+  const t = dsTarget(isEdit);
+  if (el.value === "") delete t.dev[id][key];
+  else t.dev[id][key] = el.value;
+  dsWarn(isEdit, id); dsSyncJSON(isEdit);
+}
+function dsTextSet(isEdit, id, key, el) {
+  const t = dsTarget(isEdit);
+  if (el.value === "") delete t.dev[id][key];
+  else t.dev[id][key] = el.value;
+  dsSyncJSON(isEdit);
+}
+function dsGenPairs(isEdit, id) {
+  const g = isEdit ? DS_GEN.e : DS_GEN.n;
+  if (!g[id]) {
+    const cur = dsTarget(isEdit).dev[id] || {};
+    g[id] = Object.entries(cur).map(([k, v]) => [k, String(v)]);
+  }
+  return g[id];
+}
+function dsGenSet(isEdit, id, ix, which, el) {
+  const pairs = dsGenPairs(isEdit, id);
+  while (pairs.length <= ix) pairs.push(["", ""]);
+  pairs[ix][which] = el.value;
+  dsSyncJSON(isEdit);
+}
+function dsGenAdd(isEdit, id) {
+  dsGenPairs(isEdit, id).push(["", ""]);
+  dsRenderBuilder(isEdit);
+}
+function dsGenDel(isEdit, id, ix) {
+  dsGenPairs(isEdit, id).splice(ix, 1);
+  dsRenderBuilder(isEdit); dsSyncJSON(isEdit);
+}
+function dsGenVal(raw) {
+  const t = raw.trim();
+  if (t === "true") return true;
+  if (t === "false") return false;
+  if (t !== "" && !isNaN(Number(t))) return Number(t);
+  return raw;
+}
+function dsWarn(isEdit, id) {
+  const el = document.getElementById((isEdit ? "dse" : "dsn") + "-warn-" + id);
+  if (!el) return;
+  const vals = dsTarget(isEdit).dev[id] || {}, rv = (dsRange(id).values || {});
+  const msgs = [];
+  Object.keys(vals).forEach((key) => {
+    const info = rv[key];
+    if (info && info.supported === false) msgs.push(key + " is not supported by this fixture");
+    else if (info && typeof vals[key] === "number" && (vals[key] < info.min || vals[key] > info.max))
+      msgs.push(key + "=" + vals[key] + " is outside " + info.min + ".." + info.max + " (" + info.source + ")");
+  });
+  el.innerHTML = msgs.length ? '<span class="bad">● ' + esc(msgs.join("; ")) + " — kept until you change it</span>" : "";
+}
+function dsNumRow(isEdit, id, key, info, cur) {
+  const val = cur[key] === undefined ? "" : cur[key];
+  return '<div class="row"><label class="field">' + key +
+    ' <input type="number" min="' + info.min + '" max="' + info.max +
+    '" step="' + info.step + '" value="' + val + '" style="width:6em" onchange="dsValSet(' + isEdit + ",'" + id + "','" + key + "',this)\"></label>" +
+    '<span class="hint">' + info.min + "–" + info.max + " " + (DS_UNITS[key] || "") + " · " + esc(info.source) + "</span></div>";
+}
+function dsEnumRow(isEdit, id, key, options, cur, label) {
+  const opts = ['<option value="">(unset)</option>'].concat(options.map((o) =>
+    '<option value="' + o + '"' + (cur[key] === o ? " selected" : "") + ">" + o + "</option>")).join("");
+  return '<div class="row"><label class="field">' + (label || key) + ' <select onchange="dsSelSet(' + isEdit + ",'" + id + "','" + key + "',this)\">" + opts + "</select></label></div>";
+}
+function dsChoiceRow(isEdit, id, key, choices, cur) {
+  const opts = ['<option value="">(unset)</option>'].concat(choices.map((o) =>
+    '<option value="' + o + '"' + (cur[key] === o ? " selected" : "") + ">" + o + "</option>"));
+  if (cur[key] !== undefined && choices.indexOf(cur[key]) < 0)
+    opts.push('<option value="' + esc(cur[key]) + '" selected>' + esc(cur[key]) + " (kept)</option>");
+  return '<div class="row"><label class="field">' + key + ' <select onchange="dsSelSet(' + isEdit + ",'" + id + "','" + key + "',this)\">" + opts.join("") + "</select></label></div>";
+}
+function dsTextRow(isEdit, id, key, cur, extra) {
+  const val = cur[key] === undefined ? "" : String(cur[key]).replace(/"/g, "&quot;");
+  return '<div class="row"><label class="field">' + key + ' <input type="text" value="' + val +
+    '" ' + (extra || "") + ' onchange="dsTextSet(' + isEdit + ",'" + id + "','" + key + "',this)\"></label></div>";
+}
+function dsCard(isEdit, id) {
+  const r = dsRange(id), cur = dsTarget(isEdit).dev[id] || {};
+  const meta = DS_DEVLIST.find((d) => d.id === id) || {};
+  let h = '<div class="dmx-light"><h3>' + esc(dsDevName(id)) + " <small>" + esc(id) + " · " +
+    esc(r.kind || meta.type || "") + "</small> " +
+    '<button onclick="dsBuilderRemove(' + isEdit + ",'" + id + '\')">Remove</button></h3>';
+  if (r.kind === "light") {
+    DS_NUMERIC.forEach((key) => {
+      const info = (r.values || {})[key];
+      if (info && info.supported !== false) h += dsNumRow(isEdit, id, key, info, cur);
+      else if (key === "cct" && (meta.spec || {}).fixedTemp === true)
+        h += '<div class="row"><span class="hint">fixed ' + esc((meta.spec || {}).colorTempK || "?") + "K — no CCT control</span></div>";
+    });
+    h += dsEnumRow(isEdit, id, "power", ["on", "off"], cur);
+    if ((r.values || {}).page) h += dsEnumRow(isEdit, id, "page", ["cct", "hsi"], cur);
+    if ((r.values || {}).transport) h += dsEnumRow(isEdit, id, "transport", ["ble", "dmx"], cur, "interface");
+  } else if (r.kind === "strip") {
+    h += dsEnumRow(isEdit, id, "power", ["on", "off"], cur);
+    h += dsTextRow(isEdit, id, "color", cur, 'list="ds-strip-colors" placeholder="fixed color label"');
+  } else if (r.kind === "screen") {
+    h += dsTextRow(isEdit, id, "theme", cur, 'list="ds-screen-themes" placeholder="pick or type a theme"');
+    h += dsTextRow(isEdit, id, "text", cur, "");
+    h += dsChoiceRow(isEdit, id, "animation", ((r.values || {}).animation || {}).choices || [], cur);
+  } else {
+    const pairs = dsGenPairs(isEdit, id);
+    pairs.forEach(([k, v], ix) => {
+      h += '<div class="row"><label class="field">key <input type="text" value="' + esc(k).replace(/"/g, "&quot;") +
+        '" style="width:9em" onchange="dsGenSet(' + isEdit + ",'" + id + "'," + ix + ",0,this)\"></label>" +
+        '<label class="field">value <input type="text" value="' + esc(v).replace(/"/g, "&quot;") +
+        '" style="width:9em" onchange="dsGenSet(' + isEdit + ",'" + id + "'," + ix + ",1,this)\"></label>" +
+        '<button onclick="dsGenDel(' + isEdit + ",'" + id + "'," + ix + ')">Remove</button></div>';
+    });
+    h += '<div class="row"><button onclick="dsGenAdd(' + isEdit + ",'" + id + '\')">Add pair</button></div>';
+  }
+  h += '<div class="hint" id="' + (isEdit ? "dse" : "dsn") + "-warn-" + id + '"></div></div>';
+  return h;
+}
+function dsRenderBuilder(isEdit) {
+  const t = dsTarget(isEdit);
+  const ids = Object.keys(t.dev);
+  const empty = ids.filter((id) => {
+    if (dsRange(id).kind === "generic") return !dsGenPairs(isEdit, id).some(([k]) => k.trim());
+    return !Object.keys(t.dev[id]).length;
+  }).length;
+  document.getElementById(isEdit ? "ds-builder-edit" : "ds-builder-new").innerHTML =
+    ids.map((id) => dsCard(isEdit, id)).join("") +
+    (ids.length ? "" : '<p class="hint">no devices yet — pick one above, or paste JSON below.</p>') +
+    (empty ? '<p class="hint">' + empty + " added device(s) have no values yet — left out of the JSON until set.</p>" : "");
+  ids.forEach((id) => dsWarn(isEdit, id));
+  const plugs = Object.keys(t.plugs);
+  document.getElementById(isEdit ? "ds-plugs-edit" : "ds-plugs-new").innerHTML = plugs.length
+    ? plugs.map((p) => '<div class="row"><span class="field">' + esc(p) + '</span><label class="field">state <select onchange="dsPlugSet(' + isEdit + ",'" + p + '\',this.value)">' +
+      '<option value="on"' + (t.plugs[p].on ? " selected" : "") + '>on</option>' +
+      '<option value="off"' + (!t.plugs[p].on ? " selected" : "") + '>off</option></select></label>' +
+      '<button onclick="dsPlugRemove(' + isEdit + ",'" + p + '\')">Remove</button></div>').join("")
+    : "";
+}
+function dsSyncJSON(isEdit) {
+  const t = dsTarget(isEdit), dev = {};
+  Object.keys(t.dev).forEach((id) => {
+    if (dsRange(id).kind === "generic") {
+      const obj = {};
+      dsGenPairs(isEdit, id).forEach(([k, v]) => { if (k.trim()) obj[k.trim()] = dsGenVal(v); });
+      if (Object.keys(obj).length) dev[id] = obj;
+    } else if (Object.keys(t.dev[id]).length) dev[id] = t.dev[id];
+  });
+  document.getElementById(isEdit ? "ds-edit-devices" : "ds-new-devices").value = JSON.stringify(dev, null, 1);
+  document.getElementById(isEdit ? "ds-edit-plugs" : "ds-new-plugs").value = JSON.stringify(t.plugs, null, 1);
+}
+function dsQuickApply(isEdit) {
+  const outId = isEdit ? "ds-quick-edit-out" : "ds-quick-new-out";
+  const prop = document.getElementById(isEdit ? "ds-edit-quick-prop" : "ds-quick-prop").value;
+  const raw = document.getElementById(isEdit ? "ds-edit-quick-value" : "ds-quick-value").value.trim();
+  const t = dsTarget(isEdit);
+  const lights = Object.keys(t.dev).filter((id) => dsRange(id).kind === "light");
+  if (!lights.length) { document.getElementById(outId).innerHTML = '<p class="hint">no added lights to apply to.</p>'; return; }
+  if (prop === "power" || prop === "page" || prop === "transport") {
+    const ok = prop === "power" ? ["on", "off"] : prop === "page" ? ["cct", "hsi"] : ["ble", "dmx"];
+    if (ok.indexOf(raw) < 0) { document.getElementById(outId).innerHTML = '<p><span class="bad">● ' + prop + " must be " + ok.join("|") + "</span></p>"; return; }
+    const applied = [], skipped = [];
+    lights.forEach((id) => {
+      if (prop !== "power" && ((dsRange(id).values || {})[prop] === undefined)) { skipped.push(id); return; }
+      t.dev[id][prop] = raw; applied.push(id);
+    });
+    let msg = prop + " → " + raw + ": " + applied.length + " set";
+    if (skipped.length) msg += "; skipped (unsupported): " + skipped.join(", ");
+    document.getElementById(outId).innerHTML = '<p><span class="ok">● ' + esc(msg) + "</span></p>";
+  } else {
+    const num = Number(raw);
+    if (raw === "" || isNaN(num)) { document.getElementById(outId).innerHTML = '<p><span class="bad">● value must be a number</span></p>'; return; }
+    const applied = [], clamped = [], skipped = [];
+    lights.forEach((id) => {
+      const info = (dsRange(id).values || {})[prop];
+      if (!info || info.supported === false) { skipped.push(id); return; }
+      let v = num;
+      if (v < info.min || v > info.max) {
+        v = Math.min(info.max, Math.max(info.min, v));
+        clamped.push(id + " → " + v);
+      } else applied.push(id);
+      t.dev[id][prop] = v;
+    });
+    let msg = prop + " → " + raw + ": " + applied.length + " set";
+    if (clamped.length) msg += "; clamped: " + clamped.join(", ");
+    if (skipped.length) msg += "; skipped (unsupported): " + skipped.join(", ");
+    document.getElementById(outId).innerHTML = '<p><span class="ok">● ' + esc(msg) + "</span></p>";
+  }
+  dsRenderBuilder(isEdit); dsSyncJSON(isEdit);
+}
+async function dsLoad() {
+  try {
+    const r = await jget("/api/studios/" + studio() + "/defaults");
+    DS_SETS = r.sets || {}; DS_DEFAULT = r.default || null;
+  } catch (e) { DS_SETS = {}; DS_DEFAULT = null; }
+  try { await dsRangesLoad(); } catch (e) { /* builder stays empty; JSON path still works */ }
+  const ids = Object.keys(DS_SETS).sort();
+  document.getElementById("ds-default").innerHTML =
+    '<option value="">(none)</option>' + ids.map((id) =>
+      '<option value="' + id + '"' + (id === DS_DEFAULT ? " selected" : "") + ">" +
+      esc(DS_SETS[id].label || id) + "</option>").join("");
+  document.getElementById("ds-list").innerHTML = ids.length
+    ? '<table class="grid-t"><thead><tr><th>Set</th><th>Label</th><th>Devices</th><th>Plugs</th><th></th></tr></thead><tbody>' +
+      ids.map((id) => "<tr><td>" + esc(id) + (id === DS_DEFAULT ? " ★" : "") + "</td><td>" +
+        esc(DS_SETS[id].label || "") + "</td>" +
+        "<td>" + Object.keys(DS_SETS[id].devices || {}).length + "</td>" +
+        "<td>" + Object.keys(DS_SETS[id].plugs || {}).length + "</td>" +
+        '<td><button onclick="dsEdit(\'' + id + '\')">Edit</button> ' +
+        '<button onclick="dsDelete(\'' + id + '\')">Delete</button></td></tr>').join("") + "</tbody></table>"
+    : '<p class="hint">no default sets yet — create one below.</p>';
+}
+function dsParse(id) {
+  const raw = document.getElementById(id).value.trim();
+  if (!raw) return {};
+  try { return JSON.parse(raw); }
+  catch (e) { throw new Error(id + ": invalid JSON (" + e.message + ")"); }
+}
+async function dsCreate() {
+  dsSlugLabel();
+  const set_id = document.getElementById("ds-new-id").value.trim();
+  if (!set_id) { out("ds-out", {error: "give the set a label first (the id is generated from it)"}, false); return; }
+  try {
+    const r = await jpost("/api/studios/" + studio() + "/defaults", JSON.stringify({
+      set_id: set_id, label: document.getElementById("ds-new-label").value || null,
+      devices: dsParse("ds-new-devices"), plugs: dsParse("ds-new-plugs")}));
+    out("ds-out", {status: "created " + r.set}, true);
+    document.getElementById("ds-new-label").value = "";
+    document.getElementById("ds-new-id").value = "";
+    document.getElementById("ds-new-id-show").textContent = "—";
+    await dsLoad(); loadDevice();
+  } catch (e) { out("ds-out", {error: String(e)}, false); }
+}
+function dsEdit(id) {
+  if (!DS_SETS[id]) { out("ds-out", {error: "unknown default set: " + id + " (list is refreshing — try again)"}, false); return; }
+  DS_EDIT_ID = id;
+  document.getElementById("ds-edit-label").value = DS_SETS[id].label || "";
+  document.getElementById("ds-edit-devices").value = JSON.stringify(DS_SETS[id].devices || {}, null, 1);
+  document.getElementById("ds-edit-plugs").value = JSON.stringify(DS_SETS[id].plugs || {}, null, 1);
+  DS_EDIT = {dev: JSON.parse(JSON.stringify(DS_SETS[id].devices || {})),
+    plugs: JSON.parse(JSON.stringify(DS_SETS[id].plugs || {}))};
+  DS_GEN.e = {};
+  dsRenderBuilder(true);
+  document.getElementById("ds-edit").style.display = "";
+}
+function dsCancelEdit() {
+  DS_EDIT_ID = null; DS_EDIT = {dev: {}, plugs: {}}; DS_GEN.e = {};
+  dsRenderBuilder(true);
+  document.getElementById("ds-edit").style.display = "none";
+}
+async function dsSave() {
+  if (!DS_EDIT_ID) return;
+  try {
+    const r = await jputd("/api/studios/" + studio() + "/defaults/" + DS_EDIT_ID, JSON.stringify({
+      label: document.getElementById("ds-edit-label").value,
+      devices: dsParse("ds-edit-devices"), plugs: dsParse("ds-edit-plugs")}));
+    out("ds-out", {status: "saved " + r.set}, true);
+    dsCancelEdit(); await dsLoad(); loadDevice();
+  } catch (e) { out("ds-out", {error: String(e)}, false); }
+}
+async function dsDelete(id) {
+  if (!window.confirm("Delete default set '" + id + "'? The assigned studio default cannot be deleted.")) return;
+  try {
+    await jdel("/api/studios/" + studio() + "/defaults/" + id);
+    out("ds-out", {status: "deleted " + id}, true);
+    await dsLoad(); loadDevice();
+  } catch (e) { out("ds-out", {error: String(e)}, false); }
+}
+async function dsAssign() {
+  const v = document.getElementById("ds-default").value || null;
+  try {
+    const r = await jpost("/api/studios/" + studio() + "/defaults/assign", JSON.stringify({set_id: v}));
+    out("ds-out", {status: r.default ? "studio default: " + r.default : "studio default cleared"}, true);
+    await dsLoad(); loadDevice();
+  } catch (e) { out("ds-out", {error: String(e)}, false); }
+}
+async function dsClear() {
+  try {
+    await jpost("/api/studios/" + studio() + "/defaults/assign", JSON.stringify({set_id: null}));
+    out("ds-out", {status: "studio default cleared"}, true);
+    await dsLoad(); loadDevice();
+  } catch (e) { out("ds-out", {error: String(e)}, false); }
+}
+function eqSessWrite(id, values) {
+  // Same keys the Control page reads, so a reset here reseeds the card there.
+  try {
+    const key = "twoc.control." + studio() + "." + id;
+    let cur = {};
+    try { cur = JSON.parse(sessionStorage.getItem(key) || "{}") || {}; } catch (e) { cur = {}; }
+    sessionStorage.setItem(key, JSON.stringify(Object.assign(cur, values)));
+  } catch (e) { /* session memory off, reset still transmits */ }
+}
+async function eqReset() {
+  const id = device();
+  const dv = dsDeviceValues(id);
+  if (!dv) { out("eq-out", {error: "no saved default for " + id}, false); return; }
+  try {
+    const r = await jget("/api/studios/" + studio() + "/devices/" + id);
+    const d = r.device || {};
+    const steps = [];
+    const where = studio() + "/" + id;
+    if (d.type === "screen") {
+      await jpost("/api/testbench/screen/push", JSON.stringify({screen: id,
+        theme: dv.theme || "", text: dv.text || "", animation: dv.animation || ""}));
+      eqSessWrite(id, {theme: dv.theme || "", text: dv.text || "", animation: dv.animation || ""});
+      steps.push("pushed " + (dv.theme || "default theme"));
+    } else if (d.driver === "ir") {
+      if (dv.power !== undefined) {
+        await jpost("/api/testbench/ir/send", JSON.stringify({studio: studio(), device: id, label: dv.power}));
+        steps.push("power " + dv.power);
+      }
+      if (dv.color !== undefined) {
+        await jpost("/api/testbench/ir/send", JSON.stringify({studio: studio(), device: id, label: dv.color}));
+        steps.push("color " + dv.color);
+      }
+      eqSessWrite(id, dv);
+    } else if (d.type === "light" || d.type === "lightstrip") {
+      const dual = Boolean((d.driverAddress || {}).channel && (d.driverAddress || {}).group &&
+        (d.driverAddress || {}).dmx && ((d.driverAddress || {}).dmx || {}).dimmer);
+      if (dv.transport !== undefined && dual && d.transport !== dv.transport) {
+        await jputd("/api/studios/" + studio() + "/devices/" + id + "/transport",
+          JSON.stringify({transport: dv.transport}));
+        d.transport = dv.transport;
+        steps.push("interface " + dv.transport);
+      }
+      const fam = (d.driver === "ninja" || d.driver === "dmx") && (d.transport === "ble" || d.transport === "dmx")
+        ? (d.transport === "ble" ? "ninja" : "dmx") : d.driver;
+      if (dv.power !== undefined && (fam === "gvm" || fam === "ninja")) {
+        const ep = fam === "gvm" ? "/api/testbench/gvm/set" : "/api/testbench/ninja/set";
+        const body = fam === "gvm" ? {panel: where, power: dv.power} : {light: where, power: dv.power};
+        await jpost(ep, JSON.stringify(body));
+        steps.push("power " + dv.power);
+      }
+      if (dv.intensity !== undefined) {
+        if (fam === "gvm")
+          await jpost("/api/testbench/gvm/set", JSON.stringify({panel: where, brightness: dv.intensity}));
+        else if (fam === "ninja")
+          await jpost("/api/testbench/ninja/set", JSON.stringify({light: where, brightness: dv.intensity, allow_bright: true}));
+        else if (fam === "dmx")
+          await jpost("/api/testbench/dmx/light", JSON.stringify({studio: studio(), fixture: id, power: dv.intensity, allow_bright: true}));
+        else throw new Error(fam + " brightness is bench-only");
+        steps.push("brightness " + dv.intensity + "%");
+      }
+      if (dv.cct !== undefined) {
+        if (fam === "gvm")
+          await jpost("/api/testbench/gvm/set", JSON.stringify({panel: where, page: "cct", cct: dv.cct}));
+        else if (fam === "ninja")
+          await jpost("/api/testbench/ninja/set", JSON.stringify({light: where, cct: dv.cct}));
+        else if (fam === "dmx")
+          await jpost("/api/testbench/dmx/light", JSON.stringify({studio: studio(), fixture: id, cct: dv.cct}));
+        else throw new Error(fam + " CCT is bench-only");
+        steps.push("CCT " + dv.cct + "K");
+      }
+      if (dv.hue !== undefined || dv.saturation !== undefined) {
+        if (fam !== "gvm") throw new Error(fam + " has no color picker here");
+        await jpost("/api/testbench/gvm/set", JSON.stringify({panel: where, page: "hsi",
+          hue: dv.hue !== undefined ? dv.hue : 220,
+          saturation: dv.saturation !== undefined ? dv.saturation : 60}));
+        steps.push("color");
+      }
+      const mem = {};
+      if (dv.power !== undefined) mem.power = dv.power;
+      if (dv.intensity !== undefined) mem.brightness = dv.intensity;
+      if (dv.cct !== undefined) mem.cct = dv.cct;
+      if (dv.hue !== undefined) mem.hue = dv.hue;
+      if (dv.saturation !== undefined) mem.saturation = dv.saturation;
+      eqSessWrite(id, mem);
+    } else {
+      out("eq-out", {error: id + " has no remote reset"}, false); return;
+    }
+    if (!steps.length) { out("eq-out", {error: "nothing resettable for " + id}, false); return; }
+    out("eq-out", {status: id + " reset: " + steps.join(", ")}, true);
+  } catch (e) { out("eq-out", {error: String(e)}, false); }
+}
 (async () => {
   try {
     const s = await jget("/api/studios");
     const sel = document.getElementById("eq-studio");
     sel.innerHTML = s.map((x) => '<option value="' + x.id + '">' + esc(x.label) + "</option>").join("");
-    sel.onchange = () => { EQ_STUDIO = sel.value; loadDevices(); znLoad(); };
+    sel.onchange = () => { EQ_STUDIO = sel.value; dsLoad().then(() => { loadDevices(); znLoad(); }); };
     EQ_STUDIO = ((s.find((x) => x.id === "home-studio") || s[0]) || {}).id || null;
-    if (EQ_STUDIO) { sel.value = EQ_STUDIO; loadDevices(); znLoad(); }
+    if (EQ_STUDIO) { sel.value = EQ_STUDIO; dsLoad().then(() => { loadDevices(); znLoad(); }); }
   } catch (e) { out("eq-out", {error: String(e)}, false); }
 })();
 </script>

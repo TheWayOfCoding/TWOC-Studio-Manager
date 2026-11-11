@@ -6,7 +6,7 @@ from pathlib import Path
 import pytest
 
 from app.config.loader import load_all
-from app.registry import Registry, UnknownDeviceError, UnknownZoneError
+from app.registry import Registry, UnknownDefaultSetError, UnknownDeviceError, UnknownZoneError
 
 CONFIG_ROOT = Path(__file__).resolve().parents[2] / "config"
 
@@ -23,6 +23,10 @@ def test_ids(registry):
     assert registry.zone_ids == ["bench", "desk"]
     assert registry.mode_ids == ["demo_stream", "demo_work"]
     assert registry.preset_ids == ["default"]
+    assert registry.default_set_ids == ["default"]
+    assert registry.get_default_set("default")["label"] == "Default"
+    with pytest.raises(UnknownDefaultSetError):
+        registry.get_default_set("nope")
 
 
 @pytest.mark.unit

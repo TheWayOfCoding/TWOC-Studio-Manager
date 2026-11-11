@@ -61,7 +61,7 @@ def _function_slice(html, start_marker, end_marker):
 def test_control_brightness_leaves_gvm_page_alone():
     """Brightness must not force the CCT page: the panel dims in any mode."""
     html = _control_html()
-    bright_fn = _function_slice(html, "async function lightBright()", "async function lightCct()")
+    bright_fn = _function_slice(html, "async function sendBright(", "async function sendCct(")
     assert "/api/testbench/gvm/set" in bright_fn
     assert "page" not in bright_fn
 
@@ -70,9 +70,9 @@ def test_control_brightness_leaves_gvm_page_alone():
 def test_control_cct_and_color_announce_gvm_page():
     """CCT and HSI actions each announce their own panel page."""
     html = _control_html()
-    cct_fn = _function_slice(html, "async function lightCct()", "async function lightHsi()")
+    cct_fn = _function_slice(html, "async function sendCct(", "async function sendHsi(")
     assert 'page: "cct"' in cct_fn
-    hsi_fn = _function_slice(html, "async function lightHsi()", "async function loadSwatches()")
+    hsi_fn = _function_slice(html, "async function sendHsi(", "async function lightPower(")
     assert 'page: "hsi"' in hsi_fn
 
 
@@ -117,9 +117,57 @@ def test_control_screen_track_select_and_live_volume_present():
         "screenVolume()",
         "screenPlaying",
         "body.track",
-        'sliderRow("c-vol", "Audio volume", 0, 100, 1, 100, "%"',
+        'sliderRow("c-vol", "Audio volume", 0, 100, 1, initVal(d.id, "volume", 100), "%"',
     ):
         assert marker in html
+
+
+@pytest.mark.unit
+def test_control_session_memory_and_default_fallback_present():
+    """Card inputs seed from tab session, then the studio default set."""
+    html = _control_html()
+    for marker in (
+        "sessionStorage",
+        "twoc.control.",
+        "sessRead(",
+        "sessWrite(",
+        "initVal(",
+        "/defaults",
+        "DEFAULT_SET",
+        'initVal(d.id, "brightness", 5)',
+        'initVal(d.id, "cct", 5600)',
+        'initVal(d.id, "hue", 220)',
+        'initVal(d.id, "saturation", 60)',
+    ):
+        assert marker in html
+
+
+@pytest.mark.unit
+def test_control_reset_actions_present():
+    """One-click reset per asset, per plug, and everything-at-once."""
+    html = _control_html()
+    for marker in (
+        "resetDevice()",
+        "resetAll()",
+        "plugReset(",
+        "Reset to default",
+        "Reset everything to studio default",
+        'id="reset-all"',
+        'id="reset-plugs"',
+        "also reset Kasa plugs",
+        "plugs held (tick the plug box)",
+    ):
+        assert marker in html
+
+
+@pytest.mark.unit
+def test_control_picker_lists_drivable_only():
+    """Manual assets stay off the Control picker (details live on Equipment)."""
+    html = _control_html()
+    picker_fn = _function_slice(html, "async function loadDevices()", "function sliderRow(")
+    assert "filter((d) => drivable(d))" in picker_fn
+    assert "(manual)" not in picker_fn
+    assert "disabled" not in picker_fn
 
 
 @pytest.mark.unit

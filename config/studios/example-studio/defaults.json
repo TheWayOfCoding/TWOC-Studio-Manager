@@ -1,0 +1,13 @@
+{
+  "default": {
+    "label": "Default",
+    "devices": {
+      "demo-key": {"intensity": 50, "cct": 4600},
+      "demo-rgb": {"intensity": 25, "hue": 220, "saturation": 60},
+      "demo-screen": {"theme": "work", "text": "", "animation": ""}
+    },
+    "plugs": {
+      "plug-1": {"on": true}
+    }
+  }
+}

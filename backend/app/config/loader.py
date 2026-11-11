@@ -103,6 +103,16 @@ def load_studio(config_root, studio_id):
         loaded["modalities"] = raw
     else:
         loaded["modalities"] = {}
+    defaults_path = studio_dir / "defaults.json"
+    if defaults_path.exists():
+        raw = _read_json(defaults_path)
+        if not isinstance(raw, dict):
+            raise ConfigError(f"defaults.json in {studio_dir} must be an object")
+        for set_id, default_set in raw.items():
+            validate(default_set, "defaultset", f"{studio_dir}/defaults.json#{set_id}")
+        loaded["defaults"] = raw
+    else:
+        loaded["defaults"] = {}
     return loaded
 
 
@@ -146,6 +156,13 @@ def check_references(loaded, profiles, studio_id):
     mode_ids = {mode["id"] for mode in loaded["modes"]}
     if default_mode is not None and default_mode not in mode_ids:
         raise ConfigError(f"studio {studio_id} defaultMode references unknown mode {default_mode}")
+    default_set = loaded["studio"].get("defaultSet")
+    if default_set is not None and default_set not in loaded["defaults"]:
+        raise ConfigError(f"studio {studio_id} defaultSet references unknown default set {default_set}")
+    for set_id, default_set in loaded["defaults"].items():
+        for device_id in (default_set.get("devices") or {}):
+            if device_id not in device_ids:
+                raise ConfigError(f"default set {set_id} references unknown device {device_id}")
 
 
 def load_all(config_root):

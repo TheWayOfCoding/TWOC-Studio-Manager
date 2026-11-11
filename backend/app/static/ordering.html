@@ -5,6 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Studio Hub — Ordering</title>
 <link rel="stylesheet" href="/hub.css">
+<script src="/nav.js" defer></script>
 <style>
 .order-list { list-style: none; margin: 0.4em 0; padding: 0; }
 .order-list li { display: flex; align-items: center; gap: 0.6em; padding: 0.45em 0.6em; border: 1px solid var(--line); border-radius: 8px; margin-bottom: 0.35em; background: #fff; cursor: grab; }
@@ -17,7 +18,8 @@
 <body>
 <header class="topbar">
 <span class="brand">Studio Hub</span>
-<nav><a href="/">Dashboard</a><a href="/control">Control</a><a href="/equipment">Equipment</a><span class="navgroup">Administration</span><a href="/modality">Modality Manager</a><a href="/ordering" aria-current="page">Ordering</a><a href="/obs">OBS targets</a><a href="/bench">Test Bench</a><a href="/docs">API docs</a></nav>
+<button type="button" class="nav-toggle" aria-expanded="false" aria-controls="mainnav" aria-label="Menu">☰</button>
+<nav id="mainnav" aria-label="Main"><a href="/">Dashboard</a><a href="/control">Control</a><div class="navdrop"><button type="button" class="navdrop-toggle" aria-expanded="false" aria-controls="navadmin" aria-current="true">Administration</button><div class="navdrop-menu" id="navadmin"><a href="/equipment">Equipment</a><a href="/modality">Modality Manager</a><a href="/ordering" aria-current="page">Ordering</a><a href="/datamap">Data map</a><a href="/obs">OBS targets</a><a href="/bench">Test Bench</a><a href="/docs">API docs</a></div></div></nav>
 <span class="spacer"></span>
 <span class="context"><label>Studio <select id="studio"></select></label></span>
 </header>

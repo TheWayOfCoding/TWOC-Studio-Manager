@@ -1,0 +1,13 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://twoc-studio-manager/studio-hub/schemas/defaultset.json",
+  "title": "Default set",
+  "type": "object",
+  "required": ["label"],
+  "properties": {
+    "label": {"type": "string", "minLength": 1},
+    "devices": {"type": "object"},
+    "plugs": {"type": "object"}
+  },
+  "additionalProperties": true
+}

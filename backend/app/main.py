@@ -33,6 +33,7 @@ from .api.shows import router as shows_router  # noqa: E402
 from .api.link import router as link_router  # noqa: E402
 from .api.ordering import router as ordering_router  # noqa: E402
 from .api.modality import router as modality_router  # noqa: E402
+from .api.defaults import router as defaults_router  # noqa: E402
 from .config.loader import ConfigError, list_studios, load_all  # noqa: E402
 from .registry import Registry  # noqa: E402
 
@@ -67,11 +68,13 @@ def create_app():
         }
         app.state.config_root = config_root()
         app.state.registries = registries
+        app.state.profiles = data["profiles"]
         app.state.studio_list = list_studios(config_root())
         app.state.health = {"status": "ok", "studios": sorted(registries)}
         log.info("config loaded", extra={"fields": {"studios": sorted(registries)}})
     except ConfigError as exc:
         app.state.registries = {}
+        app.state.profiles = {}
         app.state.studio_list = []
         app.state.health = {"status": "degraded", "studios": [], "error": str(exc)}
         log.error("config load failed: %s", exc)
@@ -98,6 +101,7 @@ def create_app():
     app.include_router(link_router)
     app.include_router(ordering_router)
     app.include_router(modality_router)
+    app.include_router(defaults_router)
     app.include_router(router)
 
     @app.get("/", include_in_schema=False)
@@ -128,6 +132,10 @@ def create_app():
     def obs_targets():
         return FileResponse(STATIC_DIR / "obs.html")
 
+    @app.get("/datamap", include_in_schema=False)
+    def datamap():
+        return FileResponse(STATIC_DIR / "datamap.html")
+
     @app.get("/screen/{screen_id}", include_in_schema=False)
     def screen_page(screen_id: str):
         return FileResponse(STATIC_DIR / "screen.html")
@@ -135,6 +143,10 @@ def create_app():
     @app.get("/hub.css", include_in_schema=False)
     def hub_css():
         return FileResponse(STATIC_DIR / "hub.css", media_type="text/css")
+
+    @app.get("/nav.js", include_in_schema=False)
+    def nav_js():
+        return FileResponse(STATIC_DIR / "nav.js", media_type="text/javascript")
 
     return app
 

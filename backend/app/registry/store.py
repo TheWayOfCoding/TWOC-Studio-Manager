@@ -21,10 +21,15 @@ class UnknownPresetError(RegistryError):
     """No preset with that id in this studio."""
 
 
+class UnknownDefaultSetError(RegistryError):
+    """No default set with that id in this studio."""
+
+
 class Registry:
     """Addressable view over one studio's configuration plus shared profiles."""
 
-    def __init__(self, studio, devices, zones, modes, presets, profiles, ordering=None, modalities=None):
+    def __init__(self, studio, devices, zones, modes, presets, profiles, ordering=None,
+                 modalities=None, defaults=None):
         self.studio = studio
         self._devices = {item["id"]: item for item in devices}
         self._zones = {item["id"]: item for item in zones}
@@ -33,6 +38,7 @@ class Registry:
         self._profiles = dict(profiles)
         self.ordering = dict(ordering or {})
         self._modalities = dict(modalities or {})
+        self._default_sets = dict(defaults or {})
 
     @classmethod
     def from_loaded(cls, loaded, profiles):
@@ -46,6 +52,7 @@ class Registry:
             profiles,
             ordering=loaded.get("ordering"),
             modalities=loaded.get("modalities"),
+            defaults=loaded.get("defaults"),
         )
 
     def _ordered(self, collection, ids, labels):
@@ -77,6 +84,16 @@ class Registry:
     def modality_ids(self):
         labels = {k: (v.get("label", k) if isinstance(v, dict) else k) for k, v in self._modalities.items()}
         return self._ordered("modalities", list(self._modalities), labels)
+
+    @property
+    def default_set_ids(self):
+        return sorted(self._default_sets)
+
+    def get_default_set(self, set_id):
+        try:
+            return self._default_sets[set_id]
+        except KeyError as exc:
+            raise UnknownDefaultSetError(f"unknown default set: {set_id}") from exc
 
     def get_modality(self, modality_id):
         try:

@@ -1201,8 +1201,9 @@ def test_dmx_blackout_and_fixtures(monkeypatch):
     assert fixtures["ninja-400"]["dimmer"] == 1
     assert fixtures["ninja-400"]["cct"] == 2
     assert fixtures["ninja-400"]["cct_range"] == [2500, 8500]
-    assert "ninja-20" not in fixtures  # BLE-only now: its DMX wire is gone
-    assert set(fixtures) == {"ninja-400"}
+    assert fixtures["ninja-20"]["dimmer"] == 20  # dual again: DMX wire back
+    assert fixtures["ninja-20"]["cct"] is None  # fixed-temp: dimmer-only map
+    assert set(fixtures) == {"ninja-400", "ninja-20"}
     assert home.json()["skipped"] == []
     empty = client.get("/api/testbench/dmx/fixtures?studio=example-studio")
     assert empty.json() == {"fixtures": [], "skipped": []}

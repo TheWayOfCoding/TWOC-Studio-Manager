@@ -21,6 +21,12 @@ FX = (
     "error", "success", "applause", "laser", "unlock", "alert", "blip",
 )
 
+THEMES = (
+    "live", "work", "focus", "warm", "candle",  # originals
+    "sunset", "ocean", "slate", "rose",
+)  # curated kiosk backdrops (screen.html THEME_BG renders these; other
+# strings fall back to the default look, so themes stay free text)
+
 ANIMATIONS = (
     "fireplace", "fishtank",  # originals
     "underwater",  # deep reef, many unique fish

@@ -11,6 +11,7 @@ rewire the studio.
 
 import json
 import os
+import re
 from pathlib import Path
 
 from fastapi import APIRouter, HTTPException, Request
@@ -23,6 +24,7 @@ from ..config.loader import (
     load_studio,
     validate,
 )
+from ..config.ranges import effective_ranges
 from ..core.logging import get_logger
 from ..registry import Registry, RegistryError
 
@@ -105,6 +107,30 @@ def save_details(config_root, studio_id, device_id, details):
     except ConfigError as exc:
         raise DetailsSaveError(f"saved details broke studio references: {exc}") from exc
     return Registry.from_loaded(loaded, profiles)
+
+
+@router.get("/api/studios/{studio_id}/ranges")
+def equipment_ranges(studio_id: str, request: Request):
+    """Effective value ranges for every device (the one resolver, served).
+
+    Each entry carries the device's kind plus per-property control shapes
+    (numeric min/max/step/source, enums, text limits) resolved from profile
+    spec + capabilities. Control sliders, the Default-sets builder, and the
+    data map all read this instead of hardcoding spans.
+    """
+    registry: Registry = _registry_or_404(request, studio_id)
+    devices = {}
+    for device_id in registry.device_ids:
+        effective = registry.effective_device(device_id)
+        devices[device_id] = {
+            "name": effective.get("name", device_id),
+            "type": effective.get("type"),
+            "driver": effective.get("driver"),
+            "controllable": effective.get("controllable", True),
+            "profile": effective.get("profile"),
+            **effective_ranges(effective),
+        }
+    return {"devices": devices}
 
 
 @router.get("/api/studios/{studio_id}/devices/{device_id}")
@@ -216,6 +242,73 @@ def equipment_save_transport(studio_id: str, device_id: str, body: TransportBody
     return {"device": device_id, "transport": body.transport}
 
 
+class AddressBody(BaseModel):
+    driverAddress: dict
+
+
+MAC_RE = re.compile(r"^[0-9A-Fa-f]{2}(:[0-9A-Fa-f]{2}){5}$")
+
+
+def _check_int(value, low, high, where):
+    """Integer channel in span (bools rejected). Raises DetailsSaveError."""
+    if isinstance(value, bool) or not isinstance(value, int):
+        raise DetailsSaveError(f"{where} must be an integer")
+    if not low <= value <= high:
+        raise DetailsSaveError(f"{where} must be {low}..{high}")
+    return value
+
+
+def check_address(driver, address):
+    """Validate + normalize a driver address for its family.
+
+    Shapes follow what each driver needs: gvm takes a BLE MAC; ninja/dmx
+    take a BLE channel+group pair and/or a DMX dimmer map (CCT optional,
+    for fixed-temp single-channel fixtures to omit). BLE halves arrive as
+    a pair or not at all; at least one half must stay. Returns the clean
+    address (group upper-cased, MAC upper-cased).
+    """
+    if not isinstance(address, dict):
+        raise DetailsSaveError("driverAddress must be an object")
+    if driver == "gvm":
+        unknown = set(address) - {"ble"}
+        if unknown:
+            raise DetailsSaveError(f"gvm address takes only ble (got {sorted(unknown)})")
+        ble = address.get("ble")
+        if not isinstance(ble, str) or not MAC_RE.match(ble.strip()):
+            raise DetailsSaveError("gvm ble must be a MAC like AA:BB:CC:DD:EE:FF")
+        return {"ble": ble.strip().upper()}
+    if driver in ("ninja", "dmx"):
+        unknown = set(address) - {"channel", "group", "dmx"}
+        if unknown:
+            raise DetailsSaveError(f"{driver} address takes only channel/group/dmx (got {sorted(unknown)})")
+        clean = {}
+        if "channel" in address or "group" in address:
+            if "channel" not in address or "group" not in address:
+                raise DetailsSaveError("BLE needs both channel and group (or neither to remove it)")
+            clean["channel"] = _check_int(address["channel"], 1, 19, "BLE channel")
+            group = address["group"]
+            if not isinstance(group, str) or len(group.strip()) != 1 or group.strip().upper() not in "ABCDEF":
+                raise DetailsSaveError("BLE group must be one letter A..F")
+            clean["group"] = group.strip().upper()
+        if "dmx" in address:
+            dmx = address["dmx"]
+            if not isinstance(dmx, dict):
+                raise DetailsSaveError("dmx must be an object")
+            unknown_dmx = set(dmx) - {"dimmer", "cct"}
+            if unknown_dmx:
+                raise DetailsSaveError(f"dmx takes only dimmer/cct (got {sorted(unknown_dmx)})")
+            if "dimmer" not in dmx:
+                raise DetailsSaveError("dmx needs a dimmer channel (or drop dmx to remove it)")
+            clean_dmx = {"dimmer": _check_int(dmx["dimmer"], 1, 512, "DMX dimmer")}
+            if dmx.get("cct") is not None:
+                clean_dmx["cct"] = _check_int(dmx["cct"], 1, 512, "DMX CCT")
+            clean["dmx"] = clean_dmx
+        if not clean:
+            raise DetailsSaveError(f"{driver} needs at least one half (BLE and/or DMX)")
+        return clean
+    raise DetailsSaveError(f"no editable address on driver {driver!r} (gvm/ninja/dmx only)")
+
+
 class ZoneBody(BaseModel):
     zone: str
 
@@ -240,6 +333,52 @@ def equipment_move_zone(studio_id: str, device_id: str, body: ZoneBody, request:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     request.app.state.registries[studio_id] = reloaded
     return {"device": device_id, "zone": body.zone}
+
+
+@router.put("/api/studios/{studio_id}/devices/{device_id}/address")
+def equipment_save_address(studio_id: str, device_id: str, body: AddressBody, request: Request):
+    """Replace a device's driver address (local studios only).
+
+    Shapes are validated per driver family (GVM MAC; Ninja/DMX BLE pair
+    and/or DMX dimmer map). Dropping the half the transport pick points at
+    moves the pick to the surviving half and says so.
+    """
+    registry = _registry_or_404(request, studio_id)
+    if device_id not in registry.device_ids:
+        raise HTTPException(status_code=404, detail=f"unknown device: {device_id}")
+    devices_path = Path(request.app.state.config_root) / "studios.local" / studio_id / "devices.json"
+    if not devices_path.exists():
+        raise HTTPException(
+            status_code=422, detail=f"address save only for local studios (no studios.local/{studio_id})"
+        )
+    device = registry.get_device(device_id)
+    try:
+        clean = check_address(device.get("driver"), body.driverAddress)
+    except DetailsSaveError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    updates = {"driverAddress": clean}
+    coerced = False
+    transport = device.get("transport")
+    if transport in ("ble", "dmx"):
+        has_ble = bool(clean.get("channel") and clean.get("group"))
+        has_dmx = bool((clean.get("dmx") or {}).get("dimmer"))
+        if not (has_ble and has_dmx):
+            surviving = "ble" if has_ble else ("dmx" if has_dmx else None)
+            if transport != surviving:
+                updates["transport"] = surviving
+                coerced = True
+    log.info("equipment address save", extra={"fields": {"studio": studio_id, "device": device_id}})
+    try:
+        reloaded = save_properties(request.app.state.config_root, studio_id, device_id, updates)
+    except DetailsSaveError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    request.app.state.registries[studio_id] = reloaded
+    return {
+        "device": device_id,
+        "address": clean,
+        "transport": reloaded.get_device(device_id).get("transport"),
+        "transport_coerced": coerced,
+    }
 
 
 @router.put("/api/studios/{studio_id}/devices/{device_id}/details")

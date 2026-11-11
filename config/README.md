@@ -118,6 +118,44 @@ sane. Edited on the `/modality` page (forms-first, JSON look fields) with
 run/stop/status API beside the modes endpoints. The modes/presets/shows
 engine underneath is unchanged — modalities are the demo-facing layer.
 
+## defaults.json (per studio) + defaultSet
+
+`<studio>/defaults.json` holds named **default sets**: per-device value
+snapshots plus Kasa plug states, one of which a studio assigns as its
+default via `studio.json` → `defaultSet`:
+
+```json
+{"default": {
+  "label": "Default",
+  "devices": {"demo-key": {"intensity": 50, "cct": 4600}},
+  "plugs": {"plug-1": {"on": true}}}}
+```
+
+Set ids are system-generated from the label (slug + numeric suffix on
+collision) and stay fixed once created; the label is the display name.
+Light values use preset vocabulary (`power`, `intensity`, `cct`,
+`hue`, `saturation`, `page`, `transport`); IR strips take `power` +
+`color`; screens take `theme` + `text` + `animation` (theme/animation
+options served from the screen driver); other controllable types take
+flat values. `page` is GVM-panel-only; `transport` (`ble`/`dmx`) saves
+only on dual-address fixtures and reset applies it first, routing the
+look through the picked interface. Numeric spans come from each
+fixture's profile spec via the shared ranges resolver
+(`backend/app/config/ranges.py`, served at
+`GET /api/studios/<id>/ranges`); profiles that omit a range fall back
+to the documented generic outer bounds. Entries must name known
+controllable devices (validated on save against those effective spans,
+plus capability checks: no hue for RGB-less fixtures, no CCT for
+fixed-temp ones). The file is optional — studios without one simply
+have no defaults. Managed on the Equipment page (Default sets card:
+dropdown builder with range-aware inputs + quick-assign, JSON fallback,
+create/edit/delete + assign/clear); the assigned set seeds the Control
+page and powers one-click reset per asset, per plug, and
+everything-at-once. Control inputs resolve session value → studio
+default → hardcoded, CCT sliders render each fixture's own span, and
+reset transmits the saved levels exactly (reset-all always allows
+bright).
+
 ## Per-light baselines: usual + aiCap
 
 Each light device carries its normal everyday look in `usual`:
@@ -154,3 +192,15 @@ broadcast protocol in `docs/ninja-ble.md` (no pairing; the hub advertises):
 `channel` is 1-19, `group` is A-F. The bench also drives raw channel/group
 pairs with no config (direct mode). One driver instance is cached per
 address so the merged look and broadcast counter continue across calls.
+Dual-interface fixtures carry both halves plus a `transport` pick:
+
+```json
+{"id": "ninja-400", "driver": "dmx",
+ "driverAddress": {"channel": 3, "group": "B", "dmx": {"dimmer": 1, "cct": 2}},
+ "transport": "dmx"}
+```
+
+Fixed-temp fixtures take a dimmer-only map (`{"dimmer": 20}`, no `cct`).
+Addresses edit on the Equipment page (device card Address section:
+validated per driver family, ≥1 half must stay) or by hand; every
+surface follows the `transport` pick, and default sets can store it.

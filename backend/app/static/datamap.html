@@ -1,0 +1,205 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Studio Hub — Data map</title>
+<link rel="stylesheet" href="/hub.css">
+<script src="/nav.js" defer></script>
+<style>
+.dm-box { fill: var(--card); stroke: var(--line); stroke-width: 1.5; }
+.dm-core { stroke: var(--ember); stroke-width: 2.5; }
+.dm-t { font: 600 13px system-ui, sans-serif; fill: var(--ink); }
+.dm-s { font: 11px system-ui, sans-serif; fill: var(--muted); }
+.dm-e { fill: none; stroke: var(--muted); stroke-width: 1.5; }
+.dm-l { font: 11px system-ui, sans-serif; fill: var(--muted); }
+.dm-svg { width: 100%; height: auto; display: block; }
+</style>
+</head>
+<body>
+<header class="topbar">
+<span class="brand">Studio Hub</span>
+<button type="button" class="nav-toggle" aria-expanded="false" aria-controls="mainnav" aria-label="Menu">☰</button>
+<nav id="mainnav" aria-label="Main"><a href="/">Dashboard</a><a href="/control">Control</a><div class="navdrop"><button type="button" class="navdrop-toggle" aria-expanded="false" aria-controls="navadmin" aria-current="true">Administration</button><div class="navdrop-menu" id="navadmin"><a href="/equipment">Equipment</a><a href="/modality">Modality Manager</a><a href="/ordering">Ordering</a><a href="/datamap" aria-current="page">Data map</a><a href="/obs">OBS targets</a><a href="/bench">Test Bench</a><a href="/docs">API docs</a></div></div></nav>
+</header>
+<div class="wrap">
+<h1>Data map</h1>
+<p class="lede">Every entity links by <strong>id</strong> (stable key); names and labels are display-only and safe to rename. Counts below are live for the selected studio.</p>
+<div class="row"><label class="field">studio <select id="dm-studio" onchange="dmLoad()"></select></label></div>
+<div class="card"><h2>Link map</h2>
+<svg class="dm-svg" viewBox="0 0 980 600" role="img" aria-label="Entity link diagram">
+<defs><marker id="dm-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M 0 1 L 9 5 L 0 9" fill="none" stroke="#5c6672" stroke-width="1.5"/></marker></defs>
+<g text-anchor="middle">
+<rect class="dm-box" x="380" y="8" width="220" height="56" rx="8"/><text class="dm-t" x="490" y="30" data-t="studio">Studio</text><text class="dm-s" x="490" y="47">PK id · defaultMode · defaultSet</text>
+<rect class="dm-box dm-core" x="380" y="250" width="220" height="70" rx="8"/><text class="dm-t" x="490" y="273" data-t="devices">Device</text><text class="dm-s" x="490" y="290">PK id · name is display-only</text><text class="dm-s" x="490" y="305">zone · profile · plug links</text>
+<rect class="dm-box" x="60" y="60" width="210" height="80" rx="8"/><text class="dm-t" x="165" y="83" data-t="profiles">Profile</text><text class="dm-s" x="165" y="100">PK id · model truth</text><text class="dm-s" x="165" y="115">spec ranges + capabilities</text>
+<rect class="dm-box" x="60" y="200" width="210" height="80" rx="8"/><text class="dm-t" x="165" y="223" data-t="zones">Zone</text><text class="dm-s" x="165" y="240">PK id · one home per device</text><text class="dm-s" x="165" y="255">powerGroups[]</text>
+<rect class="dm-box" x="60" y="340" width="210" height="80" rx="8"/><text class="dm-t" x="165" y="363" data-t="plugs">Plug map</text><text class="dm-s" x="165" y="380">key: plug · alias → live host</text><text class="dm-s" x="165" y="395">claimed per zone</text>
+<rect class="dm-box" x="60" y="470" width="210" height="80" rx="8"/><text class="dm-t" x="165" y="493" data-t="obs">OBS</text><text class="dm-s" x="165" y="510">key: target name</text><text class="dm-s" x="165" y="525">studio → target</text>
+<rect class="dm-box" x="710" y="60" width="210" height="80" rx="8"/><text class="dm-t" x="815" y="83" data-t="modes">Mode</text><text class="dm-s" x="815" y="100">PK id · zones · power</text><text class="dm-s" x="815" y="115">lights + screen looks</text>
+<rect class="dm-box" x="710" y="170" width="210" height="80" rx="8"/><text class="dm-t" x="815" y="193" data-t="presets">Preset</text><text class="dm-s" x="815" y="210">key · lights + screen</text><text class="dm-s" x="815" y="225">never power / OBS</text>
+<rect class="dm-box" x="710" y="280" width="210" height="80" rx="8"/><text class="dm-t" x="815" y="303" data-t="defaults">Default set</text><text class="dm-s" x="815" y="320">key · devices + plugs</text><text class="dm-s" x="815" y="335">seeds Control + reset</text>
+<rect class="dm-box" x="710" y="390" width="210" height="80" rx="8"/><text class="dm-t" x="815" y="413" data-t="modalities">Modality</text><text class="dm-s" x="815" y="430">key · beats of actions</text><text class="dm-s" x="815" y="445">last beat stays</text>
+<rect class="dm-box" x="710" y="500" width="210" height="80" rx="8"/><text class="dm-t" x="815" y="523" data-t="shows">Show</text><text class="dm-s" x="815" y="540">key · steps of looks</text><text class="dm-s" x="815" y="555">stop lands on final</text>
+</g>
+<g>
+<line class="dm-e" x1="270" y1="100" x2="376" y2="262" marker-end="url(#dm-arrow)"/><text class="dm-l" x="316" y="172" text-anchor="middle">profile</text>
+<line class="dm-e" x1="380" y1="272" x2="274" y2="244" marker-end="url(#dm-arrow)"/><text class="dm-l" x="326" y="250" text-anchor="middle">zone</text>
+<line class="dm-e" x1="380" y1="296" x2="274" y2="376" marker-end="url(#dm-arrow)"/><text class="dm-l" x="320" y="344" text-anchor="middle">powerPlug</text>
+<line class="dm-e" x1="165" y1="280" x2="165" y2="336" marker-end="url(#dm-arrow)"/><text class="dm-l" x="172" y="313" text-anchor="start">powerGroups</text>
+<line class="dm-e" x1="490" y1="64" x2="490" y2="246" marker-end="url(#dm-arrow)"/><text class="dm-l" x="498" y="160" text-anchor="start">owns</text>
+<line class="dm-e" x1="600" y1="30" x2="706" y2="88" marker-end="url(#dm-arrow)"/><text class="dm-l" x="652" y="50" text-anchor="middle">defaultMode</text>
+<line class="dm-e" x1="600" y1="52" x2="706" y2="312" marker-end="url(#dm-arrow)"/><text class="dm-l" x="648" y="196" text-anchor="middle">defaultSet</text>
+<line class="dm-e" x1="710" y1="100" x2="604" y2="262" marker-end="url(#dm-arrow)"/><text class="dm-l" x="657" y="172" text-anchor="middle">lights · screen</text>
+<line class="dm-e" x1="710" y1="210" x2="604" y2="252" marker-end="url(#dm-arrow)"/><text class="dm-l" x="655" y="222" text-anchor="middle">lights</text>
+<line class="dm-e" x1="710" y1="320" x2="604" y2="288" marker-end="url(#dm-arrow)"/><text class="dm-l" x="657" y="298" text-anchor="middle">devices</text>
+<line class="dm-e" x1="710" y1="430" x2="604" y2="300" marker-end="url(#dm-arrow)"/><text class="dm-l" x="650" y="372" text-anchor="middle">looks</text>
+<line class="dm-e" x1="710" y1="540" x2="524" y2="322" marker-end="url(#dm-arrow)"/><text class="dm-l" x="617" y="423" text-anchor="middle">steps</text>
+<line class="dm-e" x1="270" y1="510" x2="376" y2="60" marker-end="url(#dm-arrow)"/><text class="dm-l" x="323" y="278" text-anchor="middle">target name</text>
+</g>
+</svg>
+<p class="hint">Default-set plugs point at the plug map too (soft link, unchecked by design) — verified in Link health below rather than drawn, to keep the diagram readable.</p>
+</div>
+<div class="card"><h2>Collections</h2>
+<div id="dm-collections"><p class="hint">loading…</p></div></div>
+<div class="card"><h2>Devices</h2>
+<div id="dm-devices"><p class="hint">loading…</p></div></div>
+<div class="card"><h2>Link health</h2>
+<div id="dm-health"><p class="hint">loading…</p></div></div>
+<div class="card"><h2>Key rules</h2>
+<ul>
+<li><span class="pill">id</span> stable key on every entity — presets, modes, default sets, modalities, and shows all reference devices by <code>id</code>.</li>
+<li><span class="pill">name / label</span> display-only — renaming equipment never breaks a link.</li>
+<li><span class="pill">hard links</span> (device→zone/profile, preset/default devices, studio defaults) refuse to boot or save when broken.</li>
+<li><span class="pill">soft links</span> (power groups, plugs, OBS scenes/targets, IR colors) degrade honestly at apply time.</li>
+<li>Value spans come from profile specs via <code>GET /api/studios/{studio}/ranges</code> — one resolver for the Control sliders, the Default-sets builder, and this page.</li>
+</ul>
+<p class="hint">Full reference: docs/dsd.md and docs/data-dictionary.md in the repo.</p></div>
+</div>
+<script>
+async function jget(path) {
+  const r = await fetch(path);
+  if (!r.ok) throw new Error(path + ": " + r.status);
+  return r.json();
+}
+function esc(s) {
+  return String(s === null || s === undefined ? "" : s)
+    .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+}
+function studio() { return document.getElementById("dm-studio").value; }
+function setCount(key, text) {
+  document.querySelectorAll('[data-t="' + key + '"]').forEach((el) => {
+    const base = el.textContent.split(" · ")[0];
+    el.textContent = base + " · " + text;
+  });
+}
+async function dmLoad() {
+  const s = studio();
+  if (!s) return;
+  setCount("studio", s);
+  document.getElementById("dm-collections").innerHTML = '<p class="hint">loading…</p>';
+  document.getElementById("dm-devices").innerHTML = '<p class="hint">loading…</p>';
+  document.getElementById("dm-health").innerHTML = '<p class="hint">loading…</p>';
+  const warns = [], infos = [];
+  try {
+    const [devices, zonesR, modesR, presetsR, defaultsR, modR, showsR, rangesR, plugsR, profiles, obsR] = await Promise.all([
+      jget("/api/studios/" + s + "/devices"), jget("/api/studios/" + s + "/zones"),
+      jget("/api/studios/" + s + "/modes"), jget("/api/studios/" + s + "/presets"),
+      jget("/api/studios/" + s + "/defaults"), jget("/api/studios/" + s + "/modalities"),
+      jget("/api/studios/" + s + "/shows"), jget("/api/studios/" + s + "/ranges"),
+      jget("/api/kasa/plugs").catch(() => ({plugs: []})),
+      jget("/api/profiles").catch(() => []),
+      jget("/api/obs/targets").catch(() => ({targets: []})),
+    ]);
+    let obsTarget = null;
+    try { obsTarget = await jget("/api/studios/" + s + "/obs/target"); } catch (e) { obsTarget = null; }
+    const zones = zonesR.zones || [], modes = modesR.modes || [], presets = presetsR.presets || [];
+    const sets = defaultsR.sets || {}, modalities = modR.modalities || [], shows = showsR.shows || [];
+    const plugs = plugsR.plugs || [], profileIds = new Set((profiles || []).map((p) => p.id));
+    const zoneIds = new Set(zones.map((z) => z.id)), deviceIds = new Set(devices.map((d) => d.id));
+    const plugIds = new Set(plugs.map((p) => p.plug));
+    const groups = new Set();
+    zones.forEach((z) => (z.groups || []).forEach((g) => groups.add(g)));
+    setCount("devices", String(devices.length)); setCount("zones", String(zones.length));
+    setCount("modes", String(modes.length)); setCount("presets", String(presets.length));
+    setCount("defaults", String(Object.keys(sets).length)); setCount("modalities", String(modalities.length));
+    setCount("shows", String(shows.length)); setCount("profiles", String(profileIds.size));
+    setCount("plugs", String(plugs.length)); setCount("obs", String((obsR.targets || []).length) + " targets");
+    const rows = [
+      ["Devices", devices.length + " (" + devices.filter((d) => d.controllable !== false).length + " controllable)"],
+      ["Zones", zones.map((z) => z.id).join(", ") || "—"],
+      ["Profiles referenced", [...new Set(devices.map((d) => d.profile).filter(Boolean))].join(", ") || "—"],
+      ["Modes", modes.map((m) => m.id).join(", ") || "—"],
+      ["Presets", presets.map((p) => p.id).join(", ") || "—"],
+      ["Default sets", Object.keys(sets).join(", ") || "—"],
+      ["Modalities", modalities.map((m) => m.id).join(", ") || "—"],
+      ["Shows", shows.map((m) => m.id).join(", ") || "—"],
+    ];
+    document.getElementById("dm-collections").innerHTML = '<table class="grid-t"><thead><tr><th>Collection</th><th>Ids</th></tr></thead><tbody>' +
+      rows.map(([k, v]) => "<tr><th>" + k + "</th><td>" + esc(v) + "</td></tr>").join("") + "</tbody></table>";
+    document.getElementById("dm-devices").innerHTML = '<table class="grid-t"><thead><tr><th>Id (key)</th><th>Name</th><th>Type</th><th>Zone</th><th>Profile</th><th>Plug</th></tr></thead><tbody>' +
+      devices.map((d) => "<tr><td><code>" + esc(d.id) + "</code>" + (d.controllable === false ? " (manual)" : "") + "</td><td>" +
+        esc(d.name || "") + "</td><td>" + esc(d.type || "") + "</td><td>" + esc(d.zone || "") + "</td><td>" +
+        esc(d.profile || "—") + "</td><td>" + esc(d.powerPlug || "—") + "</td></tr>").join("") + "</tbody></table>";
+    devices.forEach((d) => {
+      if (!zoneIds.has(d.zone)) warns.push(d.id + ": zone " + d.zone + " is unknown");
+      if (d.profile && !profileIds.has(d.profile)) warns.push(d.id + ": profile " + d.profile + " is unknown");
+      if (d.powerPlug && !plugIds.has(d.powerPlug)) infos.push(d.id + ": plug " + d.powerPlug + " is not in the plug map (soft link)");
+    });
+    if (modesR.default && !modes.some((m) => m.id === modesR.default)) warns.push("studio defaultMode " + modesR.default + " is unknown");
+    if (defaultsR.default && !sets[defaultsR.default]) warns.push("studio defaultSet " + defaultsR.default + " is unknown");
+    const ranges = rangesR.devices || {};
+    Object.keys(sets).forEach((setId) => {
+      const set = sets[setId];
+      Object.keys(set.devices || {}).forEach((devId) => {
+        if (!deviceIds.has(devId)) { warns.push("default set " + setId + ": device " + devId + " is unknown"); return; }
+        const rv = (ranges[devId] || {}).values || {};
+        Object.entries(set.devices[devId]).forEach(([key, val]) => {
+          const info = rv[key];
+          if (info && info.supported === false) warns.push("default set " + setId + ": " + devId + "." + key + " is not supported by this fixture");
+          else if (info && typeof val === "number" && (val < info.min || val > info.max))
+            warns.push("default set " + setId + ": " + devId + "." + key + "=" + val + " is outside " + info.min + ".." + info.max + " (" + info.source + ")");
+        });
+      });
+      Object.keys(set.plugs || {}).forEach((plug) => {
+        if (!plugIds.has(plug)) infos.push("default set " + setId + ": plug " + plug + " is not in the plug map (unchecked by design)");
+      });
+    });
+    for (const m of modalities) {
+      try {
+        const full = (await jget("/api/studios/" + s + "/modalities/" + m.id)).modality || {};
+        (full.beats || []).forEach((beat, i) => {
+          const a = beat.actions || {}, where = "modality " + m.id + " beat " + (i + 1);
+          Object.keys(a.lights || {}).forEach((id) => { if (!deviceIds.has(id)) warns.push(where + ": light " + id + " is unknown"); });
+          Object.keys(a.screen || {}).forEach((id) => { if (!deviceIds.has(id)) warns.push(where + ": screen " + id + " is unknown"); });
+          Object.keys(a.zoneLights || {}).forEach((id) => { if (!zoneIds.has(id)) warns.push(where + ": zone " + id + " is unknown"); });
+          (a.powerOn || []).concat(a.powerOff || []).forEach((g) => { if (!groups.has(g)) infos.push(where + ": power group " + g + " matches no zone (soft link)"); });
+        });
+      } catch (e) { warns.push("modality " + m.id + ": unreadable (" + e.message + ")"); }
+    }
+    if (obsTarget && obsTarget.target) infos.push("OBS target for this studio: " + obsTarget.target);
+    else infos.push("OBS target: not wired (honest skip)");
+    infos.push("Modes, presets, and shows list counts only here — their looks apply through the plan-time gate.");
+    document.getElementById("dm-health").innerHTML =
+      (warns.length ? '<p><span class="bad">● ' + warns.length + " problem(s)</span></p><ul>" +
+        warns.map((w) => "<li>" + esc(w) + "</li>").join("") + "</ul>"
+        : '<p><span class="ok">● all hard links resolve</span></p>') +
+      (infos.length ? "<ul>" + infos.map((w) => "<li>" + esc(w) + "</li>").join("") + "</ul>" : "");
+  } catch (e) {
+    document.getElementById("dm-health").innerHTML = '<p><span class="bad">● ' + esc(String(e)) + "</span></p>";
+  }
+}
+(async () => {
+  try {
+    const s = await jget("/api/studios");
+    const sel = document.getElementById("dm-studio");
+    sel.innerHTML = s.map((x) => '<option value="' + x.id + '">' + esc(x.label) + "</option>").join("");
+    sel.value = ((s.find((x) => x.id === "home-studio") || s[0]) || {}).id || "";
+    dmLoad();
+  } catch (e) {
+    document.getElementById("dm-health").innerHTML = '<p><span class="bad">● ' + esc(String(e)) + "</span></p>";
+  }
+})();
+</script>
+</body>
+</html>
