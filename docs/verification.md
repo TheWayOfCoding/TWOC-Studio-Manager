@@ -15,8 +15,17 @@ drift, and algorithm output changes.
 ```powershell
 .venv\Scripts\python -m pytest
 .venv\Scripts\ruff check backend tools tests
-node --check <each touched page>.html
 ```
+
+Plus a headless page-script check per touched page (node is gone from
+the dev box, so Edge headless is the JS gate): serve locally, then
+
+```powershell
+& 'C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe' --headless=new --disable-gpu --no-sandbox --virtual-time-budget=8000 --enable-logging=stderr --dump-dom http://127.0.0.1:8123/<page> | Select-String 'Uncaught|SyntaxError'
+```
+
+which must print no console errors. Never interact with live plugs
+from these renders (read the DOM only).
 
 - `tests/unit` (fast logic, mocked hardware), `tests/regression`
   (golden studio snapshots), `tests/hardware` (real devices, only
@@ -32,13 +41,14 @@ node --check <each touched page>.html
 ## Tier 2 — Manual web-UI smoke
 
 Run by a human after any page change (`/`, `/control`, `/bench`,
-`/equipment`, `/ordering`, `/modality`, `/screen/<id>`). Catches
-layout breaks, control-state bugs, and stale-JS issues automation
-cannot see.
+`/equipment`, `/ordering`, `/modality`, `/datamap`, `/obs`,
+`/screen/<id>`). Catches layout breaks, control-state bugs, and
+stale-JS issues automation cannot see.
 
 - Fresh-load every touched page; after any hub deploy, press F5 on
-  dashboard/bench/control/equipment/ordering/modality (only the
-  kiosk self-reloads — everything else serves cached JS otherwise).
+  dashboard/bench/control/equipment/ordering/modality/datamap/obs
+  (only the kiosk self-reloads — everything else serves cached JS
+  otherwise).
 - Browser console: zero errors.
 - Exercise each touched card end to end against the live hub.
 - Confirm page-marker strings are present in the served page.
@@ -76,6 +86,10 @@ Per-family checklists:
   under a valid stream; verify dimmer + CCT response; watch for
   flicker (marginal frames); polarity swap is the known fix for
   total silence on new adapters.
+- **Dual-interface fixtures (Ninja 20/400):** after any transport or
+  address change, verify the non-default interface too (flip on the
+  Control page, one witnessed send, flip back); default sets may pin
+  the interface and resets apply it first.
 - **Ninja BLE:** never trust `Started/ok:true` alone — confirm with
   a witnessed send (eyeball, or the cross-PC watcher in
   `tools/ninja-watch.py`; the hub cannot hear its own frames).
@@ -105,7 +119,9 @@ hold unless explicitly overridden.
 
 - Content-grep the pushed tree: zero real MACs (only `AA:BB`
   placeholders), zero LAN IPs (only `192.0.2.x` doc range), zero
-  emails, zero personal names, zero keys/secrets, zero home paths.
+  emails, zero personal names (the fictional `Scotty Photon` persona
+  strings are the known exception), zero keys/secrets, zero home
+  paths (only `USER`/`/home/pi` conventions).
 - Always grep file *content* across tracked files — never infer
   cleanliness from filenames.
 - Never tracked: `studios.local/`, `Design-Documents/`,

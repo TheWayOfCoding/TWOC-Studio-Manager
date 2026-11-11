@@ -47,8 +47,10 @@ presets, per-broadcast counters, ten FX scenes. The hub replays
 byte-exact frames through the Windows BLE advertiser — and the fixtures
 accepted them, proving no scan-response placement was needed. All three
 fixtures moved to Bluetooth control first, gaining soft power the DMX
-path never had; the Ninja 400 later returned to its wire-verified DMX
-path (DMX-only today) while the 10/20 stayed on Bluetooth.
+path never had; the deadline build then pinned the 400 to DMX and the
+10/20 to BLE to freeze the demo. After the deadline both the 400 and
+the 20 went dual-interface (selectable BLE or DMX per fixture, stored
+in config and in default sets); the 10 stays BLE-only.
 
 **Calibrating the IR strip with a camera.** The shelf strip's 24-button
 remote was captured in full over a USB-serial IR blaster — then a fixed-
@@ -105,9 +107,10 @@ All Off skips them by name unless explicitly overridden.
 
 **Lights — four families, one language.** GVM panels over BLE
 (brightness/CCT/HSI/scenes, protocol reverse-engineered from app
-captures); Ninja 400 over USB-DMX (dimmer + CCT, wall-clock pacing,
-buffer-preserving blackout); Ninja 10/20 over BLE broadcast (byte-exact
-replayed frames, soft power); IR shelf strip with a camera-measured
+captures); Ninja 400 dual-interface (USB-DMX dimmer + CCT with
+wall-clock pacing and buffer-preserving blackout, or BLE broadcast);
+Ninja 20 dual-interface (BLE broadcast with soft power, or DMX
+dimmer-only); Ninja 10 BLE-only; IR shelf strip with a camera-measured
 color table. Every family on the bench, in modes and modalities, and
 under AI.
 
@@ -163,11 +166,17 @@ and DTMF-shutting-down the workstation down the audio wire (one of
                                       strip, screens, main PC
 ```
 
-One Python service, JSON-configured studios, 546-test suite with
+One Python service, JSON-configured studios, 659-test suite with
 hardware and socket-free tiers, dual HTTPS/HTTP serving, watchdog task,
 self-signed TLS. Deploys over the LAN with clobber guards on local
 config. Only fictional example data is committed; real studio details
 stay git-ignored and local.
+
+Post-deadline additions: named equipment-value snapshots (default sets)
+with a dropdown builder, one profile-driven ranges resolver behind
+every slider and gate, an equipment address editor for the BLE/DMX
+halves, a data-map page over the whole config graph, and a DSD + data
+dictionary (`docs/dsd.md`, `docs/data-dictionary.md`).
 
 ## Status
 

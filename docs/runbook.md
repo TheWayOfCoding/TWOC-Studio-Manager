@@ -41,10 +41,14 @@ example-studio`, fictional) drives every page against mock drivers.
    `config/studios.local/<your-studio-id>/` (git-ignored; real data
    never commits).
 2. Edit `studio.json` (id must match the folder), `zones.json`,
-   `devices.json`, `modes.json`, `presets.json`, `modalities.json`.
-   Schemas are enforced at load (`backend/app/config/schemas/`); field
-   reference: `config/README.md`. `/ordering` writes `ordering.json` for
-   you; `/equipment` moves assets between zones (power wiring untouched).
+   `devices.json`, `modes.json`, `presets.json`, `modalities.json`
+   (`defaults.json`/`shows.json` optional). Schemas are enforced at
+   load (`backend/app/config/schemas/`); field reference:
+   `config/README.md` plus `docs/dsd.md` /
+   `docs/data-dictionary.md`. `/ordering` writes `ordering.json` for
+   you; `/equipment` moves assets between zones (power wiring
+   untouched), edits driver addresses, and builds default sets;
+   `/datamap` shows the whole link graph with live health.
 3. Zone/plug layout used by the reference rig (adapt freely):
    Hub Manager (no plug) → workstation zones on Plugs 1–3 →
    hands-on on Plug 4 → hands-on screens Plug 5 → mood Plug 6 →
@@ -145,6 +149,9 @@ honestly degraded-by-name — fix wiring, never silence).
 
 - `/ordering`: drag/drop your list order (A–Z buttons per collection;
   lists plus dashboard panels).
+- `/equipment` Default sets: build one set covering the rig, assign it
+  as the studio default — Control inputs seed from it and every reset
+  targets it.
 - Dashboard zones list each zone's device collection — eyeball against
   the room.
 - Hub Manager card: test Restart, then Power down (final confirmation)

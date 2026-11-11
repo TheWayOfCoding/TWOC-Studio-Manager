@@ -7,10 +7,11 @@ Runs on a Raspberry Pi or a Windows Hub host; developed on a PC and deployed ove
 **Status:** Live on the Windows Hub host, demo-ready: every light family
 drives through bench, modes, modalities, and AI; OBS scene control with a
 dashboard card; backdrop screens with push + audio bed; voice-prompted AI
-looks; undo + action log; health API and watchdog task. GVM HSI is
-live-verified, the Ninja 400 runs over DMX while the Ninja 10/20 run over
-BLE broadcast, the IR strip maps hues to measured colors, and the AI
-director is live-proven on real hardware.
+looks; undo + action log; named equipment-value snapshots (default sets)
+seeding Control and one-click reset; health API and watchdog task. GVM HSI
+is live-verified, the Ninja 20/400 run dual-interface (selectable BLE or
+DMX per fixture) while the Ninja 10 runs BLE-only, the IR strip maps hues
+to measured colors, and the AI director is live-proven on real hardware.
 
 See `HACKATHON.md` for the demo story: the 60-second tour, every
 controlled family, the touch-tone audio wire, and the war stories.
@@ -20,11 +21,13 @@ controlled family, the touch-tone audio wire, and the war stories.
 - **Modes:** one click powers zones, sets lights, switches OBS, updates
   screens — with per-mode fades and honest degrade-by-name when anything
   is unwired or offline.
-- **Lights:** GVM BLE panels (brightness/CCT/HSI/scenes), Ninja 400 over
-  USB-DMX (dimmer + CCT faders), Ninja 10/20 over BLE broadcast
-  (brightness/CCT/soft power), and an IR shelf strip (16 calibrated
-  colors) — every family on the bench, in modes and modalities, and
-  under AI.
+- **Lights:** GVM BLE panels (brightness/CCT/HSI/scenes), Ninja 400
+  dual-interface (DMX dimmer + CCT, or BLE broadcast), Ninja 20
+  dual-interface (BLE, or DMX dimmer-only), Ninja 10 BLE-only, and an IR
+  shelf strip (16 calibrated colors) — every family on the bench, in
+  modes and modalities, and under AI. Each fixture's value spans come
+  from its profile (`GET /api/studios/<id>/ranges`); the defaults gate
+  enforces the same spans on save.
 - **AI director:** prompt + target + scope (all/zones/lights) over mock or
   live providers, with per-fixture baselines, AI power caps, one critique
   pass, and save-as-preset. Voice input on the dashboard (Chrome/Edge).
@@ -41,6 +44,15 @@ controlled family, the touch-tone audio wire, and the war stories.
 - **Ordering:** `/ordering` drag/drop page sets custom list order
   (zones, devices, modes, presets, plugs, panels, modalities) with
   one-click A–Z sorts, persisted as one small JSON file per studio.
+- **Default sets:** named per-studio equipment-value snapshots
+  (`defaults.json`), built with dropdowns and range-aware inputs on
+  the Equipment page; the assigned set seeds Control inputs and powers
+  one-click reset per asset, per plug, and everything-at-once (plugs
+  behind a confirm tick). Set ids generate from labels and never change.
+- **Data map:** `/datamap` draws the entity/link diagram with live
+  counts plus link-health checks (unknown references, out-of-range
+  stored values). Written reference: `docs/dsd.md` +
+  `docs/data-dictionary.md`.
 - **Modalities:** smart collections (kind mode/preset/show/custom) run
   from the dashboard and `/modality`, with run/stop/undo/snapshot —
   the one-click demo surface over the modes engine.
@@ -58,8 +70,10 @@ controlled family, the touch-tone audio wire, and the war stories.
 - `/modality` Modality Manager: add/edit/remove the smart collections above
 - `/control` one-asset remote (phone and OBS-dock friendly) + Kasa plugs
 - `/bench` hardware bring-up per driver family (incl. official Kasa plugs)
-- `/equipment` per-device facts editor + zone-move editor
+- `/equipment` per-device facts, address editor (BLE/DMX halves), zone moves, default sets
 - `/ordering` drag/drop list-ordering admin
+- `/datamap` entity/link diagram with live counts + link health
+- `/obs` OBS targets admin
 - `/screen/<id>` kiosk backdrop page
 
 **Implementing from source?** Follow `docs/runbook.md` — the full

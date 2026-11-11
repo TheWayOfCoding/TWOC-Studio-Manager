@@ -4,9 +4,10 @@ Source: HCI snoop of the Weeylite Pro Android app
 (`com.ruitianzhixin.weeylite2`), captured via live `btsnoop_net` stream
 (port 8872 over `adb forward`) with scripted taps
 (`captures/ninja10/`, git-ignored). App-side groups: Ninja 10 (CH3-A),
-Ninja 400 (CH3-B), Ninja 20 (CH3-C). The hub drives the 10/20 over BLE
-today; the 400 is DMX-only on the hub (its BLE map below stays valid
-for the vendor app).
+Ninja 400 (CH3-B), Ninja 20 (CH3-C). The hub drives the 10 over BLE;
+the 20/400 are dual-interface (BLE halves on CH3-C/CH3-B, DMX halves in
+`docs/dmx-wiring.md`), with the per-fixture `transport` pick deciding
+which path every surface uses.
 
 Unlike GVM (paired GATT writes), this protocol is **connectionless
 broadcast**: the app carries no connection, pairs with nothing, and

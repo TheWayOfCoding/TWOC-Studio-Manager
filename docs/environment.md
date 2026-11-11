@@ -52,7 +52,9 @@ full package/driver/tool inventory, see `docs/dependencies.md`.
   Windows). `.venv` from `backend/requirements-dev.txt` (runtime
   deps plus pytest, pytest-cov, httpx, ruff). Full suite runs here
   unsandboxed (sandboxed shells block the loopback sockets TestClient
-  needs). Gates: `python -m pytest` + `ruff check backend tools tests`.
+  needs). Gates: `python -m pytest` + `ruff check backend tools tests`
+  + a headless-Edge console check on touched pages (see
+  `docs/verification.md`).
 - Android platform-tools (`adb`) for phone captures (see below).
 - Optional: Portable OBS (git-ignored) as the OBS WebSocket target;
   a camera for color calibration captures.

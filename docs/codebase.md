@@ -11,10 +11,13 @@ change must honor.
   Degraded health on broken config, never a crash. Routers: specific
   bench routers first, generic `/{driver_id}` mock routes last.
 - `backend/app/core/` — logging (configure-first), safety gates.
-- `backend/app/config/` — loader + schemas. `profiles/` (shared
-  fixture specs), `studios/` (tracked fictional examples),
-  `studios.local/` (real studios, git-ignored). Loader merges both
-  roots; duplicate studio ids are an error.
+- `backend/app/config/` — loader + schemas + ranges resolver.
+  `profiles/` (shared fixture specs), `studios/` (tracked fictional
+  examples), `studios.local/` (real studios, git-ignored). Loader
+  merges both roots; duplicate studio ids are an error. Ranges
+  (`ranges.py`, served at `GET /api/studios/<id>/ranges`) merge profile
+  spec + capabilities into the one effective span set every slider and
+  the defaults gate read.
 - `backend/app/registry/` — validated in-memory view (devices,
   zones, modes, presets in configured order, effective device =
   instance + profile).
@@ -23,11 +26,14 @@ change must honor.
 - `backend/app/modules/` — capability composers over drivers. No raw
   hardware I/O.
 - `backend/app/api/` — REST surface: bench bring-up endpoints per
-  driver family plus studio/mode/preset/AI/show routes.
+  driver family plus studio/mode/preset/AI/show/defaults routes
+  (incl. hardware snapshots, ranges, and profiles reads).
 - `backend/app/static/` — dashboard (`index.html`), Test Bench
   (`bench.html`), control (`control.html`), kiosk page (`screen.html`),
-  equipment editor, ordering admin (`ordering.html`), modality manager
-  (`modality.html`), shared design system (`hub.css`).
+  equipment editor (datapoints, zones, default sets, addresses),
+  ordering admin (`ordering.html`), modality manager
+  (`modality.html`), data map (`datamap.html`), OBS targets
+  (`obs.html`), shared design system (`hub.css`).
 - `backend/app/config/ordering.py` — per-studio custom list order
   (`ordering.json` id arrays, loaded once, atomically saved; see
   `config/README.md`). Registry id lists honor it everywhere.
@@ -83,7 +89,8 @@ change must honor.
   green before deploy; a red test covering your change blocks it.
   Known-red unrelated failures ship only disclosed, never silent.
 - No CI: the gates are pytest + `ruff check` (pyproject config) +
-  the deploy health check.
+  a headless-Edge console check on touched pages (node is gone from
+  the dev box) + the deploy health check.
 
 ## Deploy pipeline
 
