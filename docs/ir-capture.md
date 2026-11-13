@@ -56,10 +56,10 @@ blue-weak-red — only red reads true red, white reads cyan-blue, most warm
 buttons land green-family, most cool/pink buttons land blue/teal. Button
 names describe the calibrated appearance, not the remote printing.
 
-## Modes / AI control (automation)
+## Modes / orchestrator control (automation)
 
 The strip is a `lightstrip` device, addressable from modes, modalities,
-and the AI director through the IR translator:
+and the orchestrator through the IR translator:
 
 - `power` on/off and `intensity` (0 = off, anything above = on) flip the
   on/off buttons. There is no absolute brightness — brightness stepping

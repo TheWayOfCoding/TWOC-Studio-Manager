@@ -7,11 +7,12 @@ anything degraded is skipped and named, never silent (mode-catalog rule).
 
 Lights translate per driver family (mock, gvm, dmx, ninja, ir). Fades are opt-in
 dwell seconds per step: a mode/preset default with per-light overrides and
-an apply-time override that wins over both. AI (custom) plans additionally
-clamp intensity to each fixture's configured aiCap, reporting every clamp,
-and refuse scene selects; confirmed shows opt out of both (ai_caps=False,
-allow_scenes=True). Multi-key steps ride one driver batch when the driver
-offers apply_many, so a step lands as one beat instead of smeared frames.
+an apply-time override that wins over both. Orchestrator (custom) plans
+additionally clamp intensity to each fixture's configured orchCap,
+reporting every clamp, and refuse scene selects; confirmed shows opt out
+of both (orch_caps=False, allow_scenes=True). Multi-key steps ride one
+driver batch when the driver offers apply_many, so a step lands as one
+beat instead of smeared frames.
 """
 
 import time
@@ -159,10 +160,10 @@ class ModesModule(Module):
         )
 
     def plan_custom(
-        self, plan_id, content, kind="custom", fade_s=None, ai_caps=True, allow_scenes=False,
+        self, plan_id, content, kind="custom", fade_s=None, orch_caps=True, allow_scenes=False,
         include_manual=False,
     ):
-        """Validate ad-hoc mode-like content (AI directives). Same rules as modes."""
+        """Validate ad-hoc mode-like content (orchestrator directives). Same rules as modes."""
         if not isinstance(content, dict):
             raise ModesError("custom plan content must be an object")
         if fade_s is None:
@@ -171,7 +172,7 @@ class ModesModule(Module):
         else:
             default_dwell = fade_lock = _check_dwell(fade_s, "fade_s")
         if kind != "custom":
-            ai_caps = False
+            orch_caps = False
         return {
             "kind": kind,
             "id": plan_id,
@@ -183,7 +184,7 @@ class ModesModule(Module):
                 content.get("powerOn") or [], content.get("powerOff") or [], include_manual=include_manual
             ),
             "lights": self._plan_lights(
-                content.get("lights") or {}, default_dwell, ai_caps, fade_lock,
+                content.get("lights") or {}, default_dwell, orch_caps, fade_lock,
                 allow_scenes=allow_scenes,
             ),
             "obs": {"scene": content.get("obsScene")},
@@ -197,11 +198,11 @@ class ModesModule(Module):
         return self._execute(plan, sleep or time.sleep, delay, include_manual=include_manual)
 
     def apply_custom(self, plan_id, content, sleep=None, fade_s=None, power_delay_s=None,
-                     ai_caps=True, allow_scenes=False, include_manual=False):
+                     orch_caps=True, allow_scenes=False, include_manual=False):
         """Plan, then apply ad-hoc mode-like content. Returns the result."""
         delay = _check_power_delay(power_delay_s) if power_delay_s is not None else 0
         plan = self.plan_custom(
-            plan_id, content, fade_s=fade_s, ai_caps=ai_caps, allow_scenes=allow_scenes,
+            plan_id, content, fade_s=fade_s, orch_caps=orch_caps, allow_scenes=allow_scenes,
             include_manual=include_manual,
         )
         return self._execute(plan, sleep or time.sleep, delay, include_manual=include_manual)
@@ -288,7 +289,7 @@ class ModesModule(Module):
                 skipped.append({"target": group, "reason": f"group {group}: {exc}"})
         return {"plans": planned, "skipped": skipped, "protected": protected}
 
-    def _plan_lights(self, lights, default_dwell=0, ai_caps=False, fade_lock=None, allow_scenes=False):
+    def _plan_lights(self, lights, default_dwell=0, orch_caps=False, fade_lock=None, allow_scenes=False):
         if not isinstance(lights, dict):
             raise ModesError("lights must be an object of device_id to command")
         devices, skipped, capped = [], [], []
@@ -308,8 +309,8 @@ class ModesModule(Module):
                 raise SafetyViolation(
                     f"refusing scene {command['scene']} on {device_id} via automation (bench-only)"
                 )
-            if ai_caps:
-                self._clamp_ai_cap(device_id, device, command, capped)
+            if orch_caps:
+                self._clamp_orch_cap(device_id, device, command, capped)
             if not device.get("controllable", True):
                 skipped.append({"target": device_id, "reason": f"{device_id} is not controllable"})
                 continue
@@ -355,17 +356,18 @@ class ModesModule(Module):
             devices.append({"device": device_id, "commands": translated, "dwell_s": dwell})
         return {"devices": devices, "skipped": skipped, "capped": capped}
 
-    def _clamp_ai_cap(self, device_id, device, command, capped):
-        """Clamp AI asks to aiCap, profile ranges, and panel steps. Records every clamp.
+    def _clamp_orch_cap(self, device_id, device, command, capped):
+        """Clamp orchestrator asks to orchCap, profile ranges, and panel steps.
 
-        AI output is advisory: near-misses land on the nearest legal value
-        and say so, instead of failing the whole look (user-authored modes
-        and presets keep the strict gate).
+        Records every clamp. Orchestrator output is advisory: near-misses
+        land on the nearest legal value and say so, instead of failing the
+        whole look (user-authored modes and presets keep the strict gate).
+        The legacy aiCap field is still honored where orchCap is absent.
         """
-        cap = (device.get("aiCap") or {}).get("intensity")
+        cap = (device.get("orchCap") or device.get("aiCap") or {}).get("intensity")
         if cap is not None:
             if isinstance(cap, bool) or not isinstance(cap, (int, float)) or not 0 <= cap <= 100:
-                raise ModesError(f"{device_id}.aiCap.intensity must be 0..100: {cap!r}")
+                raise ModesError(f"{device_id}.orchCap.intensity must be 0..100: {cap!r}")
             value = command.get("intensity")
             if not isinstance(value, bool) and isinstance(value, (int, float)) and value > cap:
                 command["intensity"] = cap

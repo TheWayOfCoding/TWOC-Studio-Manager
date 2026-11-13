@@ -108,7 +108,7 @@ Per-family checklists:
 - **OBS:** status shows connected + collection + scenes; switch
   both directions including spaced names; boot job only with the
   user's word.
-- **AI director:** mock provider first (pins hold), then live
+- **Orchestrator:** mock provider first (pins hold), then live
   provider with explicit scope; eyeball every targeted fixture.
 
 Standing safety rules: never cycle plug/bench power unannounced

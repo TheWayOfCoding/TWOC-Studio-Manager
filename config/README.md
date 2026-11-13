@@ -69,7 +69,7 @@ collection exactly.
 
 ## meta.json (studios.local/)
 
-`studios.local/meta.json` holds the dev.meta.ai key for the AI director's
+`studios.local/meta.json` holds the dev.meta.ai key for the orchestrator's
 `meta` provider (absent file = honest "not configured" 503):
 
 ```json
@@ -80,6 +80,26 @@ collection exactly.
 api.meta.ai only, never logged or echoed in responses. Create one key per
 use (name the hub key for the hub); it ships to the hub with the normal
 `studios.local` deploy files and never commits.
+
+## orchestrator.json (studios.local/)
+
+`studios.local/orchestrator.json` holds the OpenAI-compatible endpoints
+for the orchestrator's `local` and `free` providers (absent file or
+section = honest "not configured" 503):
+
+```json
+{"local": {"base_url": "http://127.0.0.1:8081/v1", "model": "gemma-4-E4B-it-IQ4_NL"},
+ "free": {"base_url": "https://example.invalid/v1", "model": "free-model", "api_key": "..."}}
+```
+
+`base_url` is the endpoint root (the hub appends `/chat/completions`);
+`model` passes through verbatim (match the server alias when the server
+requires one). `local` needs no key; `free` without `api_key` reads as
+unconfigured. Either section takes an optional `timeout_s` (default 120).
+Replies are requested as strict JSON (`response_format json_object`), so
+providers return the directives object with no surrounding prose.
+Keys travel in the Authorization header only, never logged or echoed.
+See `docs/local-llm.md` for the hub-side local server setup.
 
 ## link.json (studios.local/)
 
@@ -151,34 +171,37 @@ have no defaults. Managed on the Equipment page (Default sets card:
 dropdown builder with range-aware inputs + quick-assign, JSON fallback,
 create/edit/delete + assign/clear); the assigned set seeds the Control
 page and powers one-click reset per asset, per plug, and
-everything-at-once. Control inputs resolve session value → studio
-default → hardcoded, CCT sliders render each fixture's own span, and
-reset transmits the saved levels exactly (reset-all always allows
-bright).
+everything-at-once. Control and Bench inputs resolve session value →
+studio default → hardcoded (the dashboard records its zone plug
+switches and orchestrator looks into the same tab session), CCT sliders render
+each fixture's own span, and reset transmits the saved levels exactly
+(reset-all always allows bright).
 
-## Per-light baselines: usual + aiCap
+## Per-light baselines: usual + orchCap
 
 Each light device carries its normal everyday look in `usual`:
 
 ```json
-{"id": "ninja-400", "usual": {"intensity": 2, "cct": 5600}, "aiCap": {"intensity": 10}}
+{"id": "ninja-400", "usual": {"intensity": 2, "cct": 5600}, "orchCap": {"intensity": 10}}
 ```
 
-`usual` is the baseline the orchestrators reason from: the AI manifest
-includes it verbatim, and the director prompt defines it as normal
-lighting (moody/cozy asks go below it, neutral asks stay near it).
-Keep it truthful to the live everyday level — the key light's entry
-matters most, since every relative look keys off it.
+`usual` is the baseline the orchestrators reason from: the orchestrator
+manifest includes it verbatim, and the director prompt defines it as
+normal lighting (moody/cozy asks go below it, neutral asks stay near
+it). Keep it truthful to the live everyday level — the key light's
+entry matters most, since every relative look keys off it.
 
-`aiCap` is the ceiling the AI may not exceed (near-misses clamp and are
-reported; user modes/presets keep the strict gate instead). `usual` may
-itself sit above `aiCap` when the everyday level is brighter than AI
-should ever command — the clamp still applies.
+`orchCap` is the ceiling the orchestrator may not exceed (near-misses
+clamp and are reported; user modes/presets keep the strict gate
+instead). `usual` may itself sit above `orchCap` when the everyday
+level is brighter than the orchestrator should ever command — the clamp
+still applies. The legacy `aiCap` field is still honored where
+`orchCap` is absent, so existing studios keep working untouched.
 
 Turning lights off: `intensity` 0 means dark on every family (DMX uses
-0; GVM panels also accept `"power": "off"`). The AI may direct 0 when
-the request wants a light off; the critique pass flags it so a human
-can tell blackout from mistake.
+0; GVM panels also accept `"power": "off"`). The orchestrator may
+direct 0 when the request wants a light off; the critique pass flags it
+so a human can tell blackout from mistake.
 
 ## Ninja BLE lights (driverAddress)
 

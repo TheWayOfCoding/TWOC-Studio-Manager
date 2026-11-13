@@ -77,6 +77,15 @@ def test_control_cct_and_color_announce_gvm_page():
 
 
 @pytest.mark.unit
+def test_control_color_button_follows_pad_and_sends_brightness():
+    """Set color sits under the pad and sends hue+sat+brightness together."""
+    html = _control_html()
+    assert html.index('id="c-colorpad"') < html.index('onclick="lightHsi()"')
+    hsi_fn = _function_slice(html, "async function sendHsi(", "async function lightPower(")
+    assert "brightness:" in hsi_fn
+
+
+@pytest.mark.unit
 def test_control_screen_theme_select_ttl_and_clear_present():
     """Control screens get the same curated themes, text timer, Clear."""
     html = _control_html()
@@ -171,12 +180,41 @@ def test_control_picker_lists_drivable_only():
 
 
 @pytest.mark.unit
+def test_control_animated_modes_fire_directly():
+    """Animated strip modes fire by label with no confirm gate (user call)."""
+    html = _control_html()
+    anim_fn = _function_slice(html, "async function irSendAnim(", "async function sendScreenPush(")
+    assert "confirm(" not in anim_fn
+    assert "sendIr(label)" in anim_fn
+
+
+@pytest.mark.unit
+def test_control_color_pad_present():
+    """RGB lights get the shared touch-friendly color pad, synced with sliders."""
+    html = _control_html()
+    for marker in (
+        'src="/colorpad.js"',
+        'id="c-colorpad"',
+        "ColorPad.mount(",
+        "colorPadSync()",
+        "hueStep",
+    ):
+        assert marker in html
+
+
+@pytest.mark.unit
 def test_control_strip_and_screen_present():
-    """Strip gets on/off + fixed-color swatches; screens get push + audio."""
+    """Strip gets on/off + fixed-color swatches + animated + brightness steps; screens get push + audio."""
     html = _control_html()
     for marker in (
         "irSend(",
+        "irSendAnim(",
         "loadSwatches()",
+        'id="c-ir-anims"',
+        "brightness-up",
+        "brightness-down",
+        "Brightness up",
+        "Brightness down",
         "/api/testbench/ir/send",
         "/api/testbench/ir/codes",
         "screenPush()",

@@ -208,6 +208,97 @@ def test_screen_track_select_and_live_volume_present():
 
 
 @pytest.mark.unit
+def test_bench_session_memory_and_default_fallback_present():
+    """Bench device inputs seed from tab session, then the studio default set."""
+    html = _bench_html()
+    for marker in (
+        "sessionStorage",
+        "twoc.control.",
+        "sessRead(",
+        "sessWrite(",
+        "initVal(",
+        "ensureDefaults(",
+        "BENCH_DEFAULTS",
+        "/defaults",
+    ):
+        assert marker in html
+
+
+@pytest.mark.unit
+def test_bench_sends_record_session_state():
+    """Bench device sends record what went out under Control's key scheme."""
+    html = _bench_html()
+
+    def _slice(start, end):
+        return html[html.index(start) : html.index(end, html.index(start))]
+
+    assert "sessWrite(" in _slice("async function gvmSet(", "async function gvmPower(")
+    assert "sessWrite(" in _slice("async function ninjaSet(", "function ninjaBrSync(")
+    assert "sessWrite(" in _slice("async function dmxLightSet(", "async function dmxLightLook(")
+    assert "sessWrite(" in _slice("async function scrPush(", "async function scrClear(")
+    assert "sessWrite(" in _slice("async function scrAudio(", "function scrVolume(")
+    assert "sessWrite(" in _slice("async function irSendSel(", "async function irSendRaw(")
+    assert "sessWrite(" in _slice("async function kOfficialSet(", "let kasaPlugs")
+
+
+@pytest.mark.unit
+def test_bench_inputs_seed_from_session_and_default():
+    """Rendered inputs seed from session/default instead of hardcoded only."""
+    html = _bench_html()
+
+    def _slice(start, end):
+        return html[html.index(start) : html.index(end, html.index(start))]
+
+    assert "initVal(" in _slice("function dmxLightPanel(", "async function dmxLightsLoad(")
+    assert "seedGvm(" in html
+    assert "seedNinja(" in html
+    assert "seedScr(" in html
+
+
+@pytest.mark.unit
+def test_bench_reset_actions_present():
+    """One-click reset per device card, matching Control's contract."""
+    html = _bench_html()
+    for marker in (
+        "gvmReset()",
+        "ninjaReset()",
+        "dmxFixtureReset(",
+        "scrReset()",
+        "irStripReset()",
+        "kOfficialReset(",
+        "Reset to default",
+    ):
+        assert marker in html
+
+
+@pytest.mark.unit
+def test_bench_gvm_color_pad_present():
+    """GVM card gets the shared touch-friendly color pad, synced with inputs."""
+    html = _bench_html()
+    for marker in (
+        'src="/colorpad.js"',
+        'id="gvm-colorpad"',
+        "ColorPad.mount(",
+        "gvmPadSync(",
+        "gvmColor(",
+        "Apply color",
+    ):
+        assert marker in html
+
+
+@pytest.mark.unit
+def test_bench_gvm_color_applies_combined_look():
+    """One tap under the pad sends hue+sat+brightness on the hsi page."""
+    html = _bench_html()
+    assert html.index('id="gvm-colorpad"') < html.index('onclick="gvmColor()"')
+    start = html.index("async function gvmColor(")
+    end = html.index("async function gvmScene(", start)
+    fn = html[start:end]
+    for marker in ('page: "hsi"', "brightness:", "hue:", "saturation:", "gvmSet("):
+        assert marker in fn
+
+
+@pytest.mark.unit
 def test_screen_audio_volume_controls_present():
     """Screen card drives bed volume (uncapped: the synth runs quiet)."""
     html = _bench_html()

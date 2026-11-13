@@ -259,7 +259,7 @@ def _plan_all(modes_module, show_id, show, confirm_scenes):
             content["fade_s"] = step["fade_s"]
         try:
             modes_module.plan_custom(
-                f"{show_id}[{index}]", content, ai_caps=False, allow_scenes=True
+                f"{show_id}[{index}]", content, orch_caps=False, allow_scenes=True
             )
         except (ModesError, SafetyViolation, RegistryError) as exc:
             raise ShowsError(f"{show_id} step {index} rejected: {exc}") from exc
@@ -325,7 +325,7 @@ def run_show(modes_module, screens, show, sleep=time.sleep, stop=None, confirm_s
         fade = step.get("fade_s")
         result = modes_module.apply_custom(
             f"show[{index}]", content, sleep=lambda s: None, fade_s=fade,
-            ai_caps=False, allow_scenes=True,
+            orch_caps=False, allow_scenes=True,
         )
         scene_outcomes = _scene_outcomes(step, result["subsystems"]["lights"])
         narration = narrate(registry, step["lights"], step["scenes"],

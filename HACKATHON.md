@@ -60,8 +60,8 @@ teal and half the buttons land in the wrong color family. The result is
 a measured-truth color table with human rename labels, and every
 animated mode eyeballed and graded for intensity.
 
-**The AI director goes live.** With every family under hub control, the
-AI layer landed: prompt + target + scope over a live model, per-fixture
+**The orchestrator goes live.** With every family under hub control, the
+orchestrator layer landed: prompt + target + scope over a live model, per-fixture
 normal baselines, power caps, one critique pass, voice input. The first
 hardware spike — one cozy prompt — aimed two panels, a key light, and a
 backdrop screen in a single apply, all devices reporting ready.
@@ -112,7 +112,7 @@ wall-clock pacing and buffer-preserving blackout, or BLE broadcast);
 Ninja 20 dual-interface (BLE broadcast with soft power, or DMX
 dimmer-only); Ninja 10 BLE-only; IR shelf strip with a camera-measured
 color table. Every family on the bench, in modes and modalities, and
-under AI.
+under the orchestrator.
 
 **OBS.** Full websocket control: status, scenes, scene collections,
 safe-fallback switching, guarded streaming. The dashboard carries a live
@@ -130,11 +130,12 @@ run/stop/undo/snapshot — the one-click demo surface over the modes
 engine. Multi-step shows carry captions with narration wash,
 stop-to-final behavior, and per-step result reporting.
 
-**AI director.** Prompt + target + scope over mock or live providers,
+**Orchestrator.** Prompt + target + scope over mock or live providers,
 per-fixture baselines and power caps, critique pass, voice input,
 save-as-preset, snapshot-from-hardware. Live-proven on the real rig.
-Fixed Room lighting (no smart plugs) rides along as context the AI
-factors in and may suggest switching by hand — never claims to move.
+Fixed Room lighting (no smart plugs) rides along as context the
+orchestrator factors in and may suggest switching by hand — never claims
+to move.
 
 **Undo + action log.** Every apply is recorded; one button replays the
 previous room state through the validated path.

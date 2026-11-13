@@ -30,7 +30,7 @@ PANELS = [
     ("zones", "Zones"),
     ("power", "Power"),
     ("hub", "Hub Manager"),
-    ("ai", "AI look"),
+    ("orchestrator", "Orchestrator"),
 ]
 
 

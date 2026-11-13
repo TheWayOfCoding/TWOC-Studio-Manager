@@ -40,11 +40,11 @@ descriptive fields edit via `PUT .../devices/{id}/properties`.
 | position | string | no | — | Human placement note. |
 | coords | `{x,y,z}` numbers | no | — | Meters in studio space. |
 | aimedAt | string | no | — | Aim target. `subject` |
-| distanceToSubjectM | number ≥ 0 | no | — | Throw distance for AI reasoning. |
+| distanceToSubjectM | number ≥ 0 | no | — | Throw distance for orchestrator reasoning. |
 | modifiers | array | no | — | Shapers: `{type, size, diffusionLayers, notes}`. |
 | role | string | no | — | Lighting role: `key`, `background`, `mood`, `room`. |
-| usual | object | no | — | Everyday look baseline for AI (`intensity`, `cct`, …). |
-| aiCap | object | no | — | AI ceiling, e.g. `{intensity: 30}`; user content unaffected. |
+| usual | object | no | — | Everyday look baseline for the orchestrator (`intensity`, `cct`, …). |
+| orchCap | object | no | — | Orchestrator ceiling, e.g. `{intensity: 30}`; user content unaffected (`aiCap` still honored). |
 | exposure | object | no | — | Cameras: `{iso, shutter, aperture, whiteBalanceK}`. |
 | details | object | no | — | Freeform `{label: text/number}` datapoints; Equipment page. |
 | notes | string | no | — | Operator notes. |

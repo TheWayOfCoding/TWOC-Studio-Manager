@@ -34,7 +34,8 @@ class MockProvider(Provider):
                     look["cct"] = usual_cct
                 directives["lights"][first] = look
         if targets in ("screens", "both"):
-            screens = (manifest or {}).get("screens") or []
-            for screen in screens[:1]:
-                directives["screens"][screen] = {"theme": "ai", "text": (prompt or "untitled")[:120]}
+            screens = (manifest or {}).get("screens") or {}
+            ids = sorted(screens) if isinstance(screens, dict) else screens
+            for screen in ids[:1]:
+                directives["screens"][screen] = {"theme": "orchestrator", "text": (prompt or "untitled")[:120]}
         return directives

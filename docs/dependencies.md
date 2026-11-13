@@ -42,7 +42,7 @@ workstation needs no project package installed).
 | `screen.py` | KQC kiosk | in-process state + HTTP page | none (hub state) |
 | `mock.py` | tests/demos | none | none |
 
-## Workstation (9900x, user `creative`)
+## Workstation (9900x, show-seat user)
 
 - Python 3.11+ with `tools/pc-link/requirements-link.txt`
   (sounddevice + numpy only) for `listener.py` / `send.py`.

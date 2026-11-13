@@ -119,15 +119,19 @@ example-studio`, fictional) drives every page against mock drivers.
 5. Optional DTMF shutdown: `actions.shutdown` opt-in in the
    workstation `local.json` (`docs/pc-link.md`).
 
-## 9. OBS and AI (optional integrations)
+## 9. OBS and orchestrator (optional integrations)
 
 - OBS: Administration → OBS targets page (host/port/password from each
   install's OBS WebSocket settings, one target per install, Test each,
   pick each studio's default) + scene/collection names in `modes.json`
   must match OBS exactly (`config/README.md`).
-- AI: mock provider works with zero setup. Live provider:
-  `config/studios.local/meta.json` key (`config/README.md`), model
-  defaults sensibly when omitted.
+- Orchestrator: the mock provider works with zero setup. Live
+  providers (`config/README.md`): Meta vendor key in
+  `studios.local/meta.json`; local GPU model via
+  `tools\hub-llm-install.ps1` on the hub (registers the `StudioLLM`
+  sidecar task) plus the `local` section of
+  `studios.local/orchestrator.json` (`docs/local-llm.md`); any free
+  OpenAI-compatible endpoint via the `free` section of the same file.
 
 ## 10. Bring-up, bench-first (in this order)
 

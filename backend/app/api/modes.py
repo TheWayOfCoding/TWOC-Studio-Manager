@@ -293,7 +293,7 @@ def _replay(module, entry):
         return {"kind": kind, "id": entry_id}, module.apply_preset(entry_id)
     if kind == "custom":
         if not isinstance(entry.get("content"), dict):
-            raise ModesError("cannot undo: original AI content unavailable")
+            raise ModesError("cannot undo: original orchestrator content unavailable")
         return {"kind": kind, "id": entry_id}, module.apply_custom(entry_id, entry["content"])
     if kind == "modality":
         try:
@@ -304,7 +304,7 @@ def _replay(module, entry):
         final = dict(contents[-1])
         delay = final.pop("power_delay_s", None)
         return {"kind": kind, "id": entry_id}, module.apply_custom(
-            entry_id, final, ai_caps=False, allow_scenes=True, power_delay_s=delay
+            entry_id, final, orch_caps=False, allow_scenes=True, power_delay_s=delay
         )
     if kind == "power":
         raise ModesError("cannot undo a power action (re-run a modality to restore it)")

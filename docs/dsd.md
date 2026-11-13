@@ -26,8 +26,9 @@ Equipment pieces **do** have a unique key: `device.id`.
   the `transport` pick with it and says so.
 - Id spelling: devices, zones, modes, profiles, studios match
   `^[a-z0-9][a-z0-9_-]*$` (schema-enforced). Preset and default-set ids
-  match `[A-Za-z0-9][A-Za-z0-9_-]{0,63}` (code-enforced in `api/ai.py` and
-  `api/defaults.py`); `assign` is reserved for default sets.
+  match `[A-Za-z0-9][A-Za-z0-9_-]{0,63}` (code-enforced in
+  `api/orchestrator.py` and `api/defaults.py`); `assign` is reserved
+  for default sets.
 - Duplicate ids are rejected at load (`loader.load_studio`) and duplicate
   studio ids across the `studios/` + `studios.local/` roots are an error.
 
@@ -88,7 +89,8 @@ config/
   studios.local/               real studios (git-ignored, deployed to the hub)
     plug-map.json              Kasa alias/host/zone/creds map
     obs.json + .obs-key        named OBS endpoints + studio selection
-    meta.json                  AI provider key (hub-local)
+    meta.json                  Meta vendor key (hub-local, optional)
+    orchestrator.json          local/free provider endpoints (hub-local)
     link.json                  PC-link audio + WoL settings
     <id>/studio.json           id, label, defaultMode, defaultSet
     <id>/devices.json          device instances (array)
@@ -136,8 +138,11 @@ Consumers of the resolver (nothing keeps its own copy):
   resolved map; the Equipment Default-sets builder, the Control page
   sliders, and the data map read it.
 - `modules/modes.py` enforces the same profile ranges at plan time
-  (`LIGHT_RANGES` + `_check_light_ranges`) and clamps AI asks to
-  `aiCap` + profile ranges, reporting every clamp.
+  (`LIGHT_RANGES` + `_check_light_ranges`) and clamps orchestrator asks
+  to `orchCap` + profile ranges, reporting every clamp.
+- The orchestrator manifest (`orchestrator/director.py`) derives each
+  light's `controls` block and the `screen_options` lists from the
+  resolver — the model sees the same spans the sliders show.
 
 Post-change safety: stored modes/presets/defaults keep their bytes when
 a profile range narrows later — the loader checks id references only,
@@ -146,9 +151,10 @@ applies face the gate, and UIs render out-of-range stored values as
 warnings preserved until edited, never silently clamped on read.
 
 Related per-light baselines (not ranges): device `usual` is the everyday
-look the AI reasons from; device `aiCap.intensity` is the ceiling AI
-plans may not exceed (near-misses clamp and report; user content keeps
-the strict gate). See `config/README.md`.
+look the orchestrator reasons from; device `orchCap.intensity` is the
+ceiling orchestrator plans may not exceed (near-misses clamp and report;
+user content keeps the strict gate; legacy `aiCap` still honored). See
+`config/README.md`.
 
 ## 6. Lifecycles
 
@@ -179,9 +185,9 @@ state — uncommanded fixtures are skipped and named, never guessed.
 - Loader + reference checks: `backend/app/config/loader.py`
 - Ranges: `backend/app/config/ranges.py`
 - Registry: `backend/app/registry/store.py`
-- Save gates: `api/equipment.py`, `api/defaults.py`, `api/ai.py`
-  (`save_preset`), `api/modality.py`, `modules/modes.py`,
-  `modules/modality.py`, `modules/shows.py`
+- Save gates: `api/equipment.py`, `api/defaults.py`,
+  `api/orchestrator.py` (`save_preset`), `api/modality.py`,
+  `modules/modes.py`, `modules/modality.py`, `modules/shows.py`
 - Pages: `backend/app/static/equipment.html` (Default sets),
   `control.html`, `datamap.html` (visual map)
 - Tests: `tests/unit/test_default_ranges.py`,

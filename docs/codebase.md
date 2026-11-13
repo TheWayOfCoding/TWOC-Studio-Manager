@@ -22,11 +22,11 @@ change must honor.
   zones, modes, presets in configured order, effective device =
   instance + profile).
 - `backend/app/drivers/` — leaf hardware adapters, one transport
-  each. No modes, UI, or AI.
+  each. No modes, UI, or orchestrator.
 - `backend/app/modules/` — capability composers over drivers. No raw
   hardware I/O.
 - `backend/app/api/` — REST surface: bench bring-up endpoints per
-  driver family plus studio/mode/preset/AI/show/defaults routes
+  driver family plus studio/mode/preset/orchestrator/show/defaults routes
   (incl. hardware snapshots, ranges, and profiles reads).
 - `backend/app/static/` — dashboard (`index.html`), Test Bench
   (`bench.html`), control (`control.html`), kiosk page (`screen.html`),

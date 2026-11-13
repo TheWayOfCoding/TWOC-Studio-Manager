@@ -323,9 +323,9 @@ def test_shows_api_lifecycle(tmp_path):
 
 
 @pytest.mark.unit
-def test_show_ignores_ai_cap(stage):
+def test_show_ignores_orch_cap(stage):
     """Authored intensities (even 100) reach the panel, cap or no cap."""
-    stage["registry"]._devices["key"]["aiCap"] = {"intensity": 10}
+    stage["registry"]._devices["key"]["orchCap"] = {"intensity": 10}
     show = _show({"label": "peak", "lights": {"key": {"intensity": 100}}, "hold_s": 0.05})
     result = run_show(stage["modes"], stage["screens"].apply_mapping, show, sleep=lambda s: None)
     assert result["ok"] is True

@@ -54,24 +54,24 @@
 <div class="row"><label class="field"><input type="checkbox" id="hub-sd-everything"> turn everything off first</label><label class="field"><input type="checkbox" id="hub-sd-workstation"> also shut down 9900x (DTMF)</label></div>
 <div class="row"><label class="field"><input type="checkbox" id="hub-sd-confirm"> I understand the hub will power down</label><button class="danger" onclick="hubShutdown()">Power down hub</button></div>
 <div id="hub-out"></div></div>
-<div class="card span" data-panel="ai"><h2>AI look</h2>
-<div><textarea id="ai-prompt" rows="6" placeholder="cozy interview"></textarea></div>
-<div class="row"><select id="ai-targets"><option value="both">lights+screen</option>
+<div class="card span" data-panel="orchestrator"><h2>Orchestrator</h2>
+<div><textarea id="orch-prompt" rows="6" placeholder="cozy interview"></textarea></div>
+<div class="row"><select id="orch-targets"><option value="both">lights+screen</option>
 <option value="lights">lights</option><option value="screens">screen</option></select>
-<select id="ai-provider"><option value="meta" selected>meta</option></select>
-<button class="primary" onclick="aiLook()">Direct</button> <button id="ai-mic" onclick="aiMic()">Mic</button>
-<label class="field"><input type="checkbox" id="ai-mic-auto"> auto-direct on hear</label></div>
-<p class="hint" id="ai-mic-hint">Voice needs Chrome or Edge over https. Chrome uses its own selected
+<select id="orch-provider"><option value="local" selected>local</option><option value="free">free</option><option value="meta">meta</option></select>
+<button class="primary" onclick="orchDirect()">Direct</button> <button id="orch-mic" onclick="orchMic()">Mic</button> <button id="orch-mic-stop" onclick="orchMicStop()">Stop mic</button> <button id="orch-restore" onclick="orchRestore()">Restore defaults</button>
+<label class="field"><input type="checkbox" id="orch-mic-auto"> auto-direct on hear</label></div>
+<p class="hint" id="orch-mic-hint">Voice needs Chrome or Edge over https. Chrome uses its own selected
 microphone (chrome://settings/content/microphone) — not necessarily the Windows default. Brave and
 hardened browsers provide no speech service: type the prompt instead.</p>
-<div class="row" id="ai-scope"><label><input type="radio" name="ai-scope-mode" value="all" checked onchange="scopeRefresh()"> all</label>
-<label><input type="radio" name="ai-scope-mode" value="zones" onchange="scopeRefresh()"> zones</label>
-<label><input type="radio" name="ai-scope-mode" value="lights" onchange="scopeRefresh()"> lights</label></div>
-<div class="row" id="ai-scope-zones"></div>
-<div class="row" id="ai-scope-lights"></div>
-<div class="row" id="ai-save" style="display:none"><input type="text" id="ai-preset-id" placeholder="preset id">
-<button onclick="aiSave()">Save as preset</button></div>
-<div id="ai-out"></div></div>
+<div class="row" id="orch-scope"><label><input type="radio" name="orch-scope-mode" value="all" checked onchange="scopeRefresh()"> all</label>
+<label><input type="radio" name="orch-scope-mode" value="zones" onchange="scopeRefresh()"> zones</label>
+<label><input type="radio" name="orch-scope-mode" value="lights" onchange="scopeRefresh()"> lights</label></div>
+<div class="row" id="orch-scope-zones"></div>
+<div class="row" id="orch-scope-lights"></div>
+<div class="row" id="orch-save" style="display:none"><input type="text" id="orch-preset-id" placeholder="preset id">
+<button onclick="orchSave()">Save as preset</button></div>
+<div id="orch-out"></div></div>
 </div>
 </div>
 <script>
@@ -142,6 +142,50 @@ async function applyPanelOrder() {
     grid.querySelectorAll("[data-panel]").forEach((c) => { cards[c.dataset.panel] = c; });
     order.forEach((id) => { if (cards[id]) grid.appendChild(cards[id]); });
   } catch (e) { /* default page order stands */ }
+}
+function sessKey(id) { return "twoc.control." + studio() + "." + id; }
+function sessRead(id) {
+  try { return JSON.parse(sessionStorage.getItem(sessKey(id)) || "{}") || {}; }
+  catch (e) { return {}; }
+}
+function sessWrite(id, values) {
+  try {
+    sessionStorage.setItem(sessKey(id), JSON.stringify(Object.assign(sessRead(id), values)));
+  } catch (e) { /* storage blocked: session memory off, page still works */ }
+}
+let DEV_PLUG = {};  // device id -> power plug, from the last zones load
+function recordPlugSwitches(applied, on) {
+  // Zone/all-off results carry device ids; map them to plug session keys
+  // so Control and Bench keep tracking what the rig should be.
+  for (const item of applied || []) {
+    if (!item || !item.ok) continue;
+    const plug = DEV_PLUG[item.device];
+    if (plug) sessWrite("plug." + plug, {on: on});
+  }
+}
+function recordOrchDirectives(directives) {
+  // Validated orchestrator directives are what was sent: remember them per device.
+  // File key "intensity" feeds the brightness inputs (same as Control).
+  const lights = (directives && directives.lights) || {};
+  for (const [id, cmd] of Object.entries(lights)) {
+    if (!cmd || typeof cmd !== "object") continue;
+    const mem = {};
+    if (cmd.power !== undefined) mem.power = cmd.power;
+    if (cmd.intensity !== undefined) mem.brightness = cmd.intensity;
+    if (cmd.cct !== undefined) mem.cct = cmd.cct;
+    if (cmd.hue !== undefined) mem.hue = cmd.hue;
+    if (cmd.saturation !== undefined) mem.saturation = cmd.saturation;
+    if (Object.keys(mem).length) sessWrite(id, mem);
+  }
+  const screens = (directives && directives.screens) || {};
+  for (const [id, cmd] of Object.entries(screens)) {
+    if (!cmd || typeof cmd !== "object") continue;
+    const mem = {};
+    if (cmd.theme !== undefined) mem.theme = cmd.theme;
+    if (cmd.text !== undefined) mem.text = cmd.text;
+    if (cmd.animation !== undefined) mem.animation = cmd.animation;
+    if (Object.keys(mem).length) sessWrite(id, mem);
+  }
 }
 let STUDIO = null;
 function studio() { return STUDIO || document.getElementById("studio").value; }
@@ -314,6 +358,8 @@ async function undoLast() {
 async function loadZones() {
   try {
     const z = await jget("/api/studios/" + studio() + "/zones");
+    DEV_PLUG = {};
+    for (const x of z.zones || []) for (const d of x.devices || []) if (d.plug) DEV_PLUG[d.id] = d.plug;
     document.getElementById("zones").innerHTML = z.zones.map((x) =>
       '<div class="namerow"><span class="name">' + esc(x.label) + "</span>" +
       (x.plugs.length ? '<button class="zone-pwr" onclick="zonePower(\'' + x.id + "',true)\">On</button>" +
@@ -336,6 +382,7 @@ async function zonePower(id, on) {
   out("zone-out", {status: (on ? "powering on " : "powering off ") + id + "…"}, true);
   try {
     const r = await jpost("/api/studios/" + studio() + "/zones/" + id + "/power", JSON.stringify({on}));
+    recordPlugSwitches(r.applied, on);
     out("zone-out", r, r.ok, zoneSummary(id, on, r)); loadActions();
   } catch (e) { out("zone-out", {error: String(e)}, false); }
 }
@@ -361,12 +408,14 @@ async function powerAllOff() {
   out("power-out", {status: "switching everything off…"}, true);
   try {
     const r = await jpost("/api/studios/" + studio() + "/power/all-off", JSON.stringify({include_manual: manual}));
+    recordPlugSwitches(r.applied, false);
     out("power-out", r, r.ok, allOffSummary(r)); loadActions();
   } catch (e) { out("power-out", {error: String(e)}, false); }
 }
-let AI_CANDIDATE = null;
+let ORCH_CANDIDATE = null;
+let ORCH_REC = null;
 function scopeMode() {
-  const r = document.querySelector('input[name="ai-scope-mode"]:checked');
+  const r = document.querySelector('input[name="orch-scope-mode"]:checked');
   return r ? r.value : "all";
 }
 function scopeChecked(cls) {
@@ -376,23 +425,23 @@ function scopeRefresh() {
   const m = scopeMode();
   document.querySelectorAll(".scope-zone").forEach((c) => { c.disabled = (m === "lights"); });
   document.querySelectorAll(".scope-light").forEach((c) => { c.disabled = (m === "zones"); });
-  document.getElementById("ai-scope-zones").style.opacity = m === "lights" ? 0.4 : 1;
-  document.getElementById("ai-scope-lights").style.opacity = m === "zones" ? 0.4 : 1;
+  document.getElementById("orch-scope-zones").style.opacity = m === "lights" ? 0.4 : 1;
+  document.getElementById("orch-scope-lights").style.opacity = m === "zones" ? 0.4 : 1;
 }
 async function loadScope() {
   try {
     const devs = await jget("/api/studios/" + studio() + "/devices");
     const zones = [...new Set(devs.map((d) => d.zone).filter(Boolean))];
-    document.getElementById("ai-scope-zones").innerHTML = zones.map((z) =>
+    document.getElementById("orch-scope-zones").innerHTML = zones.map((z) =>
       '<label class="field"><input type="checkbox" class="scope-zone" value="' + esc(z) + '"> ' + esc(z) + "</label> ").join("");
-    document.getElementById("ai-scope-lights").innerHTML = devs
+    document.getElementById("orch-scope-lights").innerHTML = devs
       .filter((d) => (d.type === "light" || d.type === "lightstrip") && d.controllable !== false).map((d) =>
       '<label class="field"><input type="checkbox" class="scope-light" value="' + d.id + '"> ' +
       esc(d.name || d.id) + "</label> ").join("");
     scopeRefresh();
   } catch (e) { /* scope stays empty = all */ }
 }
-function aiMicError(code) {
+function orchMicError(code) {
   const map = {
     network: "speech service unreachable — Brave and hardened browsers block it; use Chrome or Edge over https, or type instead",
     "not-allowed": "microphone blocked — allow it for this page (lock icon in the address bar), then retry",
@@ -403,68 +452,89 @@ function aiMicError(code) {
   };
   return map[code] || ("mic: " + code);
 }
-async function aiMic() {
+async function orchMic() {
   const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
   if (!window.isSecureContext) {
-    out("ai-out", {error: "mic needs a secure page: open the hub over https, or set Chrome flag unsafely-treat-insecure-origin-as-secure for this address"}, false);
+    out("orch-out", {error: "mic needs a secure page: open the hub over https, or set Chrome flag unsafely-treat-insecure-origin-as-secure for this address"}, false);
     return;
   }
-  if (!SR) { out("ai-out", {error: "voice input needs Chrome or Edge"}, false); return; }
+  if (!SR) { out("orch-out", {error: "voice input needs Chrome or Edge"}, false); return; }
   try {
     if (navigator.brave && await navigator.brave.isBrave()) {
-      out("ai-out", {error: "Brave provides no speech service — type the prompt instead"}, false);
+      out("orch-out", {error: "Brave provides no speech service — type the prompt instead"}, false);
       return;
     }
   } catch (e) { /* detection failed; try the mic anyway */ }
   const rec = new SR();
+  ORCH_REC = rec;
   rec.lang = "en-US";
   rec.interimResults = false;
   rec.maxAlternatives = 1;
   let heard = false;
-  const btn = document.getElementById("ai-mic");
-  out("ai-out", {status: "listening… speak now"}, true);
+  const btn = document.getElementById("orch-mic");
+  out("orch-out", {status: "listening… speak now"}, true);
   if (btn) btn.disabled = true;
   rec.onresult = (e) => {
     heard = true;
-    document.getElementById("ai-prompt").value = e.results[0][0].transcript;
-    if (document.getElementById("ai-mic-auto").checked) { aiLook(); return; }
-    out("ai-out", {status: "heard — hit Direct to run it"}, true);
+    document.getElementById("orch-prompt").value = e.results[0][0].transcript;
+    if (document.getElementById("orch-mic-auto").checked) { orchDirect(); return; }
+    out("orch-out", {status: "heard — hit Direct to run it"}, true);
   };
-  rec.onerror = (e) => { out("ai-out", {error: aiMicError(e.error)}, false); };
+  rec.onerror = (e) => { out("orch-out", {error: orchMicError(e.error)}, false); };
   rec.onend = () => {
+    ORCH_REC = null;
     if (btn) btn.disabled = false;
-    if (!heard) out("ai-out", {status: "mic stopped — nothing heard"}, true);
+    if (!heard) out("orch-out", {status: "mic stopped — nothing heard"}, true);
   };
-  try { rec.start(); } catch (e) { out("ai-out", {error: aiMicError("audio-capture")}, false); }
+  try { rec.start(); } catch (e) { out("orch-out", {error: orchMicError("audio-capture")}, false); }
 }
-async function aiLook() {
-  const body = JSON.stringify({prompt: document.getElementById("ai-prompt").value,
-    targets: document.getElementById("ai-targets").value,
-    provider: document.getElementById("ai-provider").value,
+function orchMicStop() {
+  if (!ORCH_REC) { out("orch-out", {status: "mic is not listening"}, true); return; }
+  try { ORCH_REC.abort(); } catch (e) { /* already ended; onend still reports */ }
+  ORCH_REC = null;
+}
+async function orchDirect() {
+  const body = JSON.stringify({prompt: document.getElementById("orch-prompt").value,
+    targets: document.getElementById("orch-targets").value,
+    provider: document.getElementById("orch-provider").value,
     scope_mode: scopeMode(), scope_zones: scopeChecked("scope-zone"), scope_lights: scopeChecked("scope-light")});
-  out("ai-out", {status: "directing…"}, true);
+  out("orch-out", {status: "directing…"}, true);
   try {
-    const r = await jpost("/api/studios/" + studio() + "/ai/look", body);
-    AI_CANDIDATE = r.preset_candidate || null;
-    document.getElementById("ai-save").style.display = AI_CANDIDATE ? "" : "none";
+    const r = await jpost("/api/studios/" + studio() + "/orchestrator/direct", body);
+    ORCH_CANDIDATE = r.preset_candidate || null;
+    recordOrchDirectives(r.directives);
+    document.getElementById("orch-save").style.display = ORCH_CANDIDATE ? "" : "none";
     const subs = (r.apply && r.apply.subsystems) || {};
     const detail = {directives: r.directives, critique: r.critique, scope: r.scope, apply: subs};
     let line = "Look directed: " + (subsLead(subs) || "nothing applied");
     if (r.critique && r.critique.notes) line += " · critique: " + r.critique.notes;
-    out("ai-out", detail, true, line);
+    out("orch-out", detail, true, line);
     loadActions();
-  } catch (e) { out("ai-out", {error: String(e)}, false); }
+  } catch (e) { out("orch-out", {error: String(e)}, false); }
 }
-async function aiSave() {
-  const id = document.getElementById("ai-preset-id").value.trim();
-  if (!AI_CANDIDATE) { out("ai-out", {error: "direct a look first"}, false); return; }
-  if (!id) { out("ai-out", {error: "preset id required"}, false); return; }
+async function orchSave() {
+  const id = document.getElementById("orch-preset-id").value.trim();
+  if (!ORCH_CANDIDATE) { out("orch-out", {error: "direct a look first"}, false); return; }
+  if (!id) { out("orch-out", {error: "preset id required"}, false); return; }
   try {
-    const r = await jpost("/api/studios/" + studio() + "/ai/save-preset", JSON.stringify({
-      preset_id: id, label: AI_CANDIDATE.label,
-      lights: AI_CANDIDATE.lights || {}, screen: AI_CANDIDATE.screen || {}}));
-    out("ai-out", {status: "saved preset " + r.preset + (r.overwrote ? " (overwrote)" : "")}, true);
-  } catch (e) { out("ai-out", {error: String(e)}, false); }
+    const r = await jpost("/api/studios/" + studio() + "/orchestrator/save-preset", JSON.stringify({
+      preset_id: id, label: ORCH_CANDIDATE.label,
+      lights: ORCH_CANDIDATE.lights || {}, screen: ORCH_CANDIDATE.screen || {}}));
+    out("orch-out", {status: "saved preset " + r.preset + (r.overwrote ? " (overwrote)" : "")}, true);
+  } catch (e) { out("orch-out", {error: String(e)}, false); }
+}
+async function orchRestore() {
+  const body = JSON.stringify({targets: document.getElementById("orch-targets").value,
+    scope_mode: scopeMode(), scope_zones: scopeChecked("scope-zone"), scope_lights: scopeChecked("scope-light")});
+  out("orch-out", {status: "restoring defaults…"}, true);
+  try {
+    const r = await jpost("/api/studios/" + studio() + "/orchestrator/restore-defaults", body);
+    recordOrchDirectives(r.directives);
+    const subs = (r.apply && r.apply.subsystems) || {};
+    const detail = {restored: r.restored, directives: r.directives, scope: r.scope, apply: subs};
+    out("orch-out", detail, true, "Defaults restored (" + (r.restored || "?") + "): " + (subsLead(subs) || "nothing applied"));
+    loadActions();
+  } catch (e) { out("orch-out", {error: String(e)}, false); }
 }
 (async () => {
   try {
@@ -482,7 +552,7 @@ async function aiSave() {
     fetch("/api/testbench/kasa/prime", {method: "POST", headers: {"Content-Type": "application/json"}, body: "{}"}).catch(() => {});
     applyPanelOrder();
     if (!(window.SpeechRecognition || window.webkitSpeechRecognition)) {
-      const mic = document.getElementById("ai-mic");
+      const mic = document.getElementById("orch-mic");
       if (mic) { mic.disabled = true; mic.title = "voice input needs Chrome or Edge"; }
     }
   } catch (e) {

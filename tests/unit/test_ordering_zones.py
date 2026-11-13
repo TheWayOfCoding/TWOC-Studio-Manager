@@ -43,7 +43,7 @@ def test_ordering_api_and_zone_devices():
     ordering = client.get("/api/studios/example-studio/ordering").json()
     assert set(ordering["collections"]) == {"zones", "devices", "modes", "presets", "plugs", "panels", "modalities"}
     assert [p["id"] for p in ordering["collections"]["panels"]] == [
-        "modalities", "obs", "pcobs", "zones", "power", "hub", "ai"]
+        "modalities", "obs", "pcobs", "zones", "power", "hub", "orchestrator"]
     # Tracked example studio refuses saves (local-only rule).
     save = client.put("/api/studios/example-studio/ordering", json={"ordering": {"zones": ["desk", "bench"]}})
     assert save.status_code == 422
@@ -293,7 +293,7 @@ def test_screen_fx_endpoints():
 
 @pytest.mark.unit
 def test_room_manifest_lists_unswitchable_room_lights():
-    from app.ai.director import build_manifest
+    from app.orchestrator.director import build_manifest
     from app.config.loader import load_all
     from app.registry import Registry
 

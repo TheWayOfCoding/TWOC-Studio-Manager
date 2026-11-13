@@ -1,17 +1,20 @@
 # TWOC Studio Hub
 
 One-click studio director for content creators: zone power, lights, OBS scenes,
-and backdrop screens driven from one LAN web UI, with an AI lighting layer on top.
+and backdrop screens driven from one LAN web UI, with an orchestrator lighting layer on top.
 Runs on a Raspberry Pi or a Windows Hub host; developed on a PC and deployed over the LAN.
 
 **Status:** Live on the Windows Hub host, demo-ready: every light family
-drives through bench, modes, modalities, and AI; OBS scene control with a
-dashboard card; backdrop screens with push + audio bed; voice-prompted AI
-looks; undo + action log; named equipment-value snapshots (default sets)
+drives through bench, modes, modalities, and the orchestrator; OBS scene
+control with a dashboard card; backdrop screens with push + audio bed;
+voice-prompted orchestrator looks; undo + action log; named
+equipment-value snapshots (default sets)
 seeding Control and one-click reset; health API and watchdog task. GVM HSI
 is live-verified, the Ninja 20/400 run dual-interface (selectable BLE or
 DMX per fixture) while the Ninja 10 runs BLE-only, the IR strip maps hues
-to measured colors, and the AI director is live-proven on real hardware.
+to measured colors, and the orchestrator is live-proven on real hardware.
+A hub-side GPU model (llama-server) serves local looks with no cloud
+round trip.
 
 See `HACKATHON.md` for the demo story: the 60-second tour, every
 controlled family, the touch-tone audio wire, and the war stories.
@@ -24,13 +27,16 @@ controlled family, the touch-tone audio wire, and the war stories.
 - **Lights:** GVM BLE panels (brightness/CCT/HSI/scenes), Ninja 400
   dual-interface (DMX dimmer + CCT, or BLE broadcast), Ninja 20
   dual-interface (BLE, or DMX dimmer-only), Ninja 10 BLE-only, and an IR
-  shelf strip (16 calibrated colors) — every family on the bench, in
+  shelf strip (16 calibrated colors, animated modes, brightness steps)
+  — every family on the bench, in
   modes and modalities, and under AI. Each fixture's value spans come
   from its profile (`GET /api/studios/<id>/ranges`); the defaults gate
   enforces the same spans on save.
-- **AI director:** prompt + target + scope (all/zones/lights) over mock or
-  live providers, with per-fixture baselines, AI power caps, one critique
-  pass, and save-as-preset. Voice input on the dashboard (Chrome/Edge).
+- **Orchestrator:** prompt + target + scope (all/zones/lights) over mock,
+  Meta, local-GPU, or free-tier providers, with per-fixture baselines,
+  power caps, screen animations, one critique pass, per-direct timings,
+  restore-to-defaults, and save-as-preset. Voice input on the dashboard
+  (Chrome/Edge, with stop).
 - **Screens:** kiosk page with pushed themes/text, WebAudio bed, and
   self-reload across hub restarts.
 - **Presentations:** captioned multi-step shows with narration wash,
@@ -66,7 +72,7 @@ controlled family, the touch-tone audio wire, and the war stories.
 
 ## Pages
 
-- `/` dashboard: health, modalities (run/stop/undo/snapshot), zones, power, OBS, AI look
+- `/` dashboard: health, modalities (run/stop/undo/snapshot), zones, power, OBS, orchestrator
 - `/modality` Modality Manager: add/edit/remove the smart collections above
 - `/control` one-asset remote (phone and OBS-dock friendly) + Kasa plugs
 - `/bench` hardware bring-up per driver family (incl. official Kasa plugs)
@@ -115,6 +121,8 @@ the task, and health-checks (or set `STUDIO_HUB_HOST` once and run it bare).
 The Hub auto-starts at boot (the `StudioHub` task's boot trigger), and a
 `StudioHubWatchdog` task (every 2 min, created by the bootstrap) restarts it
 when `/api/health` stays dark — see `tools/hub-watchdog.ps1`.
+A `StudioLLM` task serves the local model for GPU looks
+(`tools\hub-llm-install.ps1`, `docs/local-llm.md`).
 Web UI: `https://<hub-ip>:8000` (dashboard, accept the self-signed warning once),
 `https://<hub-ip>:8000/bench`, or plain `http://<hub-ip>:8001` for either page.
 The hub serves both from one process (`tools/hub-serve.py`); the local kiosk
@@ -134,7 +142,7 @@ reference only — do not `git push pi`.
   `modules/`, `api/`, `static/`
 - `config/` — JSON schemas live with the loader; `profiles/` + example studio here,
   real studios in git-ignored `config/studios.local/`
-- `tests/` — `unit/`, `regression/` (golden), `hardware/` (Pi only, `STUDIO_HW=1`)
+- `tests/` — `unit/`, `regression/` (golden), `hardware/` (real hardware, `STUDIO_HW=1`)
 - `docs/` — protocol + wiring + environment rundowns (public-safe)
 - `tools/` — Windows bootstraps, service definitions, deploy scripts
   (Pi files retired with the dead hardware, kept for reference)

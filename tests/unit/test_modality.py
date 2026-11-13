@@ -51,7 +51,7 @@ class _FakeModes:
         self.registry = registry
         self.calls = []
 
-    def apply_custom(self, name, content, sleep=None, ai_caps=False,
+    def apply_custom(self, name, content, sleep=None, orch_caps=False,
                      allow_scenes=False, power_delay_s=None):
         self.calls.append({"name": name, "content": dict(content), "delay": power_delay_s})
         return {"ok": True, "name": name}

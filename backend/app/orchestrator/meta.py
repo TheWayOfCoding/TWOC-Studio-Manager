@@ -13,28 +13,11 @@ import urllib.error
 import urllib.request
 
 from .base import Provider
+from .director import PROMPT_TEMPLATE
 
 API_URL = "https://api.meta.ai/v1/responses"
 DEFAULT_MODEL = "muse-spark-1.3-contributor"
 TIMEOUT_S = 30
-
-PROMPT_TEMPLATE = (
-    "You are the Studio Hub lighting director. Reply with ONE JSON object only, no prose: "
-    '{"lights": {"<device-id>": {"intensity": 0..100, "cct": Kelvin, "hue": 0..360, '
-    '"saturation": 0..100}}, "screens": {"<screen-id>": {"theme": str, "text": str}}}. '
-    "Apply to these targets only: %(targets)s. "
-    "Use only these device ids and ranges (stay inside aiCap): %(manifest)s. "
-    "Each light lists usual, its normal everyday look: treat it as the baseline "
-    "(moody or cozy asks go below it, neutral asks stay near it). "
-    "usual may carry both a white baseline (cct) and a color baseline "
-    "(hue/saturation): use the keys matching the requested look. "
-    "intensity 0 means dark and is allowed when the request wants a light off "
-    '(GVM panels also accept "power": "off"; DMX lights use 0). '
-    "The manifest room list is fixed room lighting with no smart switch: "
-    "factor it into the look and you may suggest switching it by hand, "
-    "but never emit directives for room ids. "
-    "Request: %(prompt)s"
-)
 
 
 class MetaProviderError(Exception):

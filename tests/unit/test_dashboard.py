@@ -17,11 +17,13 @@ def test_dashboard_structure():
     html = response.text
     for marker in (
         'id="studio"',
-        'id="ai-prompt"',
-        'id="ai-provider"',
-        "aiLook(",
-        "aiSave(",
-        'id="ai-preset-id"',
+        'id="orch-prompt"',
+        'id="orch-provider"',
+        "orchDirect(",
+        "orchSave(",
+        "orchRestore(",
+        'id="orch-preset-id"',
+        'id="orch-restore"',
         'data-panel="modalities"',
         'id="modality-pick"',
         'id="modality-out"',
@@ -33,8 +35,8 @@ def test_dashboard_structure():
         ">Start</button>",
         "/presets/",
         "/modalities/",
-        "/ai/look",
-        "/ai/save-preset",
+        "/orchestrator/direct",
+        "/orchestrator/save-preset",
     ):
         assert marker in html
     for gone in (
@@ -52,9 +54,9 @@ def test_dashboard_structure():
     for marker in (
         'id="actions"',
         'id="undo-btn"',
-        'id="ai-scope"',
-        'id="ai-scope-zones"',
-        'id="ai-scope-lights"',
+        'id="orch-scope"',
+        'id="orch-scope-zones"',
+        'id="orch-scope-lights"',
         "loadScope(",
         "scopeRefresh(",
         "scope_mode",
@@ -69,8 +71,8 @@ def test_dashboard_structure():
         "powerAllOff(",
         "/zones/",
         "/power/all-off",
-        'id="ai-mic"',
-        "aiMic(",
+        'id="orch-mic"',
+        "orchMic(",
         "SpeechRecognition",
         'id="status"',
         'id="obs"',
@@ -113,7 +115,7 @@ def test_dashboard_structure():
 
 
 @pytest.mark.unit
-def test_ai_mic_block_static():
+def test_orch_mic_block_static():
     """Mic block: tall prompt box, auto-direct, guidance, friendly errors.
 
     File read, not HTTP: must stay green without a socket bind.
@@ -124,15 +126,49 @@ def test_ai_mic_block_static():
         encoding="utf-8"
     )
     for marker in (
-        '<textarea id="ai-prompt" rows="6"',
-        'id="ai-mic-auto"',
-        'id="ai-mic-hint"',
-        "aiMicError(",
+        '<textarea id="orch-prompt" rows="6"',
+        'id="orch-mic-auto"',
+        'id="orch-mic-hint"',
+        'id="orch-mic-stop"',
+        "orchMicError(",
+        "orchMicStop(",
+        "ORCH_REC",
+        ".abort()",
         "isBrave()",
         "auto-direct on hear",
         "chrome://settings/content/microphone",
     ):
         assert marker in html
+
+
+@pytest.mark.unit
+def test_dashboard_session_recording_static():
+    """Dashboard records what its orchestrators send under Control's key scheme.
+
+    Zone/all-off plug switches and orchestrator-directed looks land in the
+    same tab session Control and Bench seed from. File read, not HTTP: must
+    stay green without a socket bind.
+    """
+    from pathlib import Path as PathLib
+
+    html = (PathLib(__file__).resolve().parents[2] / "backend" / "app" / "static" / "index.html").read_text(
+        encoding="utf-8"
+    )
+    for marker in (
+        "sessionStorage",
+        "twoc.control.",
+        "sessWrite(",
+        "recordPlugSwitches(",
+        "recordOrchDirectives(",
+    ):
+        assert marker in html
+
+    def _slice(start, end):
+        return html[html.index(start) : html.index(end, html.index(start))]
+
+    assert "recordPlugSwitches(" in _slice("async function zonePower(", "async function zoneObsAuto(")
+    assert "recordPlugSwitches(" in _slice("async function powerAllOff(", "let ORCH_CANDIDATE")
+    assert "recordOrchDirectives(" in _slice("async function orchDirect(", "async function orchSave(")
 
 
 @pytest.mark.unit
@@ -146,6 +182,20 @@ def test_hub_css_served_and_linked():
         page = client.get(path)
         assert page.status_code == 200
         assert 'href="/hub.css"' in page.text
+
+
+@pytest.mark.unit
+def test_colorpad_js_served_and_linked():
+    """Shared color-pad component serves as JS and both HSI pages link it."""
+    js = client.get("/colorpad.js")
+    assert js.status_code == 200
+    assert "javascript" in js.headers["content-type"]
+    assert "ColorPad" in js.text
+    assert "hsvToRgb" in js.text
+    for path in ("/control", "/bench"):
+        page = client.get(path)
+        assert page.status_code == 200
+        assert 'src="/colorpad.js"' in page.text
 
 
 @pytest.mark.unit

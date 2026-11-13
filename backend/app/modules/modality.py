@@ -103,7 +103,7 @@ def apply_modality(modes_module, modality_id, modality, sleep=time.sleep, should
         delay = content.pop("power_delay_s", None)
         result = modes_module.apply_custom(
             f"{modality_id}#{index}", content, sleep=lambda s: None,
-            ai_caps=False, allow_scenes=True,
+            orch_caps=False, allow_scenes=True,
             power_delay_s=delay,
         )
         results.append({"beat": index, "label": beat.get("label"), "ok": result["ok"], "result": result})

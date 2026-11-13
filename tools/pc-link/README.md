@@ -86,8 +86,8 @@ beyond the list above.
 Everything the show needs on this PC lives inside ONE user profile —
 the listener, its config, and portable OBS. Nothing is shared between
 accounts and nothing needs admin after Python is in. Substitute the
-account name for `USER` below (today that is the `creative` account on
-the 9900x workstation, which autologins for the presentation).
+account name for `USER` below (whoever autologins on the show
+workstation for the presentation).
 
 1. Log in as USER once, so Windows builds the profile. Until that
    first login there is nowhere to install to.

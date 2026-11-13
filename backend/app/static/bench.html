@@ -6,6 +6,7 @@
 <title>Studio Hub — Test Bench</title>
 <link rel="stylesheet" href="/hub.css">
 <script src="/nav.js" defer></script>
+<script src="/colorpad.js"></script>
 </head>
 <body>
 <header class="topbar">
@@ -43,14 +44,16 @@ below stays put — toggle and re-test without re-discovering.</p>
 <div class="row"><button onclick="irCodes()">Show saved codes</button></div>
 <div class="row"><label class="field">send saved: <select id="ir-send-sel"></select></label>
 <button onclick="irSendSel()">Send</button>
+<button onclick="irStripReset()">Reset to default</button>
 <label class="field">× <input type="number" id="ir-times" value="1" min="1" max="100"> times</label></div>
 <div class="row"><label class="field">send raw: <input type="text" id="ir-send" placeholder="0,255,69"></label>
 <button onclick="irSendRaw()">Send</button></div>
 <div id="ir"></div></div>
 <div class="card"><h2>GVM panels (BLE)</h2>
-<div class="row"><label class="field">panel <select id="gvm-panel"></select></label>
+<div class="row"><label class="field">panel <select id="gvm-panel" onchange="seedGvm()"></select></label>
 <button onclick="gvmProbe()">Probe GATT</button>
-<button onclick="gvmState()">State</button></div>
+<button onclick="gvmState()">State</button>
+<button onclick="gvmReset()">Reset to default</button></div>
 <div class="row"><button onclick="gvmPower('on')">Power on</button>
 <button onclick="gvmPower('off')">Power off</button></div>
 <div class="row"><label class="field">brightness <input type="number" id="gvm-br" value="5" min="0" max="100"></label>
@@ -61,6 +64,8 @@ below stays put — toggle and re-test without re-discovering.</p>
 <button onclick="gvmHue()">Set</button>
 <label class="field">sat <input type="number" id="gvm-sat" value="60" min="0" max="100"></label>
 <button onclick="gvmSat()">Set</button></div>
+<div class="row"><div id="gvm-colorpad"></div></div>
+<div class="row"><button onclick="gvmColor()">Apply color</button><span class="hint">hue + saturation + brightness in one send</span></div>
 <div class="row"><label class="field">scene <input type="number" id="gvm-scene" value="3" min="1" max="18"></label>
 <button onclick="gvmScene()">Set scene</button>
 <label class="field">page <select id="gvm-page"><option value="cct">cct</option><option value="hsi">hsi</option><option value="scene">scene</option></select></label>
@@ -75,13 +80,14 @@ nothing), then power 5%. Every send is one complete look, and the readout
 shows the exact bytes that went out. ok:true with a silent light means the
 fixture ignored the broadcast — say so.</p>
 <div class="step"><h3 class="step-h"><span class="n">1</span> Target</h3>
-<div class="row"><label class="field">light <select id="ninja-light"></select></label>
+<div class="row"><label class="field">light <select id="ninja-light" onchange="seedNinja()"></select></label>
 <span class="hint">or direct:</span>
 <label class="field">ch <input type="number" id="ninja-ch" value="3" min="1" max="19"></label>
 <label class="field">grp <input type="text" id="ninja-grp" value="A" style="width:3em"></label></div>
 <div class="row"><label class="field"><input type="checkbox" id="ninja-mock"> dry-run (no radio)</label>
 <button onclick="ninjaProbe()">Probe</button>
 <button onclick="ninjaState()">Hub state</button>
+<button onclick="ninjaReset()">Reset to default</button>
 <span class="hint">hub memory only — lights can't report back.</span></div></div>
 <div class="step"><h3 class="step-h"><span class="n">2</span> Power</h3>
 <div class="row"><button onclick="ninjaPower('on')">Power on</button>
@@ -176,14 +182,15 @@ bring-up only; prefer the light panels above.</p>
 </details>
 <div id="dmx"></div></div>
 <div class="card"><h2>Backdrop screens</h2>
-<div class="row"><label class="field">screen <input type="text" id="scr-id" value="kqc-screen" style="width:8em"></label>
+<div class="row"><label class="field">screen <input type="text" id="scr-id" value="kqc-screen" style="width:8em" onchange="seedScr()"></label>
 <label class="field">theme <select id="scr-theme"><option value="">Default</option><option value="live" selected>Live</option><option value="work">Work</option><option value="focus">Focus</option><option value="warm">Warm</option><option value="candle">Candle</option><option value="sunset">Sunset</option><option value="ocean">Ocean</option><option value="slate">Slate</option><option value="rose">Rose</option></select></label>
 <label class="field">animation <select id="scr-anim"><option value="">None</option><option value="fireplace">Fireplace</option><option value="fishtank">Fish tank</option><option value="underwater">Underwater reef</option><option value="starfield">Starfield</option><option value="nebula">Nebula (JWST infrared)</option><option value="galaxy">Galaxy (Hubble spiral)</option><option value="code">Code rain (programming)</option><option value="arcade">Arcade (gaming)</option><option value="gears">Gears (crafting / Gunpla)</option><option value="dice">Dice (D&amp;D)</option><option value="puzzle">Puzzle</option><option value="bistro">Bistro (food / drink)</option><option value="tailor">Tailor (cosplay / sewing)</option><option value="unbox">Unboxing</option><option value="aperture">Aperture (camera)</option><option value="circuit">Circuit (tech news)</option><option value="photons">Photons (Scotty Photon)</option></select></label>
 <label class="field">text <input type="text" id="scr-text" placeholder="topic"></label>
 <label class="field">show s <input type="number" id="scr-ttl" value="0" min="0" max="3600" style="width:5em"></label>
 <button onclick="scrPush()">Push</button>
 <button onclick="scrClear()">Clear</button>
-<button onclick="scrState()">State</button></div>
+<button onclick="scrState()">State</button>
+<button onclick="scrReset()">Reset to default</button></div>
 <div class="row"><label class="field">track <select id="scr-track"><option value="piano">Piano</option><option value="eurobeat">Eurobeat</option><option value="dance">Dance</option><option value="synthwave">Synthwave</option><option value="ocean">Ocean</option><option value="space">Space</option><option value="lofi">Lo-fi (co-working)</option><option value="chiptune">Chiptune (gaming)</option></select></label>
 <label class="field">vol <input type="range" id="scr-vol" min="0" max="100" value="100" oninput="document.getElementById('scr-vol-n').value=this.value; scrVolume()"><input type="number" id="scr-vol-n" min="0" max="100" value="100" style="width:4em" onchange="document.getElementById('scr-vol').value=this.value; scrVolume()"> %</label>
 <button onclick="scrAudio('play')">Play bed</button>
@@ -238,6 +245,54 @@ function out(id, obj, ok, summary) {
     '<div class="result ' + (ok === false ? "bad" : "ok") + '"><div class="result-line"><span class="dot">●</span><span>' +
     esc(line) + '</span></div><details class="result-json"><summary>Details</summary><pre>' +
     esc(JSON.stringify(obj, null, 2)) + "</pre></details></div>";
+}
+const BENCH_STUDIO = "home-studio";  // cards without a target picker drive the hardware studio
+const IR_STRIP = "bytech-strip";  // bench IR sends land here (backend DEFAULT_DEVICE)
+let BENCH_DEFAULTS = {};  // studio id -> assigned default set ({label, devices, plugs}) or null
+function sessKey(studio, id) { return "twoc.control." + studio + "." + id; }
+function sessRead(studio, id) {
+  try { return JSON.parse(sessionStorage.getItem(sessKey(studio, id)) || "{}") || {}; }
+  catch (e) { return {}; }
+}
+function sessWrite(studio, id, values) {
+  try {
+    sessionStorage.setItem(sessKey(studio, id), JSON.stringify(Object.assign(sessRead(studio, id), values)));
+  } catch (e) { /* storage blocked: session memory off, page still works */ }
+}
+async function ensureDefaults(studio) {
+  if (!(studio in BENCH_DEFAULTS)) {
+    try {
+      const ds = await jget("/api/studios/" + studio + "/defaults");
+      BENCH_DEFAULTS[studio] = (ds.default && ds.sets && ds.sets[ds.default]) || null;
+    } catch (e) { BENCH_DEFAULTS[studio] = null; }
+  }
+  return BENCH_DEFAULTS[studio];
+}
+function defaultValues(studio, id) {
+  const set = BENCH_DEFAULTS[studio];
+  if (!set || !set.devices) return {};
+  return set.devices[id] || {};
+}
+function defaultPlug(studio, plug) {
+  const set = BENCH_DEFAULTS[studio];
+  if (!set || !set.plugs) return null;
+  return set.plugs[plug] || null;
+}
+function initVal(studio, id, key, fallback) {
+  // Same resolution as Control: tab session wins; then the studio default
+  // set (file key "intensity" feeds brightness inputs); else hardcoded.
+  const s = sessRead(studio, id);
+  if (s[key] !== undefined) return s[key];
+  const d = defaultValues(studio, id);
+  const fileKey = key === "brightness" ? "intensity" : key;
+  if (d[fileKey] !== undefined) return d[fileKey];
+  return fallback;
+}
+function splitTarget(where) {
+  // Configured bench targets read "studio/device", exactly what Control sends.
+  const i = (where || "").indexOf("/");
+  if (i < 0) return [null, where || null];
+  return [where.slice(0, i), where.slice(i + 1)];
 }
 async function hubRestart() {
   if (!document.getElementById("hub-confirm").checked) { out("hub", {error: "tick confirm first"}, false); return; }
@@ -306,6 +361,7 @@ async function kOfficialLoad() {
       "<button onclick=\"kOfficialSet('" + p.plug + "',true)\">On</button>" +
       "<button onclick=\"kOfficialSet('" + p.plug + "',false)\">Off</button>" +
       "<button onclick=\"kOfficialState('" + p.plug + "')\">State</button>" +
+      "<button onclick=\"kOfficialReset('" + p.plug + "')\">Reset</button>" +
       ' <span class="meta">' + esc(p.plug) + " · " + esc(p.zone || "") + " · " + esc(p.model || "") + "</span></div>").join("") || "no plugs in plug-map";
   } catch (e) { document.getElementById("kasa-official").textContent = "official plugs unavailable"; }
 }
@@ -314,6 +370,8 @@ async function kOfficialState(plug) {
     const r = await jget("/api/kasa/plugs/" + plug + "/state");
     const el = document.getElementById("ko-state-" + plug);
     if (el) el.textContent = r.ok ? (r.state.power || "?") : "error";
+    if (r.ok && (r.state.power === "on" || r.state.power === "off"))
+      sessWrite(BENCH_STUDIO, "plug." + plug, {on: r.state.power === "on"});
     out("kasa-official-out", r, r.ok, plug + (r.ok ? " is " + (r.state.power || "?") : " failed: " + (r.error || "?")));
   } catch (e) { out("kasa-official-out", {error: String(e)}, false); }
 }
@@ -322,10 +380,23 @@ async function kOfficialSet(plug, on) {
     const r = await jpost("/api/kasa/plugs/" + plug + "/set", JSON.stringify({on: on}));
     const el = document.getElementById("ko-state-" + plug);
     if (el && r.ok) el.textContent = r.state.power || (on ? "on" : "off");
+    if (r.ok) sessWrite(BENCH_STUDIO, "plug." + plug, {on: on});
     out("kasa-official-out", r, r.ok, plug + (r.ok ? " → " + (r.state.power || "?") : " failed: " + (r.error || "?")));
   } catch (e) { out("kasa-official-out", {error: String(e)}, false); }
 }
 let kasaPlugs = [];
+async function kOfficialReset(plug) {
+  await ensureDefaults(BENCH_STUDIO);
+  const want = defaultPlug(BENCH_STUDIO, plug);
+  if (!want) { out("kasa-official-out", {error: "no saved default for " + plug}, false); return; }
+  try {
+    const r = await jpost("/api/kasa/plugs/" + plug + "/set", JSON.stringify({on: want.on}));
+    const el = document.getElementById("ko-state-" + plug);
+    if (el && r.ok) el.textContent = r.state.power || (want.on ? "on" : "off");
+    if (r.ok) sessWrite(BENCH_STUDIO, "plug." + plug, {on: want.on});
+    out("kasa-official-out", r, r.ok, plug + (r.ok ? " reset → " + (r.state.power || "?") : " failed: " + (r.error || "?")));
+  } catch (e) { out("kasa-official-out", {error: String(e)}, false); }
+}
 function kCreds() {
   return {username: document.getElementById("k-user").value || null,
           password: document.getElementById("k-pass").value || null};
@@ -409,6 +480,8 @@ async function irCapture() {
 function fillSendSel(codes) {
   const sel = document.getElementById("ir-send-sel");
   sel.innerHTML = Object.keys(codes).sort().map(l => "<option>" + esc(l) + "</option>").join("");
+  const want = initVal(BENCH_STUDIO, IR_STRIP, "color", null);
+  if (want && codes[want]) sel.value = want;
 }
 async function irCodes() {
   try { const r = await jget("/api/testbench/ir/codes"); fillSendSel(r);
@@ -420,8 +493,33 @@ async function irSendSel() {
   const times = Math.min(Math.max(parseInt(document.getElementById("ir-times").value || "1", 10), 1), 100);
   if (!label) { out("ir", {error: "no saved codes — capture first"}, false); return; }
   try { const r = await jpost("/api/testbench/ir/send", JSON.stringify({port: irPort(), label: label, times: times}));
+    if (r.ok) sessWrite(BENCH_STUDIO, IR_STRIP, (label === "on" || label === "off") ? {power: label} : {color: label});
     out("ir", r, r.ok, r.ok ? ("Sent '" + label + "'" + (times > 1 ? " ×" + times : "")) : ("Send failed: " + (r.error || "?"))); }
   catch (e) { out("ir", {error: String(e)}, false); }
+}
+async function irStripReset() {
+  await ensureDefaults(BENCH_STUDIO);
+  const want = defaultValues(BENCH_STUDIO, IR_STRIP);
+  if (!Object.keys(want).length) { out("ir", {error: "no saved default for " + IR_STRIP}, false); return; }
+  const steps = [];
+  try {
+    if (want.power !== undefined) {
+      const r = await jpost("/api/testbench/ir/send", JSON.stringify({port: irPort(), label: want.power}));
+      if (!r.ok) throw new Error(r.error || ("power " + want.power + " refused"));
+      steps.push("power " + want.power);
+    }
+    if (want.color !== undefined) {
+      const r = await jpost("/api/testbench/ir/send", JSON.stringify({port: irPort(), label: want.color}));
+      if (!r.ok) throw new Error(r.error || ("color " + want.color + " refused"));
+      steps.push("color " + want.color);
+    }
+    if (!steps.length) throw new Error("nothing resettable for " + IR_STRIP);
+    sessWrite(BENCH_STUDIO, IR_STRIP, Object.assign({},
+      want.power !== undefined ? {power: want.power} : null,
+      want.color !== undefined ? {color: want.color} : null));
+    fillSendSel(await jget("/api/testbench/ir/codes"));
+    out("ir", {reset: IR_STRIP}, true, IR_STRIP + " reset: " + steps.join(", "));
+  } catch (e) { out("ir", {error: String(e)}, false); }
 }
 async function irSendRaw() {
   const raw = document.getElementById("ir-send").value;
@@ -436,6 +534,7 @@ function fillGvmPanels(r) {
   document.getElementById("gvm-panel").innerHTML = r.panels.length
     ? r.panels.map(p => '<option value="' + p.id + '">' + esc(p.name) + "</option>").join("")
     : "<option value=''>no configured panels</option>";
+  seedGvm();
 }
 async function gvmScan() {
   if (!confirm("BLE scan lists nearby devices on screen. Continue?")) return;
@@ -462,14 +561,97 @@ async function gvmState() {
 async function gvmSet(body, what) {
   if (!gvmPanel()) { out("gvm", {error: "pick a panel first"}, false); return; }
   try { const r = await jpost("/api/testbench/gvm/set", JSON.stringify({panel: gvmPanel(), ...body}));
+    if (r.ok) {
+      const [studio, id] = splitTarget(gvmPanel());
+      if (studio && id) {
+        const mem = {};
+        for (const k of ["power", "brightness", "cct", "hue", "saturation", "page"])
+          if (body[k] !== undefined) mem[k] = body[k];
+        if (Object.keys(mem).length) sessWrite(studio, id, mem);
+      }
+    }
     out("gvm", r, r.ok, r.ok ? what : (what + " failed: " + (r.error || "?"))); }
   catch (e) { out("gvm", {error: String(e)}, false); }
+}
+let GVM_PAD = null;
+function gvmNum(id, fb) {
+  const v = parseInt(document.getElementById(id).value, 10);
+  return isNaN(v) ? fb : v;
+}
+function gvmPadSync() {
+  if (!GVM_PAD) return;
+  GVM_PAD.set(gvmNum("gvm-hue", 220), gvmNum("gvm-sat", 60), gvmNum("gvm-br", 5));
+}
+function gvmPadMount() {
+  GVM_PAD = ColorPad.mount(document.getElementById("gvm-colorpad"), {
+    hue: gvmNum("gvm-hue", 220),
+    sat: gvmNum("gvm-sat", 60),
+    val: gvmNum("gvm-br", 5),
+    hueStep: 5,
+    onInput: function (h, s, v) {
+      document.getElementById("gvm-hue").value = h;
+      document.getElementById("gvm-sat").value = s;
+      document.getElementById("gvm-br").value = v;
+    }
+  });
+  for (const id of ["gvm-hue", "gvm-sat", "gvm-br"])
+    document.getElementById(id).addEventListener("change", gvmPadSync);
+}
+function gvmTarget() { return splitTarget(gvmPanel()); }
+async function seedGvm() {
+  const [studio, id] = gvmTarget();
+  if (!studio || !id) return;
+  await ensureDefaults(studio);
+  document.getElementById("gvm-br").value = initVal(studio, id, "brightness", 5);
+  document.getElementById("gvm-cct").value = initVal(studio, id, "cct", 4300);
+  document.getElementById("gvm-hue").value = initVal(studio, id, "hue", 220);
+  document.getElementById("gvm-sat").value = initVal(studio, id, "saturation", 60);
+  document.getElementById("gvm-page").value = initVal(studio, id, "page", "cct");
+  gvmPadSync();
+}
+async function gvmReset() {
+  const [studio, id] = gvmTarget();
+  if (!studio || !id) { out("gvm", {error: "pick a panel first"}, false); return; }
+  await ensureDefaults(studio);
+  const want = defaultValues(studio, id);
+  if (!Object.keys(want).length) { out("gvm", {error: "no saved default for " + id}, false); return; }
+  const steps = [], mem = {};
+  try {
+    if (want.power !== undefined) {
+      await jpost("/api/testbench/gvm/set", JSON.stringify({panel: studio + "/" + id, power: want.power}));
+      steps.push("power " + want.power); mem.power = want.power;
+    }
+    if (want.intensity !== undefined) {
+      await jpost("/api/testbench/gvm/set", JSON.stringify({panel: studio + "/" + id, brightness: want.intensity}));
+      steps.push("brightness " + want.intensity + "%"); mem.brightness = want.intensity;
+    }
+    if (want.cct !== undefined) {
+      await jpost("/api/testbench/gvm/set", JSON.stringify({panel: studio + "/" + id, page: "cct", cct: want.cct}));
+      steps.push("CCT " + want.cct + "K"); mem.cct = want.cct; mem.page = "cct";
+    }
+    if (want.hue !== undefined || want.saturation !== undefined) {
+      const hue = want.hue !== undefined ? want.hue : initVal(studio, id, "hue", 220);
+      const sat = want.saturation !== undefined ? want.saturation : initVal(studio, id, "saturation", 60);
+      await jpost("/api/testbench/gvm/set", JSON.stringify({panel: studio + "/" + id, page: "hsi", hue: hue, saturation: sat}));
+      steps.push("color " + hue + "°/" + sat + "%"); mem.page = "hsi";
+      if (want.hue !== undefined) mem.hue = want.hue;
+      if (want.saturation !== undefined) mem.saturation = want.saturation;
+    }
+    if (!steps.length) throw new Error("nothing resettable for " + id);
+    sessWrite(studio, id, mem);
+    out("gvm", {reset: id}, true, id + " reset: " + steps.join(", "));
+    seedGvm();
+  } catch (e) { out("gvm", {error: String(e)}, false); }
 }
 async function gvmPower(on) { gvmSet({power: on}, "Panel power " + on); }
 async function gvmBright() { const v = parseInt(document.getElementById("gvm-br").value, 10); gvmSet({brightness: v}, "Brightness → " + v + "%"); }
 async function gvmCct() { const v = parseInt(document.getElementById("gvm-cct").value, 10); gvmSet({cct: v}, "CCT → " + v + "K"); }
 async function gvmHue() { const v = parseInt(document.getElementById("gvm-hue").value, 10); gvmSet({hue: v}, "Hue → " + v + "°"); }
 async function gvmSat() { const v = parseInt(document.getElementById("gvm-sat").value, 10); gvmSet({saturation: v}, "Saturation → " + v + "%"); }
+async function gvmColor() {
+  const h = gvmNum("gvm-hue", 220), s = gvmNum("gvm-sat", 60), v = gvmNum("gvm-br", 5);
+  gvmSet({page: "hsi", brightness: v, hue: h, saturation: s}, "Color → " + h + "° / " + s + "% @ " + v + "%");
+}
 async function gvmScene() {
   const v = parseInt(document.getElementById("gvm-scene").value, 10);
   if (!confirm("Scene " + v + " is UNTESTED (photo-risk intense). Look away. Continue?")) return;
@@ -486,6 +668,7 @@ function ninjaTarget() {
 function fillNinjaLights(r) {
   document.getElementById("ninja-light").innerHTML = "<option value=''>direct ch/grp</option>" +
     r.lights.map(p => '<option value="' + p.id + '">' + esc(p.name) + " (ch" + p.channel + p.group + ")</option>").join("");
+  seedNinja();
 }
 function fillNinjaScenes(r) {
   document.getElementById("ninja-scene").innerHTML =
@@ -507,8 +690,55 @@ async function ninjaState() {
 async function ninjaSet(body, what) {
   body.allow_bright = document.getElementById("ninja-bright").checked;
   try { const r = await jpost("/api/testbench/ninja/set", JSON.stringify({...ninjaTarget(), ...body}));
+    if (r.ok) {
+      const t = ninjaTarget();
+      if (t.light) {
+        const [studio, id] = splitTarget(t.light);
+        if (studio && id) {
+          const mem = {};
+          if (body.power !== undefined) mem.power = body.power;
+          if (body.brightness !== undefined) mem.brightness = body.brightness;
+          if (body.cct !== undefined) mem.cct = body.cct;
+          if (body.gm !== undefined) mem.gm = body.gm;
+          if (Object.keys(mem).length) sessWrite(studio, id, mem);
+        }
+      }
+    }
     out("ninja", r, r.ok, r.ok ? what : (what + " failed: " + (r.error || "?"))); }
   catch (e) { out("ninja", {error: String(e)}, false); }
+}
+function ninjaLightTarget() {
+  const light = document.getElementById("ninja-light").value || null;
+  return light ? splitTarget(light) : [null, null];
+}
+async function seedNinja() {
+  const [studio, id] = ninjaLightTarget();
+  if (!studio || !id) return;  // direct ch/grp: raw bring-up, no device memory
+  await ensureDefaults(studio);
+  const v = initVal(studio, id, "brightness", 5);
+  document.getElementById("ninja-br").value = v;
+  document.getElementById("ninja-br-slider").value = v;
+  document.getElementById("ninja-cct").value = initVal(studio, id, "cct", 5500);
+  document.getElementById("ninja-gm").value = initVal(studio, id, "gm", 0);
+}
+async function ninjaReset() {
+  const [studio, id] = ninjaLightTarget();
+  if (!studio || !id) { out("ninja", {error: "pick a configured light first (direct ch/grp has no default)"}, false); return; }
+  await ensureDefaults(studio);
+  const want = defaultValues(studio, id);
+  if (!Object.keys(want).length) { out("ninja", {error: "no saved default for " + id}, false); return; }
+  const body = {light: studio + "/" + id, allow_bright: true};
+  const steps = [], mem = {};
+  if (want.power !== undefined) { body.power = want.power; steps.push("power " + want.power); mem.power = want.power; }
+  if (want.intensity !== undefined) { body.brightness = want.intensity; steps.push("power " + want.intensity + "%"); mem.brightness = want.intensity; }
+  if (want.cct !== undefined) { body.cct = want.cct; steps.push("CCT " + want.cct + "K"); mem.cct = want.cct; }
+  if (!steps.length) { out("ninja", {error: "nothing resettable for " + id}, false); return; }
+  try { const r = await jpost("/api/testbench/ninja/set", JSON.stringify(body));
+    if (!r.ok) throw new Error(r.error || "reset refused");
+    sessWrite(studio, id, mem);
+    out("ninja", {reset: id}, true, id + " reset: " + steps.join(", "));
+    seedNinja();
+  } catch (e) { out("ninja", {error: String(e)}, false); }
 }
 function ninjaBrSync(v) { document.getElementById("ninja-br").value = v; }
 async function ninjaPower(on) { ninjaSet({power: on}, "Power " + on + " (" + ninjaWhere() + ")"); }
@@ -698,9 +928,9 @@ function dmxLightPanel(f) {
   let html = '<div class="dmx-light" id="dmx-light-' + f.id + '"><h3>' + esc(f.name) +
     " <small>" + chNote + " · " + cctNote + "</small></h3>";
   html += '<div class="row"><span class="field">Power <small>(1% per step)</small></span>' +
-    ' <input type="range" id="pw-' + f.id + '" min="0" max="100" step="1" value="0"' +
+    ' <input type="range" id="pw-' + f.id + '" min="0" max="100" step="1" value="' + initVal(BENCH_STUDIO, f.id, "brightness", 0) + '"' +
     ' oninput="dmxSync(\'' + f.id + '\',\'pw\')">' +
-    ' <label class="field"><input type="number" id="pw-n-' + f.id + '" min="0" max="100" step="1" value="0"' +
+    ' <label class="field"><input type="number" id="pw-n-' + f.id + '" min="0" max="100" step="1" value="' + initVal(BENCH_STUDIO, f.id, "brightness", 0) + '"' +
     ' oninput="dmxSync(\'' + f.id + '\',\'pw-n\')"> %</label>' +
     ' <label class="field"><input type="checkbox" class="allow-bright" id="pw-b-' + f.id + '"> allow bright</label>' +
     ' <label class="field"><input type="checkbox" id="pw-f-' + f.id + '"> fade</label>' +
@@ -711,9 +941,9 @@ function dmxLightPanel(f) {
     const stepK = Math.max(1, Math.round((f.cct_range[1] - f.cct_range[0]) / 255));
     html += '<div class="row"><span class="field">Color <small>(~' + stepK + 'K per step)</small></span>' +
       ' <input type="range" id="ct-' + f.id + '" min="' + f.cct_range[0] +
-      '" max="' + f.cct_range[1] + '" step="100" value="5600" oninput="dmxSync(\'' + f.id + '\',\'ct\')">' +
+      '" max="' + f.cct_range[1] + '" step="100" value="' + initVal(BENCH_STUDIO, f.id, "cct", 5600) + '" oninput="dmxSync(\'' + f.id + '\',\'ct\')">' +
       ' <label class="field"><input type="number" id="ct-n-' + f.id + '" min="' + f.cct_range[0] + '" max="' + f.cct_range[1] +
-      '" step="100" value="5600" style="width:5.5em" oninput="dmxSync(\'' + f.id + '\',\'ct-n\')"> K</label>' +
+      '" step="100" value="' + initVal(BENCH_STUDIO, f.id, "cct", 5600) + '" style="width:5.5em" oninput="dmxSync(\'' + f.id + '\',\'ct-n\')"> K</label>' +
       ' <label class="field"><input type="checkbox" id="ct-f-' + f.id + '"> fade</label>' +
       ' <label class="field"><input type="number" id="ct-s-' + f.id + '" value="0.1" min="0" max="60" step="0.05"' +
       ' title="seconds per step"> s</label>' +
@@ -728,10 +958,12 @@ function dmxLightPanel(f) {
       ' <button onclick="dmxLightLook(\'' + f.id + '\')">Fade</button>' +
       " <small class=\"hint\">blank = leave unchanged · power steps first, then color</small></div>";
   }
+  html += '<div class="row"><button onclick="dmxFixtureReset(\'' + f.id + '\')">Reset to default</button></div>';
   return html + "</div>";
 }
 async function dmxLightsLoad() {
   try {
+    await ensureDefaults(BENCH_STUDIO);
     const r = await jget("/api/testbench/dmx/fixtures?studio=home-studio");
     dmxFixtures = r.fixtures;
     document.getElementById("dmx-lights").innerHTML = r.fixtures.length
@@ -770,8 +1002,26 @@ async function dmxLightSet(id, kind) {
   const what = id + " " + kind + " → " + val + (kind === "power" ? "%" : "K") + (fade ? " (fading)" : "");
   if (fade) out("dmx", {status: "fading…"}, true);
   try { const r = await jpost("/api/testbench/dmx/light", JSON.stringify(body));
+    if (r.ok) sessWrite(BENCH_STUDIO, id, kind === "power" ? {brightness: val} : {cct: val});
     out("dmx", r, r.ok, r.ok ? what : (what + " failed: " + (r.error || "?"))); }
   catch (e) { out("dmx", {error: String(e)}, false); }
+}
+async function dmxFixtureReset(id) {
+  await ensureDefaults(BENCH_STUDIO);
+  const want = defaultValues(BENCH_STUDIO, id);
+  if (!Object.keys(want).length) { out("dmx", {error: "no saved default for " + id}, false); return; }
+  const body = {port: dmxPort(), fixture: id, dwell_s: 0, studio: BENCH_STUDIO, allow_bright: true};
+  const steps = [], mem = {};
+  // DMX has no power switch — 0% is dark (same as Control).
+  if (want.intensity !== undefined) { body.power = want.intensity; steps.push("power " + want.intensity + "%"); mem.brightness = want.intensity; }
+  if (want.cct !== undefined) { body.cct = want.cct; steps.push("color " + want.cct + "K"); mem.cct = want.cct; }
+  if (!steps.length) { out("dmx", {error: "nothing resettable for " + id}, false); return; }
+  try { const r = await jpost("/api/testbench/dmx/light", JSON.stringify(body));
+    if (!r.ok) throw new Error(r.error || "reset refused");
+    sessWrite(BENCH_STUDIO, id, mem);
+    out("dmx", {reset: id}, true, id + " reset: " + steps.join(", "));
+    dmxLightsLoad();
+  } catch (e) { out("dmx", {error: String(e)}, false); }
 }
 async function dmxLightLook(id) {
   const p = document.getElementById("lk-pw-" + id).value;
@@ -788,6 +1038,12 @@ async function dmxLightLook(id) {
   if (c !== "") body.cct = parseInt(c, 10);
   out("dmx", {status: "fading…"}, true);
   try { const r = await jpost("/api/testbench/dmx/light", JSON.stringify(body));
+    if (r.ok) {
+      const mem = {};
+      if (p !== "") mem.brightness = parseInt(p, 10);
+      if (c !== "") mem.cct = parseInt(c, 10);
+      if (Object.keys(mem).length) sessWrite(BENCH_STUDIO, id, mem);
+    }
     out("dmx", r, r.ok, r.ok ? ("Look faded on " + id) : ("Look fade failed: " + (r.error || "?"))); }
   catch (e) { out("dmx", {error: String(e)}, false); }
 }
@@ -798,6 +1054,30 @@ async function dmxSweep() {
   try { const r = await jpost("/api/testbench/dmx/sweep", JSON.stringify(body));
     out("dmx", r, r.ok, r.ok ? "Sweep done" : ("Sweep failed: " + (r.error || "?"))); }
   catch (e) { out("dmx", {error: String(e)}, false); }
+}
+async function seedScr() {
+  const id = scrId();
+  await ensureDefaults(BENCH_STUDIO);
+  document.getElementById("scr-theme").value = initVal(BENCH_STUDIO, id, "theme", "live");
+  document.getElementById("scr-anim").value = initVal(BENCH_STUDIO, id, "animation", "");
+  document.getElementById("scr-text").value = initVal(BENCH_STUDIO, id, "text", "");
+  document.getElementById("scr-track").value = initVal(BENCH_STUDIO, id, "track", "piano");
+  const vol = initVal(BENCH_STUDIO, id, "volume", 100);
+  document.getElementById("scr-vol").value = vol;
+  document.getElementById("scr-vol-n").value = vol;
+}
+async function scrReset() {
+  const id = scrId();
+  await ensureDefaults(BENCH_STUDIO);
+  const want = defaultValues(BENCH_STUDIO, id);
+  if (!Object.keys(want).length) { out("scr", {error: "no saved default for " + id}, false); return; }
+  const body = {screen: id, theme: want.theme || "", text: want.text || "", animation: want.animation || ""};
+  try { const r = await jpost("/api/testbench/screen/push", JSON.stringify(body));
+    if (!r.ok) throw new Error(r.error || "reset refused");
+    sessWrite(BENCH_STUDIO, id, {theme: body.theme, text: body.text, animation: body.animation});
+    out("scr", {reset: id}, true, id + " reset: pushed " + (body.theme || "default theme"));
+    seedScr();
+  } catch (e) { out("scr", {error: String(e)}, false); }
 }
 async function scrFx() {
   try { const r = await jpost("/api/testbench/screen/fx", JSON.stringify({screen: scrId(), fx: document.getElementById("scr-fx").value, volume: 40}));
@@ -812,11 +1092,13 @@ async function scrPush() {
     animation: document.getElementById("scr-anim").value};
   if (body.text && ttl > 0) body.text_ttl_s = ttl;
   try { const r = await jpost("/api/testbench/screen/push", JSON.stringify(body));
+    if (r.ok) sessWrite(BENCH_STUDIO, scrId(), {theme: body.theme || "", text: body.text || "", animation: body.animation || ""});
     out("scr", r, r.ok, r.ok ? ("Pushed to " + scrId()) : ("Push failed: " + (r.error || "?"))); }
   catch (e) { out("scr", {error: String(e)}, false); }
 }
 async function scrClear() {
   try { const r = await jpost("/api/testbench/screen/push", JSON.stringify({screen: scrId(), theme: "", text: "", animation: ""}));
+    if (r.ok) sessWrite(BENCH_STUDIO, scrId(), {theme: "", text: "", animation: ""});
     out("scr", r, r.ok, r.ok ? ("Cleared " + scrId()) : ("Clear failed: " + (r.error || "?"))); }
   catch (e) { out("scr", {error: String(e)}, false); }
 }
@@ -836,6 +1118,12 @@ async function scrAudio(action, quiet) {
     volume: action === "play" ? vol : null};
   try { const r = await jpost("/api/testbench/screen/audio", JSON.stringify(body));
     scrPlaying = action === "play" && r.ok;
+    if (action === "play" && r.ok) {
+      const mem = {};
+      if (body.track) mem.track = body.track;
+      if (typeof body.volume === "number" && !isNaN(body.volume)) mem.volume = body.volume;
+      if (Object.keys(mem).length) sessWrite(BENCH_STUDIO, scrId(), mem);
+    }
     if (!quiet || !r.ok) out("scr", r, r.ok, r.ok ? ("Bed " + action + " on " + scrId() + (action === "play" && vol !== null ? " at " + vol + "%" : "")) : ("Bed " + action + " failed")); }
   catch (e) { out("scr", {error: String(e)}, false); }
 }
@@ -845,6 +1133,9 @@ function scrVolume() {
   scrVolTimer = setTimeout(() => scrAudio("play", true), 150);
 }
 (async () => {
+  await ensureDefaults(BENCH_STUDIO);
+  seedScr();
+  gvmPadMount();
   renderKasaList();
   try {
     const drivers = await jget("/api/testbench/drivers");

@@ -6,6 +6,7 @@
 <title>Studio Hub — Control</title>
 <link rel="stylesheet" href="/hub.css">
 <script src="/nav.js" defer></script>
+<script src="/colorpad.js"></script>
 </head>
 <body>
 <header class="topbar">
@@ -218,6 +219,21 @@ function cctBounds(d) {
   return [2500, 8500, 100];
 }
 
+let COLOR_PAD = null;
+function readNum(id, fb) {
+  const el = document.getElementById(id);
+  const v = el ? parseInt(el.value, 10) : NaN;
+  return isNaN(v) ? fb : v;
+}
+function setTwin(base, v) {
+  const a = document.getElementById(base), b = document.getElementById(base + "-n");
+  if (a) a.value = v;
+  if (b) b.value = v;
+}
+function colorPadSync() {
+  if (!COLOR_PAD) return;
+  COLOR_PAD.set(readNum("c-hue-n", 220), readNum("c-sat-n", 60), readNum("c-br-n", 5));
+}
 function renderCard() {
   const d = current();
   const el = document.getElementById("card");
@@ -255,13 +271,15 @@ function renderCard() {
   } else if (d.driver === "ir") {
     h += '<div class="row"><button onclick="irSend(\'on\')">On</button><button onclick="irSend(\'off\')">Off</button></div>' +
       '<div class="row"><label class="field">Fixed color</label></div><div class="swatches" id="c-swatches"><span class="hint">loading…</span></div>' +
-      '<p class="hint">No brightness levels on the strip — brightness stepping stays on the Test Bench.</p>';
+      '<div class="row"><label class="field">Animated</label></div><div class="swatches" id="c-ir-anims"><span class="hint">loading…</span></div>' +
+      '<div class="row"><button onclick="irSend(\'brightness-up\')">Brightness up</button><button onclick="irSend(\'brightness-down\')">Brightness down</button></div>' +
+      '<p class="hint">Steps nudge the strip brighter or dimmer.</p>';
   } else {
     if (effFamily(d) === "gvm" || effFamily(d) === "ninja" || effFamily(d) === "mock")
       h += '<div class="row"><button onclick="lightPower(\'on\')">On</button><button onclick="lightPower(\'off\')">Off</button></div>';
     else
       h += '<p class="hint">DMX has no power switch — 0% is dark.</p>';
-    h += sliderRow("c-br", "Brightness", 0, 100, 1, initVal(d.id, "brightness", 5), "%") +
+    h += sliderRow("c-br", "Brightness", 0, 100, 1, initVal(d.id, "brightness", 5), "%", "colorPadSync()") +
       '<div class="row"><button onclick="lightBright()">Set brightness</button></div>';
     if (caps.cct !== false) {
       const [cctMin, cctMax, cctStep] = cctBounds(d);
@@ -269,9 +287,10 @@ function renderCard() {
         '<div class="row"><button onclick="lightCct()">Set CCT</button><span class="hint">' + cctMin + "–" + cctMax + " K · this fixture's span</span></div>";
     }
     if (caps.rgb) {
-      h += sliderRow("c-hue", "Hue", 0, 360, 5, initVal(d.id, "hue", 220), "°") +
-        sliderRow("c-sat", "Saturation", 0, 100, 1, initVal(d.id, "saturation", 60), "%") +
-        '<div class="row"><button onclick="lightHsi()">Set color</button></div>';
+      h += sliderRow("c-hue", "Hue", 0, 360, 5, initVal(d.id, "hue", 220), "°", "colorPadSync()") +
+        sliderRow("c-sat", "Saturation", 0, 100, 1, initVal(d.id, "saturation", 60), "%", "colorPadSync()") +
+        '<div class="row"><div id="c-colorpad"></div></div>' +
+        '<div class="row"><button onclick="lightHsi()">Set color</button><span class="hint">hue + saturation + brightness in one send</span></div>';
     }
     if (d.driver === "dmx" || d.driver === "ninja")
       h += '<div class="row"><label class="field"><input type="checkbox" id="c-bright"> allow bright (past the gentle 10%)</label></div>';
@@ -282,6 +301,16 @@ function renderCard() {
     document.getElementById("c-anim").value = initVal(d.id, "animation", "");
     document.getElementById("c-text").value = initVal(d.id, "text", "");
     document.getElementById("c-track").value = initVal(d.id, "track", "piano");
+  }
+  COLOR_PAD = null;
+  if (d.type !== "screen" && d.driver !== "ir" && caps.rgb) {
+    COLOR_PAD = ColorPad.mount(document.getElementById("c-colorpad"), {
+      hue: readNum("c-hue-n", 220),
+      sat: readNum("c-sat-n", 60),
+      val: readNum("c-br-n", 5),
+      hueStep: 5,
+      onInput: function (h, s, v) { setTwin("c-hue", h); setTwin("c-sat", s); setTwin("c-br", v); }
+    });
   }
   if (d.driver === "ir") loadSwatches();
 }
@@ -328,9 +357,9 @@ async function sendCct(d, v) {
   throw new Error(fam + " CCT is bench-only");
 }
 
-async function sendHsi(d, hue, sat) {
+async function sendHsi(d, hue, sat, brightness) {
   if (effFamily(d) === "gvm")
-    return jpost("/api/testbench/gvm/set", JSON.stringify({panel: studio() + "/" + d.id, page: "hsi", hue: hue, saturation: sat}));
+    return jpost("/api/testbench/gvm/set", JSON.stringify({panel: studio() + "/" + d.id, page: "hsi", brightness: brightness, hue: hue, saturation: sat}));
   throw new Error(effFamily(d) + " has no color picker here");
 }
 
@@ -362,9 +391,10 @@ async function lightHsi() {
   const d = current();
   const hue = parseInt(document.getElementById("c-hue-n").value, 10);
   const sat = parseInt(document.getElementById("c-sat-n").value, 10);
+  const v = parseInt(document.getElementById("c-br-n").value, 10);
   try {
-    out(await sendHsi(d, hue, sat), true, "Color → " + hue + "° / " + sat + "%");
-    sessWrite(d.id, {hue: hue, saturation: sat});
+    out(await sendHsi(d, hue, sat, v), true, "Color → " + hue + "° / " + sat + "% @ " + v + "%");
+    sessWrite(d.id, {hue: hue, saturation: sat, brightness: v});
   } catch (e) { out({error: String(e)}, false); }
 }
 
@@ -480,7 +510,15 @@ async function loadSwatches() {
       !(codes[label] && codes[label].photoRisk)).sort();
     document.getElementById("c-swatches").innerHTML = fixed.map((label) =>
       "<button onclick=\"irSend('" + label.replace(/'/g, "\\'") + "')\">" + esc(label) + "</button>").join("");
-  } catch (e) { document.getElementById("c-swatches").innerHTML = '<span class="hint">no saved codes</span>'; }
+    const anim = Object.keys(codes).filter((label) => codes[label] && codes[label].photoRisk).sort();
+    document.getElementById("c-ir-anims").innerHTML = anim.length ? anim.map((label) =>
+      "<button onclick=\"irSendAnim('" + label.replace(/'/g, "\\'") + "', '" +
+      String(codes[label].photoRisk).replace(/'/g, "\\'") + "')\">" + esc(label) + "</button>").join("")
+      : '<span class="hint">none saved</span>';
+  } catch (e) {
+    document.getElementById("c-swatches").innerHTML = '<span class="hint">no saved codes</span>';
+    document.getElementById("c-ir-anims").innerHTML = '<span class="hint">no saved codes</span>';
+  }
 }
 
 async function sendIr(label, id) {
@@ -490,7 +528,15 @@ async function sendIr(label, id) {
 async function irSend(label) {
   try {
     out(await sendIr(label), true, "Sent " + label);
-    sessWrite(deviceId(), (label === "on" || label === "off") ? {power: label} : {color: label});
+    if (label === "on" || label === "off") sessWrite(deviceId(), {power: label});
+    else if (label !== "brightness-up" && label !== "brightness-down") sessWrite(deviceId(), {color: label});
+  } catch (e) { out({error: String(e)}, false); }
+}
+
+async function irSendAnim(label, risk) {
+  try {
+    out(await sendIr(label), true, "Sent " + label);
+    sessWrite(deviceId(), {animation: label});
   } catch (e) { out({error: String(e)}, false); }
 }
 

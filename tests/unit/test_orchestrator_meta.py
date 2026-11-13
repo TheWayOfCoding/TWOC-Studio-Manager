@@ -6,8 +6,8 @@ import json
 import pytest
 from fastapi import HTTPException
 
-from app.api.ai import _meta_provider
-from app.ai.meta import API_URL, MetaProvider, MetaProviderError
+from app.api.orchestrator import _meta_provider
+from app.orchestrator.meta import API_URL, MetaProvider, MetaProviderError
 
 
 def _responder(payload, seen):
@@ -86,11 +86,11 @@ def test_ignores_input_echo_blocks():
 
 
 @pytest.mark.unit
-def test_ai_look_maps_provider_outage_to_502(monkeypatch):
+def test_orchestrator_direct_maps_provider_outage_to_502(monkeypatch):
     """A dead provider fails the request honestly; nothing moves, nothing 500s."""
     from fastapi.testclient import TestClient
 
-    from app.api import ai as ai_api
+    from app.api import orchestrator as orch_api
     from app.main import app
 
     class DownProvider:
@@ -100,9 +100,9 @@ def test_ai_look_maps_provider_outage_to_502(monkeypatch):
         def direct(self, prompt, targets, manifest):
             raise MetaProviderError("meta api unreachable: down")
 
-    monkeypatch.setattr(ai_api, "_meta_provider", lambda root: DownProvider())
+    monkeypatch.setattr(orch_api, "_meta_provider", lambda root: DownProvider())
     response = TestClient(app).post(
-        "/api/studios/example-studio/ai/look",
+        "/api/studios/example-studio/orchestrator/direct",
         json={"prompt": "cozy", "targets": "lights", "provider": "meta"},
     )
     assert response.status_code == 502

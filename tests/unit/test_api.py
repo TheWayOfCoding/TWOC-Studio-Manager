@@ -841,9 +841,10 @@ def test_obs_stream_refused_without_confirm():
 
 
 @pytest.mark.unit
-def test_ai_look_mock_pipeline():
+def test_orchestrator_direct_mock_pipeline():
     response = client.post(
-        "/api/studios/example-studio/ai/look", json={"prompt": "cozy interview", "targets": "lights"}
+        "/api/studios/example-studio/orchestrator/direct",
+        json={"prompt": "cozy interview", "targets": "lights"},
     )
     assert response.status_code == 200
     body = response.json()
@@ -852,43 +853,49 @@ def test_ai_look_mock_pipeline():
     assert body["critique"] == ["clean: all directives within declared capabilities"]
     assert body["apply"]["subsystems"]["lights"]["status"] == "skipped"
     assert body["preset_candidate"]["label"] == "cozy interview"
+    assert body["timings"]["provider_ms"] >= 0
+    assert body["timings"]["total_ms"] >= body["timings"]["provider_ms"]
 
 
 @pytest.mark.unit
-def test_ai_look_bad_targets_422():
-    response = client.post("/api/studios/example-studio/ai/look", json={"prompt": "x", "targets": "smell"})
-    assert response.status_code == 422
-
-
-@pytest.mark.unit
-def test_ai_look_unknown_provider_422():
+def test_orchestrator_direct_bad_targets_422():
     response = client.post(
-        "/api/studios/example-studio/ai/look", json={"prompt": "x", "provider": "baseten"}
+        "/api/studios/example-studio/orchestrator/direct", json={"prompt": "x", "targets": "smell"}
     )
     assert response.status_code == 422
 
 
 @pytest.mark.unit
-def test_ai_look_meta_unconfigured_503(monkeypatch):
-    from app.api import ai as ai_api
+def test_orchestrator_direct_unknown_provider_422():
+    response = client.post(
+        "/api/studios/example-studio/orchestrator/direct", json={"prompt": "x", "provider": "baseten"}
+    )
+    assert response.status_code == 422
 
-    monkeypatch.setattr(ai_api, "_meta_provider", lambda root: None)
-    response = client.post("/api/studios/example-studio/ai/look", json={"prompt": "x", "provider": "meta"})
+
+@pytest.mark.unit
+def test_orchestrator_direct_meta_unconfigured_503(monkeypatch):
+    from app.api import orchestrator as orch_api
+
+    monkeypatch.setattr(orch_api, "_meta_provider", lambda root: None)
+    response = client.post(
+        "/api/studios/example-studio/orchestrator/direct", json={"prompt": "x", "provider": "meta"}
+    )
     assert response.status_code == 503
 
 
 @pytest.mark.unit
-def test_ai_look_meta_uses_configured_provider(monkeypatch):
-    from app.ai.mock import MockProvider
-    from app.api import ai as ai_api
+def test_orchestrator_direct_meta_uses_configured_provider(monkeypatch):
+    from app.api import orchestrator as orch_api
+    from app.orchestrator.mock import MockProvider
 
     class MetaStub(MockProvider):
         def name(self):
             return "meta"
 
-    monkeypatch.setattr(ai_api, "_meta_provider", lambda root: MetaStub())
+    monkeypatch.setattr(orch_api, "_meta_provider", lambda root: MetaStub())
     response = client.post(
-        "/api/studios/example-studio/ai/look",
+        "/api/studios/example-studio/orchestrator/direct",
         json={"prompt": "cozy", "targets": "lights", "provider": "meta"},
     )
     assert response.status_code == 200
@@ -1333,11 +1340,11 @@ def test_actions_log_records_mode_and_preset():
 
 
 @pytest.mark.unit
-def test_actions_log_records_ai_look():
-    """AI looks record their directives so undo can replay them."""
+def test_actions_log_records_orchestrator_direct():
+    """Orchestrator directs record their directives so undo can replay them."""
     app.state.action_log.clear()
     look = client.post(
-        "/api/studios/example-studio/ai/look", json={"prompt": "dim", "targets": "screens"}
+        "/api/studios/example-studio/orchestrator/direct", json={"prompt": "dim", "targets": "screens"}
     )
     assert look.status_code == 200
     client.post("/api/studios/example-studio/modes/demo_work/apply")
@@ -1395,10 +1402,10 @@ def test_actions_unknown_studio_404():
 
 
 @pytest.mark.unit
-def test_ai_look_scope_lights_limits_directives():
+def test_orchestrator_direct_scope_lights_limits_directives():
     """scope_mode lights: only listed fixtures are directed or applied."""
     response = client.post(
-        "/api/studios/example-studio/ai/look",
+        "/api/studios/example-studio/orchestrator/direct",
         json={
             "prompt": "dim",
             "targets": "lights",
@@ -1413,10 +1420,10 @@ def test_ai_look_scope_lights_limits_directives():
 
 
 @pytest.mark.unit
-def test_ai_look_scope_zones_limits_directives():
+def test_orchestrator_direct_scope_zones_limits_directives():
     """scope_mode zones: only devices in those zones are directed; rest named."""
     response = client.post(
-        "/api/studios/example-studio/ai/look",
+        "/api/studios/example-studio/orchestrator/direct",
         json={"prompt": "dim", "targets": "both", "scope_mode": "zones", "scope_zones": ["bench"]},
     )
     assert response.status_code == 200
@@ -1429,9 +1436,9 @@ def test_ai_look_scope_zones_limits_directives():
 
 
 @pytest.mark.unit
-def test_ai_look_scope_rejects_unknown():
+def test_orchestrator_direct_scope_rejects_unknown():
     """Unknown scope mode, zone, or light is a 422, never a silent empty look."""
-    base = "/api/studios/example-studio/ai/look"
+    base = "/api/studios/example-studio/orchestrator/direct"
     assert client.post(base, json={"prompt": "x", "scope_mode": "rooms"}).status_code == 422
     assert (
         client.post(base, json={"prompt": "x", "scope_mode": "zones", "scope_zones": ["nope"]}).status_code
@@ -1441,6 +1448,59 @@ def test_ai_look_scope_rejects_unknown():
         client.post(base, json={"prompt": "x", "scope_mode": "lights", "scope_lights": ["nope"]}).status_code
         == 422
     )
+
+
+@pytest.mark.unit
+def test_orchestrator_restore_defaults_applies_set():
+    response = client.post(
+        "/api/studios/example-studio/orchestrator/restore-defaults", json={"targets": "lights"}
+    )
+    assert response.status_code == 200
+    body = response.json()
+    assert body["restored"] == "default"
+    assert body["directives"]["lights"] == {
+        "demo-key": {"intensity": 50, "cct": 4600},
+        "demo-rgb": {"intensity": 25, "hue": 220, "saturation": 60},
+    }
+    assert body["directives"]["screens"] == {}
+    assert body["apply"]["subsystems"]["lights"]["status"] == "skipped"
+
+
+@pytest.mark.unit
+def test_orchestrator_restore_defaults_respects_scope():
+    response = client.post(
+        "/api/studios/example-studio/orchestrator/restore-defaults",
+        json={"targets": "both", "scope_mode": "lights", "scope_lights": ["demo-rgb"]},
+    )
+    assert response.status_code == 200
+    assert sorted(response.json()["directives"]["lights"]) == ["demo-rgb"]
+    zoned = client.post(
+        "/api/studios/example-studio/orchestrator/restore-defaults",
+        json={"scope_mode": "zones", "scope_zones": ["desk"]},
+    )
+    assert zoned.status_code == 200
+    assert zoned.json()["directives"]["lights"] == {}
+
+
+@pytest.mark.unit
+def test_orchestrator_restore_defaults_validates():
+    base = "/api/studios/example-studio/orchestrator/restore-defaults"
+    assert client.post(base, json={"targets": "smell"}).status_code == 422
+    assert client.post(base, json={"scope_mode": "rooms"}).status_code == 422
+    assert client.post("/api/studios/nope/orchestrator/restore-defaults", json={}).status_code == 404
+
+
+@pytest.mark.unit
+def test_orchestrator_restore_defaults_needs_assignment():
+    registry = app.state.registries["example-studio"]
+    saved = dict(registry.studio)
+    registry.studio.pop("defaultSet", None)
+    try:
+        response = client.post("/api/studios/example-studio/orchestrator/restore-defaults", json={})
+    finally:
+        registry.studio.clear()
+        registry.studio.update(saved)
+    assert response.status_code == 422
 
 
 @pytest.mark.unit

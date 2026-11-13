@@ -349,13 +349,13 @@ def test_failing_obs_degraded(modes):
 
 @pytest.mark.unit
 def test_plan_custom_validates_like_modes(modes):
-    plan = modes.plan_custom("ai-x", {"lights": {"demo-key": {"intensity": 30}}})
+    plan = modes.plan_custom("orch-x", {"lights": {"demo-key": {"intensity": 30}}})
     assert plan["kind"] == "custom"
     assert plan["lights"]["devices"][0]["device"] == "demo-key"
     with pytest.raises(SafetyViolation, match="intensity"):
-        modes.plan_custom("ai-x", {"lights": {"demo-key": {"intensity": 999}}}, ai_caps=False)
+        modes.plan_custom("orch-x", {"lights": {"demo-key": {"intensity": 999}}}, orch_caps=False)
     with pytest.raises(ModesError, match="object"):
-        modes.plan_custom("ai-x", ["not", "a", "dict"])
+        modes.plan_custom("orch-x", ["not", "a", "dict"])
 
 
 @pytest.mark.unit
@@ -635,10 +635,10 @@ def test_bad_fade_rejected_before_moving(dmx_modes):
 
 
 @pytest.mark.unit
-def test_ai_cap_clamps_and_reports(dmx_modes):
-    dmx_modes.registry._devices["dmx-key"]["aiCap"] = {"intensity": 20}
+def test_orch_cap_clamps_and_reports(dmx_modes):
+    dmx_modes.registry._devices["dmx-key"]["orchCap"] = {"intensity": 20}
     result = dmx_modes.apply_custom(
-        "ai-x", {"lights": {"dmx-key": {"intensity": 50, "cct": 5600}}}, sleep=lambda s: None
+        "orch-x", {"lights": {"dmx-key": {"intensity": 50, "cct": 5600}}}, sleep=lambda s: None
     )
     lights = result["subsystems"]["lights"]
     assert lights["status"] == "ready"
@@ -647,17 +647,17 @@ def test_ai_cap_clamps_and_reports(dmx_modes):
 
 
 @pytest.mark.unit
-def test_ai_cap_applies_all_families(modes):
-    modes.registry._devices["demo-key"]["aiCap"] = {"intensity": 10}
-    result = modes.apply_custom("ai-x", {"lights": {"demo-key": {"intensity": 30}}}, sleep=lambda s: None)
+def test_orch_cap_applies_all_families(modes):
+    modes.registry._devices["demo-key"]["orchCap"] = {"intensity": 10}
+    result = modes.apply_custom("orch-x", {"lights": {"demo-key": {"intensity": 30}}}, sleep=lambda s: None)
     assert result["subsystems"]["lights"]["status"] == "ready"
     assert modes.lights["demo-key"].state == {"intensity": 10}
     assert result["subsystems"]["lights"]["capped"][0]["capped"] == 10
 
 
 @pytest.mark.unit
-def test_authored_modes_ignore_ai_cap(modes):
-    modes.registry._devices["demo-key"]["aiCap"] = {"intensity": 10}
+def test_authored_modes_ignore_orch_cap(modes):
+    modes.registry._devices["demo-key"]["orchCap"] = {"intensity": 10}
     modes.registry._modes["bright"] = {
         "id": "bright",
         "label": "Bright",
@@ -709,11 +709,11 @@ def test_preset_fade_and_dmx(dmx_modes):
 
 
 @pytest.mark.unit
-def test_custom_skips_ai_cap_when_asked(modes):
-    """Authored shows bypass the AI intensity cap (they are not AI asks)."""
-    modes.registry._devices["demo-key"]["aiCap"] = {"intensity": 10}
+def test_custom_skips_orch_cap_when_asked(modes):
+    """Authored shows bypass the orchestrator intensity cap (they are not orchestrator asks)."""
+    modes.registry._devices["demo-key"]["orchCap"] = {"intensity": 10}
     result = modes.apply_custom(
-        "show-x", {"lights": {"demo-key": {"intensity": 30}}}, sleep=lambda s: None, ai_caps=False
+        "show-x", {"lights": {"demo-key": {"intensity": 30}}}, sleep=lambda s: None, orch_caps=False
     )
     assert result["subsystems"]["lights"]["status"] == "ready"
     assert modes.lights["demo-key"].state == {"intensity": 30}
@@ -724,7 +724,7 @@ def test_custom_skips_ai_cap_when_asked(modes):
 def test_custom_scene_refused_unless_allowed(modes):
     """Scenes stay refused on the automation path; confirmed shows may pass."""
     with pytest.raises(SafetyViolation, match="scene"):
-        modes.apply_custom("ai-x", {"lights": {"demo-key": {"scene": 3}}}, sleep=lambda s: None)
+        modes.apply_custom("orch-x", {"lights": {"demo-key": {"scene": 3}}}, sleep=lambda s: None)
     result = modes.apply_custom(
         "show-x", {"lights": {"demo-key": {"scene": 3}}}, sleep=lambda s: None, allow_scenes=True
     )
@@ -828,7 +828,7 @@ def make_ninja_registry():
             "controllable": True,
             "driver": "ninja",
             "driverAddress": {"channel": 3, "group": "A"},
-            "aiCap": {"intensity": 10},
+            "orchCap": {"intensity": 10},
         },
         {
             "id": "ninja-fixed",

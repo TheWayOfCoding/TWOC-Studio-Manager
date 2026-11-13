@@ -27,7 +27,7 @@ from .api.power import router as power_router  # noqa: E402
 from .api.screen import router as screen_router  # noqa: E402
 from .api.dmx import router as dmx_router  # noqa: E402
 from .api.equipment import router as equipment_router  # noqa: E402
-from .api.ai import router as ai_router  # noqa: E402
+from .api.orchestrator import router as orch_router  # noqa: E402
 from .api.presets import router as presets_router  # noqa: E402
 from .api.shows import router as shows_router  # noqa: E402
 from .api.link import router as link_router  # noqa: E402
@@ -95,7 +95,7 @@ def create_app():
     app.include_router(screen_router)
     app.include_router(dmx_router)
     app.include_router(equipment_router)
-    app.include_router(ai_router)
+    app.include_router(orch_router)
     app.include_router(presets_router)
     app.include_router(shows_router)
     app.include_router(link_router)
@@ -147,6 +147,10 @@ def create_app():
     @app.get("/nav.js", include_in_schema=False)
     def nav_js():
         return FileResponse(STATIC_DIR / "nav.js", media_type="text/javascript")
+
+    @app.get("/colorpad.js", include_in_schema=False)
+    def colorpad_js():
+        return FileResponse(STATIC_DIR / "colorpad.js", media_type="text/javascript")
 
     return app
 
