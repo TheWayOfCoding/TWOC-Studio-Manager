@@ -16,9 +16,6 @@ to measured colors, and the orchestrator is live-proven on real hardware.
 A hub-side GPU model (llama-server) serves local looks with no cloud
 round trip.
 
-See `HACKATHON.md` for the demo story: the 60-second tour, every
-controlled family, the touch-tone audio wire, and the war stories.
-
 ## What it does
 
 - **Modes:** one click powers zones, sets lights, switches OBS, updates
