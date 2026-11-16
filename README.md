@@ -15,7 +15,12 @@ DMX per fixture) while the Ninja 10 runs BLE-only, the IR strip maps hues
 to measured colors, and the orchestrator is live-proven on real hardware.
 A hub-side GPU model (llama-server) serves local looks with no cloud
 round trip.
-
+ 
+Learn more about the project in a breakdown on my website: 
+https://www.techisuppose.com/2026/11/building-smart-video-studio-in-10-days.html
+There is a playlist on YouTube as well: 
+https://www.youtube.com/playlist?list=PLPBz-ScBpZk0
+ 
 ## What it does
 
 - **Modes:** one click powers zones, sets lights, switches OBS, updates
